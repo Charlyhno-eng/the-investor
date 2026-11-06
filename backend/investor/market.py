@@ -113,6 +113,15 @@ def import_symbol(symbol: str, category: str) -> str:
         dividends=dividends,
         dividend_coverage=coverage,
     )
+    with db.connect() as connection:
+        connection.executemany(
+            "INSERT OR REPLACE INTO price_observations VALUES (?,?,?)",
+            [
+                (asset_id, stamp.date().isoformat(), float(value))
+                for stamp, value in frame["Close"].items()
+                if math.isfinite(float(value)) and value > 0
+            ],
+        )
     return asset_id
 
 
@@ -135,7 +144,13 @@ def process_one() -> bool:
             (job["id"],),
         )
     try:
-        asset_id = import_symbol(job["symbol"], job["category"])
+        if job["category"] == "reference":
+            from investor.comparison import import_reference
+
+            import_reference(job["symbol"])
+            asset_id = None
+        else:
+            asset_id = import_symbol(job["symbol"], job["category"])
         status, error = "completed", None
     except Exception:
         log.exception("Import échoué : %s", job["symbol"])

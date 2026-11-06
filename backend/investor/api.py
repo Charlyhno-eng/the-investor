@@ -9,6 +9,7 @@ from investor.analysis.service import analyze
 from investor.db import connect
 from investor.import_runner import consume_imports
 from investor.market_api import router as market_router
+from investor.portfolio import PortfolioRequest, portfolio
 
 
 @asynccontextmanager
@@ -121,3 +122,22 @@ def imports():
         return [
             dict(row) for row in db.execute("SELECT * FROM imports ORDER BY source")
         ]
+
+
+@app.get("/api/assets/{asset_id}/comparison")
+def asset_comparison(
+    asset_id: str,
+    start: date | None = None,
+    end: date | None = None,
+    reinvest: bool = True,
+):
+    from investor.comparison import compare
+
+    return compare(asset_id, start, end, reinvest)
+
+
+
+
+@app.post("/api/portfolio/analytics")
+def portfolio_analytics(request: PortfolioRequest):
+    return portfolio(request)

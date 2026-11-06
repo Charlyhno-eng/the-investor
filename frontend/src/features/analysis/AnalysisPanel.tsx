@@ -49,55 +49,81 @@ export function AnalysisPanel({
   const [result, setResult] = useState<Analysis | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const controller = useRef<AbortController | null>(null);
-  useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => {
-    controller.current?.abort();
-    setResult(null);
-    setError("");
-    setLoading(false);
-  }, [points]);
-  function update(value: Parameters | Periods) {
-    controller.current?.abort();
-    setParameters((p) => ({ ...p, ...value }));
-    setResult(null);
-    setError("");
-    setLoading(false);
-  }
+  const [started, setStarted] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const active = useRef<Promise<void> | null>(null);
+  const output = useRef<HTMLDivElement>(null);
+  const manualScroll = useRef(false);
   const valid =
     parameters.train_start < parameters.train_end &&
     parameters.train_end < parameters.test_start &&
-    parameters.test_start < parameters.test_end;
-  async function run() {
-    if (loading) return;
-    const c = new AbortController();
-    controller.current?.abort();
-    controller.current = c;
-    setLoading(true);
+    parameters.test_start < parameters.test_end &&
+    parameters.exit_probability < parameters.entry_probability;
+  function update(value: Parameters | Periods) {
+    setParameters((p) => ({ ...p, ...value }));
     setError("");
-    setResult(null);
-    try {
-      const response = await post<Analysis>(
-        `/assets/${encodeURIComponent(asset.id)}/analysis`,
-        parameters,
-        c.signal,
-      );
-      if (!c.signal.aborted) setResult(response);
-    } catch (e) {
-      if (!c.signal.aborted) setError((e as Error).message);
-    } finally {
-      if (!c.signal.aborted) setLoading(false);
-    }
   }
+  function scrollToChart() {
+    const target =
+      output.current?.querySelector(".performance-chart") ?? output.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function run() {
+    manualScroll.current = true;
+    setStarted(true);
+    setRevision((v) => v + 1);
+    requestAnimationFrame(scrollToChart);
+  }
+  useEffect(() => {
+    if (!started || !valid) {
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    const timer = setTimeout(
+      () => {
+        const previous = active.current;
+        const task = (async () => {
+          // Serialize calculations: changing an input must not overlap model fits.
+          await previous;
+          if (cancelled) return;
+          try {
+            const response = await post<Analysis>(
+              `/assets/${encodeURIComponent(asset.id)}/analysis`,
+              parameters,
+            );
+            if (!cancelled) {
+              setResult(response);
+              setError("");
+              if (manualScroll.current) {
+                manualScroll.current = false;
+                requestAnimationFrame(scrollToChart);
+              }
+            }
+          } catch (e) {
+            if (!cancelled) setError((e as Error).message);
+          } finally {
+            if (!cancelled) setLoading(false);
+          }
+        })();
+        active.current = task;
+      },
+      manualScroll.current ? 0 : 450,
+    );
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [parameters, started, revision, valid, asset.id, points]);
   return (
     <section className="analysis-panel" aria-label="Analyse HMM">
-      <fieldset className="analysis-controls" disabled={loading}>
+      <fieldset className="analysis-controls">
         <legend className="sr-only">Périodes et paramètres de l’analyse</legend>
         <PeriodSelector
           points={points}
           periods={parameters}
           onChange={update}
-          disabled={loading}
         />
         {!valid && (
           <p className="error" role="alert">
@@ -250,8 +276,19 @@ export function AnalysisPanel({
           {error}
         </p>
       )}
-      {loading && <AnalysisProgress />}
-      {result && <AnalysisResults result={result} />}
+      <div ref={output} className="analysis-output" aria-busy={loading}>
+        {loading && (
+          <>
+            <p role="status">
+              {result
+                ? "Actualisation de la simulation… La courbe précédente reste affichée."
+                : "Calcul de la simulation…"}
+            </p>
+            <AnalysisProgress />
+          </>
+        )}
+        {result && <AnalysisResults result={result} />}
+      </div>
     </section>
   );
 }

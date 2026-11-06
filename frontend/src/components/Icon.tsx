@@ -22,6 +22,9 @@ const paths: Record<string, React.ReactNode> = {
       <path d="m13 5-5 8h5l-2 6 6-9h-5Z" />
     </>
   ),
+  star: (
+    <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z" />
+  ),
   plus: <path d="M12 5v14M5 12h14" />,
   search: (
     <>

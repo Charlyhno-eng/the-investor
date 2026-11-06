@@ -4,8 +4,17 @@ import { Tooltip } from "../../components/Tooltip";
 import { Icon } from "../../components/Icon";
 import { categories, date, number } from "../../lib/format";
 import type { Asset, Category } from "../../lib/types";
+import {
+  favoriteLabel,
+  isLibrary,
+  type Library,
+  favoriteRank,
+  type Favorites,
+} from "../../lib/favorites";
 export function AssetLibrary({
   assets,
+  favorites,
+  onToggleFavorite,
   category,
   selected,
   loading,
@@ -14,7 +23,9 @@ export function AssetLibrary({
   onRetry,
 }: {
   assets: Asset[];
-  category: Category;
+  category: Category | Library;
+  favorites: Favorites;
+  onToggleFavorite: (id: string) => void;
   selected?: string;
   loading: boolean;
   error: string;
@@ -24,15 +35,7 @@ export function AssetLibrary({
   const [query, setQuery] = useState("");
   const list = useRef<HTMLElement>(null);
   const search = useRef<HTMLInputElement>(null);
-  const selectionAvailable = assets.some((asset) => asset.id === selected);
   useEffect(() => setQuery(""), [category]);
-  useEffect(() => {
-    const item = list.current?.querySelector<HTMLElement>("[aria-current]");
-    if (!item || !list.current) return;
-    if (matchMedia("(max-width: 700px)").matches)
-      list.current.scrollLeft = item.offsetLeft - list.current.offsetLeft;
-    else list.current.scrollTop = item.offsetTop - list.current.offsetTop - 80;
-  }, [selected, category, selectionAvailable, query]);
   useEffect(() => {
     const focus = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
@@ -50,7 +53,11 @@ export function AssetLibrary({
   }, []);
   const filtered = assets.filter(
     (a) =>
-      a.category === category &&
+      (category === "portfolio"
+        ? favorites[a.id] === "gold"
+        : category === "watchlist"
+          ? favorites[a.id] === "silver"
+          : a.category === category) &&
       `${a.name} ${a.id} ${a.country_code ?? ""}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -61,7 +68,16 @@ export function AssetLibrary({
         (b.year_average_yield ?? -Infinity) -
           (a.year_average_yield ?? -Infinity) || a.name.localeCompare(b.name),
     );
-  const total = assets.filter((a) => a.category === category).length;
+  filtered.sort(
+    (a, b) => favoriteRank(favorites[b.id]) - favoriteRank(favorites[a.id]),
+  );
+  const total = assets.filter((a) =>
+    category === "portfolio"
+      ? favorites[a.id] === "gold"
+      : category === "watchlist"
+        ? favorites[a.id] === "silver"
+        : a.category === category,
+  ).length;
   return (
     <aside className="asset-library">
       <div className="library-heading">
@@ -75,9 +91,18 @@ export function AssetLibrary({
         </button>
       </div>
       <h2>
-        {categories.find((c) => c.id === category)?.name}
+        {isLibrary(category)
+          ? category === "portfolio"
+            ? "Portfolio"
+            : "Watchlist"
+          : categories.find((c) => c.id === category)?.name}
         <span>{total}</span>
       </h2>
+      {category === "portfolio" && (
+        <Link className="portfolio-overview-link" to="/markets/portfolio">
+          Vue d’ensemble du Portfolio
+        </Link>
+      )}
       <label className="library-search">
         <Icon name="search" size={15} />
         <input
@@ -107,40 +132,50 @@ export function AssetLibrary({
       )}
       <nav ref={list} aria-label="Actifs" className="asset-list">
         {filtered.map((a) => (
-          <Link
-            key={a.id}
-            title={
-              a.category === "bond"
-                ? `${a.name} · moyenne sur ${a.year_yield_samples} observation(s) · dernière donnée ${date(a.last_date)}`
-                : a.name
-            }
-            to={`/assets/${a.id}`}
-            aria-current={selected === a.id ? "page" : undefined}
-          >
-            <span className={`list-symbol ${a.category}`}>
-              {a.country_code ??
-                (a.id.startsWith("yf-")
-                  ? a.id.slice(3).split("-")[0].slice(0, 3).toUpperCase()
-                  : a.name.slice(0, 2))}
-            </span>
-            <span className="list-name">
-              <strong>{a.name}</strong>
-              <small>
-                {a.id.startsWith("yf-")
-                  ? a.id.slice(3).toUpperCase()
-                  : a.metric === "yield"
-                    ? "Souverain · %"
-                    : a.unit}
-              </small>
-            </span>
-            <span className="list-value">
-              {category === "bond"
-                ? a.year_average_yield == null
-                  ? "—"
-                  : `${number(a.year_average_yield)} %`
-                : number(a.last_value, a.last_value < 1 ? 3 : 2)}
-            </span>
-          </Link>
+          <div className="asset-list-item" key={a.id}>
+            <Link
+              title={
+                a.category === "bond"
+                  ? `${a.name} · moyenne sur ${a.year_yield_samples} observation(s) · dernière donnée ${date(a.last_date)}`
+                  : a.name
+              }
+              to={`/assets/${a.id}${isLibrary(category) ? `?library=${category}` : ""}`}
+              aria-current={selected === a.id ? "page" : undefined}
+            >
+              <span className={`list-symbol ${a.category}`}>
+                {a.country_code ??
+                  (a.id.startsWith("yf-")
+                    ? a.id.slice(3).split("-")[0].slice(0, 3).toUpperCase()
+                    : a.name.slice(0, 2))}
+              </span>
+              <span className="list-name">
+                <strong>{a.name}</strong>
+                <small>
+                  {a.id.startsWith("yf-")
+                    ? a.id.slice(3).toUpperCase()
+                    : a.metric === "yield"
+                      ? "Souverain · %"
+                      : a.unit}
+                </small>
+              </span>
+              <span className="list-value">
+                {a.category === "bond"
+                  ? a.year_average_yield == null
+                    ? "—"
+                    : `${number(a.year_average_yield)} %`
+                  : number(a.last_value, a.last_value < 1 ? 3 : 2)}
+              </span>
+            </Link>
+            <button
+              className={`favorite-button ${favorites[a.id] ? `is-favorite ${favorites[a.id]}` : ""}`}
+              aria-label={favoriteLabel(favorites[a.id], a.name)}
+              title={favoriteLabel(favorites[a.id], a.name)}
+              aria-pressed={!!favorites[a.id]}
+              onClick={() => onToggleFavorite(a.id)}
+            >
+              <Icon name="star" size={15} />
+            </button>
+          </div>
         ))}
         {loading && (
           <div className="library-empty" role="status">
@@ -165,9 +200,13 @@ export function AssetLibrary({
             <p>
               {query
                 ? "Essayez un autre nom ou symbole."
-                : category === "stock"
-                  ? "Ajoutez les actions que vous souhaitez suivre."
-                  : "Lancez le worker pour importer les historiques."}
+                : isLibrary(category)
+                  ? category === "portfolio"
+                    ? "Une étoile or indique un actif détenu."
+                    : "Une étoile argent place un actif dans votre watchlist."
+                  : category === "stock"
+                    ? "Ajoutez les actions que vous souhaitez suivre."
+                    : "Lancez le worker pour importer les historiques."}
             </p>
             {category === "stock" && !query && (
               <button className="secondary-button" onClick={onAdd}>

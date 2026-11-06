@@ -7,12 +7,28 @@ import type { Asset, Point } from "../../lib/types";
 import { Tooltip } from "../../components/Tooltip";
 import { useDividends } from "./useDividends";
 import { AnalysisPanel } from "../analysis/AnalysisPanel";
-export function AssetDetail({ asset }: { asset: Asset }) {
+import { NumberInput } from "../analysis/NumberInput";
+import { MarketComparison } from "./MarketComparison";
+import { ReversionPanel } from "../reversion/ReversionPanel";
+import { favoriteLabel, type Favorite } from "../../lib/favorites";
+export function AssetDetail({
+  asset,
+  favorite,
+  quantity,
+  onQuantity,
+  onToggleFavorite,
+}: {
+  asset: Asset;
+  favorite?: Favorite;
+  quantity: number;
+  onQuantity: (value: number) => void;
+  onToggleFavorite: () => void;
+}) {
   const [points, setPoints] = useState<Point[]>([]),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
-    [tab, setTab] = useState<"chart" | "analysis">("chart");
+    [tab, setTab] = useState<"chart" | "analysis" | "reversion">("chart");
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -30,6 +46,7 @@ export function AssetDetail({ asset }: { asset: Asset }) {
     return () => controller.abort();
   }, [asset.id, asset.last_date, asset.points, asset.last_value]);
   const dividends = useDividends(asset);
+  const [compareMarket, setCompareMarket] = useState(false);
   const supportsAnalysis =
     asset.category === "stock" || asset.category === "crypto";
   const category = categories.find((c) => c.id === asset.category)!;
@@ -55,7 +72,17 @@ export function AssetDetail({ asset }: { asset: Asset }) {
             <Icon name={category.icon} size={24} />
           </span>
           <div>
-            <h1>{asset.name}</h1>
+            <h1>
+              {asset.name}{" "}
+              <button
+                className={`favorite-button detail-favorite ${favorite ? `is-favorite ${favorite}` : ""}`}
+                aria-label={favoriteLabel(favorite)}
+                aria-pressed={!!favorite}
+                onClick={onToggleFavorite}
+              >
+                <Icon name="star" size={20} />
+              </button>
+            </h1>
             <span className="asset-subtitle">
               {asset.id.startsWith("yf-")
                 ? asset.id.slice(3).toUpperCase()
@@ -74,6 +101,18 @@ export function AssetDetail({ asset }: { asset: Asset }) {
           Historique local
         </span>
       </div>
+      {favorite === "gold" && (
+        <label className="holding-quantity">
+          Quantité détenue
+          <NumberInput
+            min={0}
+            max={1e15}
+            step="any"
+            value={quantity}
+            onChange={onQuantity}
+          />
+        </label>
+      )}
       <div className="detail-tabs" role="tablist" aria-label="Vue de l’actif">
         <button
           role="tab"
@@ -86,6 +125,16 @@ export function AssetDetail({ asset }: { asset: Asset }) {
         {supportsAnalysis && (
           <button
             role="tab"
+            aria-selected={tab === "reversion"}
+            onClick={() => setTab("reversion")}
+          >
+            <Icon name="stock" size={16} />
+            Régression
+          </button>
+        )}
+        {supportsAnalysis && (
+          <button
+            role="tab"
             aria-selected={tab === "analysis"}
             onClick={() => setTab("analysis")}
           >
@@ -94,6 +143,21 @@ export function AssetDetail({ asset }: { asset: Asset }) {
           </button>
         )}
       </div>
+      {supportsAnalysis &&
+        tab === "reversion" &&
+        (loading ? (
+          <div className="chart-placeholder" role="status">
+            Chargement de l’historique
+          </div>
+        ) : error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : points.length ? (
+          <ReversionPanel key={asset.id} asset={asset} points={points} />
+        ) : (
+          <div className="chart-placeholder">Aucune observation.</div>
+        ))}
       {(!supportsAnalysis || tab === "chart") && (
         <section className="chart-panel">
           <div className="quote-row">
@@ -132,7 +196,7 @@ export function AssetDetail({ asset }: { asset: Asset }) {
                 </span>
               </div>
             </div>
-            {asset.category === "stock" && (
+            {asset.category === "stock" && !compareMarket && (
               <div className="dividend-legend">
                 <span className="dividend-dot">D</span>
                 {dividends.error
@@ -162,7 +226,28 @@ export function AssetDetail({ asset }: { asset: Asset }) {
               ))}
             </div>
           </div>
-          {loading ? (
+          <div className="market-chart-actions">
+            <button
+              className="secondary-button"
+              disabled={asset.metric === "yield"}
+              title={
+                asset.metric === "yield"
+                  ? "Les taux obligataires ne sont pas une performance totale"
+                  : undefined
+              }
+              aria-pressed={compareMarket}
+              onClick={() => setCompareMarket((v) => !v)}
+            >
+              {compareMarket ? "Revenir au prix" : "Comparer au S&P 500"}
+            </button>
+          </div>
+          {compareMarket && !loading && !error && points.length ? (
+            <MarketComparison
+              asset={asset}
+              start={range ? cutoff.toISOString().slice(0, 10) : undefined}
+              end={asset.last_date}
+            />
+          ) : loading ? (
             <div className="chart-placeholder" role="status">
               <span className="spinner" />
               Chargement de l’historique

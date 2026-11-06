@@ -74,6 +74,38 @@ Les paramètres visibles sont ouverts par défaut : frais par ordre en pourcenta
 
 La revue du nombre d’ordres et des frais est détaillée dans [le comparatif de rotation](hmm-turnover.md). Les champs numériques acceptent une saisie temporairement vide ; une valeur valide est enregistrée à la sortie du champ, sinon la précédente est conservée.
 
-## Benchmark multi-actifs
+## Régression et retour à la tendance
 
-La [recherche sur toutes les actions et cryptomonnaies locales](hmm-benchmark.md) expose le protocole, les compromis mesurés et les résultats par actif. Elle ne justifie pas un changement automatique des paramètres courants. Les comparatifs plus anciens sur les matières premières ci-dessus décrivent des fonctionnalités désormais désactivées.
+L’onglet **Régression**, avant HMM pour les actions et cryptomonnaies, ajuste les prix locaux sur une période choisie (cinq dernières années par défaut, minimum 30 observations). Le calcul s’effectue dans le navigateur. Les moindres carrés ajustent une constante et une pente au temps calendaire, avec le même poids pour chaque observation. Le logarithme du prix est utilisé par défaut pour représenter une croissance composée ; le mode prix linéaire reste disponible.
+
+Les prix sous la tendance sont des zones d’entrée potentielles, ceux au-dessus des zones de vente potentielles. Un seuil réglable de 0 à 2 écarts-types des résidus (2 par défaut) laisse éventuellement une zone neutre. La dispersion est calculée avec `sqrt(SSE / (n − 2))` dans l’échelle choisie ; le score normalisé et les seuils s’adaptent donc à chaque actif. Les bandes sont descriptives, sans probabilité de couverture annoncée. Une dispersion quasi nulle désactive la classification. Prix non positifs ou non finis et périodes trop courtes sont refusés.
+
+Le diagnostic affiche le R², la pente annuelle, la valeur ajustée et l’écart du dernier cours. Une tendance non croissante, un R² inférieur à 0,5 ou un changement de signe des pentes ajustées séparément sur les deux moitiés de la période sont signalés. Ces repères ne constituent ni un test de stationnarité ni une validation de rentabilité. En mode linéaire, la pente annuelle en pourcentage est rapportée au premier prix ; en mode logarithmique, elle vaut `exp(pente annuelle) − 1`.
+
+Toute la fenêtre est utilisée pour ajuster la droite : les zones historiques changent lorsque la fenêtre change. Cette vue n’est pas un backtest, ne simule ni ordres ni frais et ne démontre pas la réversion à la moyenne. Référence : [NIST, moindres carrés et erreur résiduelle](https://www.itl.nist.gov/div898/handbook/pmd/section4/pmd431.htm).
+
+Une infobulle près du curseur sur la courbe de régression affiche le prix, la tendance à la même date et leur écart en pourcentage : `100 × (prix / tendance − 1)`.
+
+
+## Comparaison de marché au S&P 500
+
+La comparaison de la vue marché utilise par défaut les prix hors dividendes et l’indice S&P 500 `^GSPC`. Le bouton « Dividendes réinvestis » sélectionne les prix ajustés des actions et l’indice de rendement total `^SP500TR`, incluant le réinvestissement des dividendes du S&P 500. Les clôtures hors dividendes sont conservées séparément dans `price_observations` lors des imports Yahoo ; une ancienne action sans ces données est réimportée par la queue. Le paramètre API `reinvest` sélectionne le mode (défaut API historique : `true`, l’interface envoie explicitement le choix). Les observations des actions sont déjà des clôtures ajustées pour les distributions et divisions : elles sont normalisées directement, sans ajouter à nouveau les dividendes enregistrés. La comparaison ne prélève ni frais ni impôt.
+
+La durée choisie (1, 5, 10 ans ou tout) est bornée par les dates communes à l’actif, l’indice et, si nécessaire, au change. Les valeurs sont ramenées à 100 à la première date commune. Les jours sans donnée commune sont omis, sans interpolation, y compris les week-ends des cryptos. Les débuts et fins effectifs sont affichés. La référence Yahoo commence en 1988 ; le change peut limiter davantage l’historique. Les clôtures quotidiennes des différents marchés ne sont pas nécessairement simultanées.
+
+Les comparaisons sont en USD. Une action en devise locale est convertie à chaque date via le cours `DEVUSD=X` (les prix en GBp sont d’abord divisés par 100). Les cryptos du catalogue sont en USD. Pour les matières premières Banque mondiale, on compare la variation de prix ou d’indice, sans rendement de roulement des futures ; les dates mensuelles absentes de l’indice ne sont pas interpolées. Une série de taux obligataires ne mesure pas une performance totale et est donc exclue. Les séries avec prix non positifs ou moins de deux dates communes sont refusées.
+
+Le serveur lit les références dans SQLite. Si elles sont absentes ou datent de plus d’un jour, il place leur téléchargement dans la queue existante ; l’interface attend la fin de l’import puis lit la comparaison. Les échecs fournisseur sont affichés, avec un délai de cinq minutes avant une nouvelle tentative. Les références restent hors de la bibliothèque d’actifs.
+
+Références : [S&P, méthodologie des indices de rendement total](https://www.spglobal.com/spdji/en/documents/methodologies/methodology-index-math.pdf), [Yahoo Finance, historique du S&P 500 Total Return](https://finance.yahoo.com/quote/%5ESP500TR/history/).
+
+
+## Quantités, répartition et corrélations du Portfolio
+
+Les quantités actuelles, positives ou nulles et éventuellement fractionnaires, sont stockées dans `investor-quantities` dans le navigateur. Elles sont indépendantes de l’étoile : une position déplacée en watchlist cesse d’être incluse, mais sa quantité est conservée si elle revient dans Portfolio. Une quantité nulle n’entre ni dans le total ni dans la matrice. Aucun prix d’achat, historique d’ordres ou gain personnel n’est déduit de ces quantités ; les divisions d’actions ne les modifient pas automatiquement.
+
+Le serveur reçoit les positions par `POST /api/portfolio/analytics`, sans les enregistrer. La valeur est quantité × dernier prix coté disponible × taux de conversion en USD à la même date. Pour les actions, le dernier prix hors ajustement de dividendes est utilisé ; les prix en GBp sont convertis en GBP. Chaque position indique sa date de prix : le total peut donc agréger des cours de dates différentes. Une devise sans cours à la date du prix, un prix absent ou un indice sans valeur monétaire par unité est exclu de la valorisation avec une explication. Les indices de matières premières peuvent néanmoins participer aux corrélations. Les taux souverains sont exclus des deux calculs. Les matières premières sont des positions théoriques dans l’unité cotée, sans coûts de détention ou roulement ; les cours exprimés en cents sont convertis en dollars pour la valeur.
+
+Les corrélations de Pearson sont calculées sur les différences des logarithmes des prix ajustés convertis en USD, après intersection des dates de tous les actifs inclus. Ce sont les rendements, et non les niveaux de prix, qui sont corrélés. Les quantités n’affectent pas les coefficients. Si une série est mensuelle, toutes les séries sont ramenées à la dernière observation disponible par mois terminé, puis alignées sur les mois communs ; aucune donnée n’est remplie. Il faut au moins 20 rendements sur dates communes, ou 6 rendements entre mois communs. Une dispersion nulle ou un échantillon insuffisant donne une cellule absente (`null`, affichée « — »). Les valeurs sont bornées à [-1, 1] pour absorber les arrondis numériques. Les durées proposées sont 1, 3, 5 et 10 ans à partir de la date courante.
+
+Référence : [NumPy, coefficient de corrélation de Pearson](https://numpy.org/doc/2.2/reference/generated/numpy.corrcoef.html).

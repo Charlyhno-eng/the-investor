@@ -16,10 +16,18 @@ def connect():
     db.execute("PRAGMA journal_mode=WAL")
     db.execute("PRAGMA foreign_keys=ON")
     db.executescript("""
+    CREATE TABLE IF NOT EXISTS reference_observations (
+      symbol TEXT NOT NULL, date TEXT NOT NULL, value REAL NOT NULL,
+      PRIMARY KEY(symbol,date));
+    CREATE TABLE IF NOT EXISTS reference_imports (
+      symbol TEXT PRIMARY KEY, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS assets (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT NOT NULL,
       metric TEXT NOT NULL, unit TEXT NOT NULL, frequency TEXT NOT NULL,
       source TEXT NOT NULL, source_url TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS price_observations (
+      asset_id TEXT REFERENCES assets(id), date TEXT NOT NULL, value REAL NOT NULL,
+      PRIMARY KEY(asset_id,date));
     CREATE TABLE IF NOT EXISTS observations (
       asset_id TEXT REFERENCES assets(id), date TEXT NOT NULL, value REAL NOT NULL,
       PRIMARY KEY(asset_id, date));

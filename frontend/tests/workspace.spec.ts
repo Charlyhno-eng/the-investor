@@ -14,6 +14,9 @@ for (const [id, available] of [
     await expect(
       page.getByRole("tab", { name: "HMM", exact: true }),
     ).toHaveCount(available ? 1 : 0);
+    await expect(
+      page.getByRole("tab", { name: "Régression", exact: true }),
+    ).toHaveCount(available ? 1 : 0);
     expect(analysisRequests).toHaveLength(0);
   });
 }
@@ -125,6 +128,52 @@ test("HMM keeps date selection and shows the comparison only after running", asy
     )
     .toBe(true);
   await page.getByLabel("Fin entraînement").fill("2021-05-01");
-  await expect(chart).toHaveCount(0);
+  await expect(chart).toBeVisible();
+  await expect.poll(() => analysisRequests.length).toBe(2);
+  await expect
+    .poll(() => analysisRequests.at(-1)?.train_end)
+    .toBe("2021-05-01");
+  await expect(page.locator(".analysis-output")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+  await fee.fill("0.3");
+  // No blur or manual launch: valid input must refresh the retained chart.
+  await expect.poll(() => analysisRequests.at(-1)?.fee_bps).toBe(30);
+  await expect(chart).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test("HMM serializes rapid edits and displays the latest result", async ({
+  page,
+}) => {
+  const { analysisRequests } = await mockApi(page);
+  let inFlight = 0,
+    maxInFlight = 0,
+    started = 0;
+  await page.route("**/api/assets/*/analysis", async (route) => {
+    inFlight++;
+    started++;
+    maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await route.fallback();
+    inFlight--;
+  });
+  await page.goto("/assets/yf-test");
+  await page.getByRole("tab", { name: "HMM", exact: true }).click();
+  await page.getByRole("button", { name: "Lancer la simulation" }).click();
+  await expect.poll(() => started).toBe(1);
+  const fee = page.locator(".parameters input").first();
+  await fee.fill("0.3");
+  await fee.fill("0.4");
+  await expect.poll(() => analysisRequests.at(-1)?.fee_bps).toBe(40);
+  await expect(page.locator(".analysis-output")).toHaveAttribute(
+    "aria-busy",
+    "false",
+  );
+  expect(maxInFlight).toBe(1);
+  expect(analysisRequests).toHaveLength(2);
+  await expect(
+    page.getByRole("region", { name: "Comparaison des performances" }),
+  ).toBeVisible();
 });

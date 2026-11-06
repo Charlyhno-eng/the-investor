@@ -9,7 +9,7 @@ export function NumberInput({
   onChange: (value: number) => void;
   min: number | string;
   max: number | string;
-  step?: number;
+  step?: number | "any";
 }) {
   const [draft, setDraft] = useState(String(value));
   const [focused, setFocused] = useState(false);
@@ -22,7 +22,16 @@ export function NumberInput({
       type="number"
       value={draft}
       onFocus={() => setFocused(true)}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => {
+        const next = e.target.value;
+        setDraft(next);
+        if (
+          next.trim() &&
+          e.target.validity.valid &&
+          Number.isFinite(Number(next))
+        )
+          onChange(Number(next));
+      }}
       onBlur={(e) => {
         const parsed = Number(draft);
         if (
@@ -30,7 +39,7 @@ export function NumberInput({
           Number.isFinite(parsed) &&
           e.currentTarget.validity.valid
         ) {
-          onChange(parsed);
+          if (parsed !== value) onChange(parsed);
           setDraft(String(parsed));
         } else setDraft(String(value));
         setFocused(false);
