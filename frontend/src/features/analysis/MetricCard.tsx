@@ -5,7 +5,7 @@ const definitions = [
   {
     key: "sharpe",
     label: "Sharpe ratio",
-    text: "Rendement excédentaire moyen / volatilité, annualisé. Taux sans risque choisi dans les paramètres. > 1 : rapport rendement/risque favorable ; > 2 : élevé. Un historique court rend ce ratio fragile.",
+    text: "Rendement excédentaire moyen / volatilité, annualisé. Taux sans risque fixé à 0 %. > 1 : rapport rendement/risque favorable ; > 2 : élevé. Un historique court rend ce ratio fragile.",
   },
   {
     key: "sortino",

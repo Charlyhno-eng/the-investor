@@ -12,11 +12,6 @@ log = logging.getLogger(__name__)
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    # A stopped worker may leave an unfinished job. Downloads/upserts are idempotent.
-    with db.connect() as connection:
-        connection.execute(
-            "UPDATE import_jobs SET status='queued' WHERE status='running'"
-        )
     scheduled = []
     next_refresh = 0.0
     while True:

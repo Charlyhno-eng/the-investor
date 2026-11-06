@@ -11,6 +11,8 @@ import type {
 } from "../../lib/types";
 import { PeriodSelector } from "./PeriodSelector";
 import { AnalysisResults } from "./AnalysisResults";
+import { NumberInput } from "./NumberInput";
+import { AnalysisProgress } from "./AnalysisProgress";
 function initial(points: Point[], monthly: boolean): Parameters {
   // Recent 8 years on daily data; use the complete available monthly history.
   const start = monthly ? 0 : Math.max(0, points.length - 252 * 8);
@@ -24,71 +26,16 @@ function initial(points: Point[], monthly: boolean): Parameters {
     test_start: points[cut + 1].time,
     test_end: points.at(-1)!.time,
     fee_bps: 10,
-    slippage_bps: 5,
-    min_hold: monthly ? 3 : 10,
-    confirmation: monthly ? 2 : 3,
-    max_trades: 30,
-    entry_probability: 0.65,
-    exit_probability: 0.35,
+    slippage_bps: 0,
+    min_hold: 1,
+    entry_confirmation: 5,
+    exit_confirmation: 3,
+    max_trades: null,
+    entry_probability: 0.8,
+    exit_probability: 0.5,
     risk_free_rate: 0,
   };
 }
-const fields = [
-  {
-    key: "fee_bps",
-    label: "Frais / transaction",
-    unit: "pb",
-    min: 0,
-    max: 500,
-    step: 1,
-    tip: "1 point de base = 0,01 %. Appliqués à chaque achat et vente, sur la totalité du capital engagé.",
-  },
-  {
-    key: "slippage_bps",
-    label: "Glissement estimé",
-    unit: "pb",
-    min: 0,
-    max: 500,
-    step: 1,
-    tip: "Écart défavorable supposé entre le prix théorique et exécuté. S’ajoute aux frais à chaque transaction.",
-  },
-  {
-    key: "min_hold",
-    label: "Détention minimale",
-    unit: "obs.",
-    min: 1,
-    max: 250,
-    step: 1,
-    tip: "Nombre minimal d’observations entre un achat et une vente. La clôture finale du test liquide toujours la position.",
-  },
-  {
-    key: "confirmation",
-    label: "Confirmation",
-    unit: "obs.",
-    min: 1,
-    max: 30,
-    step: 1,
-    tip: "Nombre de signaux consécutifs requis avant un changement de position. Réduit les allers-retours.",
-  },
-  {
-    key: "max_trades",
-    label: "Plafond de transactions",
-    unit: "ordres",
-    min: 2,
-    max: 500,
-    step: 1,
-    tip: "Plafond absolu des achats et ventes sur tout le test. Une place est réservée pour la liquidation finale.",
-  },
-  {
-    key: "risk_free_rate",
-    label: "Taux sans risque",
-    unit: "% / an",
-    min: 0,
-    max: 25,
-    step: 0.1,
-    tip: "Taux annuel utilisé pour les ratios et la rémunération des liquidités. La valeur par défaut est 0 %.",
-  },
-] as const;
 export function AnalysisPanel({
   asset,
   points,
@@ -122,6 +69,7 @@ export function AnalysisPanel({
     parameters.train_end < parameters.test_start &&
     parameters.test_start < parameters.test_end;
   async function run() {
+    if (loading) return;
     const c = new AbortController();
     controller.current?.abort();
     controller.current = c;
@@ -129,145 +77,160 @@ export function AnalysisPanel({
     setError("");
     setResult(null);
     try {
-      setResult(
-        await post<Analysis>(
-          `/assets/${encodeURIComponent(asset.id)}/analysis`,
-          parameters,
-          c.signal,
-        ),
+      const response = await post<Analysis>(
+        `/assets/${encodeURIComponent(asset.id)}/analysis`,
+        parameters,
+        c.signal,
       );
+      if (!c.signal.aborted) setResult(response);
     } catch (e) {
-      if ((e as Error).name !== "AbortError") setError((e as Error).message);
+      if (!c.signal.aborted) setError((e as Error).message);
     } finally {
       if (!c.signal.aborted) setLoading(false);
     }
   }
   return (
-    <section className="analysis-panel" aria-label="Laboratoire quantitatif">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">LABORATOIRE QUANTITATIF</span>
-          <h2>
-            Comprendre les régimes<span className="accent">.</span>
-          </h2>
-        </div>
-        <span className="model-badge">
-          <Icon name="analysis" size={14} />
-          Markov caché <span>3 états</span>
-        </span>
-      </div>
-      <p className="lab-description">
-        {asset.metric === "yield"
-          ? "Identifier les régimes de taux. Les données de rendement ne permettent pas de simuler un portefeuille obligataire."
-          : "Entraîner sur le passé. Tester sur une période distincte. Comparer au marché, frais inclus."}
-      </p>
-      <PeriodSelector points={points} periods={parameters} onChange={update} />
-      {!valid && (
-        <p className="error" role="alert">
-          La période 1 doit précéder la période 2, sans chevauchement.
-        </p>
-      )}
-      {asset.metric !== "yield" && (
-        <details className="parameters">
-          <summary>
-            <Icon name="settings" size={16} />
-            Paramètres de simulation
-            <span>
-              {parameters.fee_bps + parameters.slippage_bps} pb / ordre ·
-              détention {parameters.min_hold}{" "}
-              {asset.frequency === "monthly" ? "mois" : "jours"}
-            </span>
-            <Icon name="chevron" size={14} />
-          </summary>
-          <div className="parameter-grid">
-            {fields.map((f) => (
-              <label key={f.key}>
+    <section className="analysis-panel" aria-label="Analyse HMM">
+      <fieldset className="analysis-controls" disabled={loading}>
+        <legend className="sr-only">Périodes et paramètres de l’analyse</legend>
+        <PeriodSelector
+          points={points}
+          periods={parameters}
+          onChange={update}
+          disabled={loading}
+        />
+        {!valid && (
+          <p className="error" role="alert">
+            La période 1 doit précéder la période 2, sans chevauchement.
+          </p>
+        )}
+        {parameters.exit_probability >= parameters.entry_probability && (
+          <p className="error" role="alert">
+            Le seuil de sortie doit être inférieur au seuil d’achat.
+          </p>
+        )}
+        {asset.metric !== "yield" && (
+          <details className="parameters" open>
+            <summary>
+              <Icon name="settings" size={16} />
+              Paramètres de la stratégie
+              <Icon name="chevron" size={14} />
+            </summary>
+            <div className="parameter-grid">
+              <label>
                 <span className="field-label">
-                  {f.label}
-                  <Tooltip label={f.label}>
-                    <span>{f.tip}</span>
+                  Frais par ordre
+                  <Tooltip label="Frais par ordre">
+                    <span>
+                      Pourcentage prélevé à chaque achat et vente. 0,1 %
+                      correspond à 1 € pour un ordre de 1 000 €.
+                    </span>
                   </Tooltip>
                 </span>
                 <div className="number-field">
-                  <input
-                    type="number"
-                    min={f.min}
-                    max={f.max}
-                    step={f.step}
-                    value={
-                      f.key === "risk_free_rate"
-                        ? Math.round(parameters[f.key] * 10000) / 100
-                        : parameters[f.key]
-                    }
-                    onChange={(e) =>
+                  <NumberInput
+                    min={0}
+                    max={5}
+                    step={0.01}
+                    value={Number((parameters.fee_bps / 100).toFixed(4))}
+                    onChange={(value) =>
                       update({
                         ...parameters,
-                        [f.key]:
-                          Number(e.target.value) /
-                          (f.key === "risk_free_rate" ? 100 : 1),
+                        fee_bps: Number((value * 100).toFixed(4)),
                       })
                     }
                   />
-                  <span>{f.unit}</span>
+                  <span>%</span>
                 </div>
               </label>
-            ))}
-            <label>
-              <span className="field-label">
-                Seuil d’entrée
-                <Tooltip label="Hystérésis">
-                  <span>
-                    Entrer lorsque la probabilité du régime porteur dépasse le
-                    seuil d’entrée ; sortir sous le seuil de sortie. L’écart
-                    entre les deux limite les changements de position.
+              <label>
+                <span className="field-label">
+                  Achat au-dessus de
+                  <Tooltip label="Hystérésis">
+                    <span>
+                      Entrer lorsque la probabilité du régime de hausse dépasse
+                      le seuil d’entrée ; sortir sous le seuil de sortie.
+                      L’écart entre les deux limite les changements de position.
+                    </span>
+                  </Tooltip>
+                </span>
+                <div className="number-field">
+                  <NumberInput
+                    min="51"
+                    max="95"
+                    value={Math.round(parameters.entry_probability * 100)}
+                    onChange={(value) =>
+                      update({
+                        ...parameters,
+                        entry_probability: value / 100,
+                      })
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </label>
+              <label>
+                <span className="field-label">Vente en dessous de</span>
+                <div className="number-field">
+                  <NumberInput
+                    min="5"
+                    max="90"
+                    value={Math.round(parameters.exit_probability * 100)}
+                    onChange={(value) =>
+                      update({
+                        ...parameters,
+                        exit_probability: value / 100,
+                      })
+                    }
+                  />
+                  <span>%</span>
+                </div>
+              </label>
+              {(
+                [
+                  ["entry_confirmation", "Confirmations à l’achat"],
+                  ["exit_confirmation", "Confirmations à la vente"],
+                ] as const
+              ).map(([key, label]) => (
+                <label key={key}>
+                  <span className="field-label">
+                    {label}
+                    <Tooltip label={label}>
+                      <span>
+                        Nombre d’observations consécutives avant{" "}
+                        {key === "entry_confirmation" ? "achat" : "vente"}. Une
+                        interruption remet le compteur à zéro.
+                      </span>
+                    </Tooltip>
                   </span>
-                </Tooltip>
-              </span>
-              <div className="number-field">
-                <input
-                  type="number"
-                  min="51"
-                  max="95"
-                  value={Math.round(parameters.entry_probability * 100)}
-                  onChange={(e) =>
-                    update({
-                      ...parameters,
-                      entry_probability: +e.target.value / 100,
-                    })
-                  }
-                />
-                <span>%</span>
-              </div>
-            </label>
-            <label>
-              <span className="field-label">Seuil de sortie</span>
-              <div className="number-field">
-                <input
-                  type="number"
-                  min="5"
-                  max="49"
-                  value={Math.round(parameters.exit_probability * 100)}
-                  onChange={(e) =>
-                    update({
-                      ...parameters,
-                      exit_probability: +e.target.value / 100,
-                    })
-                  }
-                />
-                <span>%</span>
-              </div>
-            </label>
-          </div>
-        </details>
-      )}
-      <div className="run-bar">
-        <span className="fine-print">
-          <Icon name="check" size={13} />
-          Entraînement isolé · signal causal · calcul local
-        </span>
+                  <div className="number-field">
+                    <NumberInput
+                      min={1}
+                      max={30}
+                      step={1}
+                      value={parameters[key]}
+                      onChange={(value) =>
+                        update({ ...parameters, [key]: value })
+                      }
+                    />
+                    <span>
+                      {asset.frequency === "monthly" ? "mois" : "jours"}
+                    </span>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </details>
+        )}
+      </fieldset>
+      <div className="run-bar analysis-run-bar">
         <button
           className="primary-button"
-          disabled={loading || !valid}
+          disabled={
+            loading ||
+            !valid ||
+            parameters.exit_probability >= parameters.entry_probability
+          }
           onClick={run}
         >
           {loading ? (
@@ -287,17 +250,7 @@ export function AnalysisPanel({
           {error}
         </p>
       )}
-      {loading && (
-        <div className="analysis-loading" role="status">
-          <span className="spinner" />
-          <div>
-            Ajustement du modèle & test causal
-            <small>
-              Trois initialisations, sans accès aux données futures.
-            </small>
-          </div>
-        </div>
-      )}
+      {loading && <AnalysisProgress />}
       {result && <AnalysisResults result={result} />}
     </section>
   );

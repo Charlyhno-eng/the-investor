@@ -19,7 +19,7 @@ def import_symbol(symbol: str, category: str) -> str:
     yf.set_tz_cache_location(str(db.DATA_DIR / "provider-cache"))
     ticker = yf.Ticker(symbol)
     frame = ticker.history(
-        period="max", interval="1d", auto_adjust=True, actions=True, timeout=30
+        period="max", interval="1d", auto_adjust=False, actions=True, timeout=30
     )
     metadata = ticker.get_history_metadata()
     expected = "CRYPTOCURRENCY" if category == "crypto" else "EQUITY"
@@ -29,11 +29,15 @@ def import_symbol(symbol: str, category: str) -> str:
         )
     if frame.empty:
         raise ValueError("Aucun historique disponible pour ce symbole.")
+    if category == "stock" and "Adj Close" not in frame:
+        raise ValueError("Clôtures ajustées absentes ; données précédentes conservées.")
     asset_id = "yf-" + symbol.lower()
     # Daily timestamps use the exchange's local calendar, not a UTC conversion.
     points = [
         (asset_id, stamp.date().isoformat(), float(value))
-        for stamp, value in frame["Close"].items()
+        for stamp, value in frame[
+            "Adj Close" if "Adj Close" in frame else "Close"
+        ].items()
         if math.isfinite(float(value)) and float(value) > 0
     ]
     if not points:
@@ -53,12 +57,21 @@ def import_symbol(symbol: str, category: str) -> str:
                 "Historique des dividendes absent de la réponse fournisseur."
             )
         dividends = []
+        previous_close = frame["Close"].shift(1)
         for stamp, value in frame["Dividends"].items():
             amount = float(value)
             if not math.isfinite(amount) or amount < 0:
                 raise ValueError("Dividende invalide ; données précédentes conservées.")
             if amount > 0:
-                dividends.append((asset_id, stamp.date().isoformat(), amount))
+                reference = float(previous_close.loc[stamp])
+                yield_percent = (
+                    100 * amount / reference
+                    if math.isfinite(reference) and reference > 0
+                    else None
+                )
+                dividends.append(
+                    (asset_id, stamp.date().isoformat(), amount, yield_percent)
+                )
         coverage = (
             asset_id,
             frame.index[0].date().isoformat(),
@@ -74,7 +87,8 @@ def import_symbol(symbol: str, category: str) -> str:
             {
                 "symbol": symbol,
                 "source": "yahoo",
-                "adjusted": True,
+                "adjusted": False,
+                "observation_column": "Adj Close" if "Adj Close" in frame else "Close",
                 "downloaded_at": datetime.now(UTC).isoformat(),
                 "metadata": metadata,
             },
@@ -105,6 +119,12 @@ def import_symbol(symbol: str, category: str) -> str:
 def process_one() -> bool:
     with db.connect() as connection:
         connection.execute("BEGIN IMMEDIATE")
+        # Both the API consumer and bulk worker claim jobs atomically. Recover
+        # abandoned downloads after a bounded lease rather than resetting live jobs.
+        connection.execute(
+            "UPDATE import_jobs SET status='queued' WHERE status='running' "
+            "AND updated_at < strftime('%Y-%m-%dT%H:%M:%SZ','now','-15 minutes')"
+        )
         job = connection.execute(
             "SELECT * FROM import_jobs WHERE status='queued' ORDER BY id LIMIT 1"
         ).fetchone()

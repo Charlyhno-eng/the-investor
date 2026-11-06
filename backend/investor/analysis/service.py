@@ -13,7 +13,7 @@ from investor.analysis.strategy import simulate
 from investor.db import connect
 
 SLOTS = threading.BoundedSemaphore(1)  # Bound CPU/memory and BLAS thread configuration.
-VERSION = "hmm-causal-2"
+VERSION = "hmmlearn-split-confirmations-7"
 
 
 def analyze(asset_id, request):
@@ -97,9 +97,9 @@ def calculate(asset, rows, request):
     state_means = model.means_[:, 0] * scale[0] + mean[0]
     order = np.argsort(state_means)
     labels = (
-        ["Baisse des taux", "Stable", "Hausse des taux"]
+        ["Baisse des taux", "Hausse des taux"]
         if is_yield
-        else ["Défensif", "Intermédiaire", "Porteur"]
+        else ["Neutre / baisse", "Hausse"]
     )
     label_for = {int(state): labels[i] for i, state in enumerate(order)}
     test_prob = probabilities[test]
@@ -119,7 +119,9 @@ def calculate(asset, rows, request):
         else (365 if asset["category"] == "crypto" else 252)
     )
     notes = [
-        "États filtrés avec les observations passées uniquement. Paramètres figés après la période 1."
+        "Deux régimes estimés à partir des variations et du momentum. Achat = position détenue ; pas achat = liquidités.",
+        "États filtrés avec les observations passées uniquement. Paramètres figés après la période 1.",
+        "Le régime Hausse est celui dont la variation moyenne entraînée est la plus élevée ; il ne garantit pas une hausse future.",
     ]
     if not converged:
         notes.append(
@@ -152,6 +154,7 @@ def calculate(asset, rows, request):
         "benchmark_metrics": None,
         "trades": [],
         "exposure": None,
+        "positions": [],
         "parameters": request.model_dump(mode="json"),
     }
     if is_yield:
@@ -163,11 +166,9 @@ def calculate(asset, rows, request):
         notes.append(
             "Simulation sur prix spot ou indice mensuel : proxy de marché, sans roulement de futures, stockage ni exécution réelle."
         )
-    # Pick the state with highest trained mean, only if it exceeds cash plus round-trip costs.
-    cost = (request.fee_bps + request.slippage_bps) / 10000
-    threshold = (
-        np.log1p(request.risk_free_rate) / annualization + 2 * cost / request.min_hold
-    )
+    # Require positive trained excess return; transaction costs are applied to
+    # actual trades, without assuming an arbitrary minimum holding period.
+    threshold = np.log1p(request.risk_free_rate) / annualization
     favorable = int(order[-1]) if state_means[order[-1]] > threshold else None
     if favorable is None:
         notes.append(
@@ -176,9 +177,15 @@ def calculate(asset, rows, request):
         signal = np.zeros_like(test_prob)
         favorable = 0
     else:
-        signal = test_prob
+        signal = test_prob.copy()
     net, benchmark, trades, positions = simulate(
-        test_changes, signal, test_dates, favorable, request, annualization
+        test_changes,
+        signal,
+        test_dates,
+        favorable,
+        request,
+        annualization,
+        entry_allowed=x[test, 1] > 0,
     )
     # Benchmark starts at the close preceding the first test return, shared with strategy.
     first_index = int(np.flatnonzero(test)[0])
@@ -196,6 +203,9 @@ def calculate(asset, rows, request):
             "benchmark_metrics": metrics(
                 benchmark, benchmark, annualization, request.risk_free_rate
             ),
+            "positions": [
+                {"time": d, "position": int(p)} for d, p in zip(test_dates, positions)
+            ],
             "trades": trades,
             "exposure": float(np.mean(positions)),
         }

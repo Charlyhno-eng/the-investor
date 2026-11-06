@@ -3,7 +3,15 @@
 import numpy as np
 
 
-def simulate(changes, probabilities, dates, favorable, request, periods_per_year):
+def simulate(
+    changes,
+    probabilities,
+    dates,
+    favorable,
+    request,
+    periods_per_year,
+    entry_allowed=None,
+):
     cost = (request.fee_bps + request.slippage_bps) / 10000
     cash = (1 + request.risk_free_rate) ** (1 / periods_per_year) - 1
     net = np.zeros(len(changes))
@@ -20,16 +28,21 @@ def simulate(changes, probabilities, dates, favorable, request, periods_per_year
                 if position
                 else int(probability >= request.entry_probability)
             )
+            if not position and entry_allowed is not None and not entry_allowed[i - 1]:
+                target = 0
             if target != position:
                 streak = streak + 1 if candidate == target else 1
                 candidate = target
             else:
                 streak = 0
             # Always reserve one transaction for final liquidation.
-            room = len(transactions) < request.max_trades - (1 if not position else 0)
+            room = request.max_trades is None or len(
+                transactions
+            ) < request.max_trades - (1 if not position else 0)
             if (
                 target != position
-                and streak >= request.confirmation
+                and streak
+                >= (request.entry_confirmation if target else request.exit_confirmation)
                 and (not position or held >= request.min_hold)
                 and room
                 and i < len(changes) - 1

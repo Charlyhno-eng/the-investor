@@ -14,6 +14,8 @@ export const date = (value: string) =>
     timeZone: "UTC",
   });
 export const categories = [
+  { id: "stock", name: "Actions", short: "Actions", icon: "stock" },
+  { id: "crypto", name: "Cryptomonnaies", short: "Crypto", icon: "crypto" },
   {
     id: "commodity",
     name: "Matières premières",
@@ -21,11 +23,4 @@ export const categories = [
     icon: "commodity",
   },
   { id: "bond", name: "Obligations", short: "Obligations", icon: "bond" },
-  { id: "stock", name: "Actions", short: "Actions", icon: "stock" },
-  { id: "crypto", name: "Cryptomonnaies", short: "Crypto", icon: "crypto" },
 ] as const;
-export const sources: Record<string, string> = {
-  "world-bank": "Banque mondiale",
-  "oecd-fred": "OCDE · FRED",
-  yahoo: "Yahoo Finance",
-};

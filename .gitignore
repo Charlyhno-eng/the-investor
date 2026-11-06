@@ -8,3 +8,7 @@ data/*
 .env
 .cache/
 *.tsbuildinfo
+
+# Browser test artifacts
+frontend/test-results/
+frontend/playwright-report/

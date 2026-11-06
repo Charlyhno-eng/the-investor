@@ -1,10 +1,11 @@
-"""Local durable import queue. No network access from request handlers."""
+"""Local durable import queue and cached stock discovery."""
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from investor.db import connect
 from investor.market_catalog import CRYPTO
 from investor.market_schemas import ImportRequest
+from investor.stock_search import search_stocks
 
 router = APIRouter(prefix="/api")
 
@@ -57,3 +58,10 @@ def import_status(job_id: int):
     if not job:
         raise HTTPException(404, "Import introuvable")
     return dict(job)
+
+
+@router.get("/stocks/search")
+def stock_search(q: str = Query(min_length=2, max_length=80)):
+    if len(q.strip()) < 2:
+        raise HTTPException(422, "Saisissez au moins deux caractères.")
+    return search_stocks(q)

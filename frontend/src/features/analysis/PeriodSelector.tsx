@@ -7,8 +7,10 @@ export function PeriodSelector({
   points,
   periods,
   onChange,
+  disabled = false,
 }: {
   points: Point[];
+  disabled?: boolean;
   periods: Periods;
   onChange: (value: Periods) => void;
 }) {
@@ -46,7 +48,7 @@ export function PeriodSelector({
     );
   }
   function update(a: number, b: number) {
-    if (a === b) return;
+    if (disabled || a === b) return;
     onChange({
       ...periods,
       [`${target}_start`]: points[Math.min(a, b)].time,
@@ -118,7 +120,9 @@ export function PeriodSelector({
           preserveAspectRatio="none"
           role="img"
           aria-label="Sélection graphique des périodes ; les champs de dates permettent aussi la saisie au clavier"
+          aria-disabled={disabled}
           onPointerDown={(e) => {
+            if (disabled) return;
             e.currentTarget.setPointerCapture(e.pointerId);
             setAnchor(getIndex(e));
           }}

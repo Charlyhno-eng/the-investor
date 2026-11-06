@@ -29,8 +29,9 @@ export type Parameters = Periods & {
   fee_bps: number;
   slippage_bps: number;
   min_hold: number;
-  confirmation: number;
-  max_trades: number;
+  entry_confirmation: number;
+  exit_confirmation: number;
+  max_trades: number | null;
   entry_probability: number;
   exit_probability: number;
   risk_free_rate: number;
@@ -49,6 +50,7 @@ export type Analysis = {
   equity: { time: string; strategy: number; benchmark: number }[];
   strategy_metrics: Metrics | null;
   benchmark_metrics: Metrics | null;
+  positions: { time: string; position: 0 | 1 }[];
   regimes: { time: string; state: string; probabilities: number[] }[];
   states: { name: string; mean_change: number; persistence: number }[];
   transition_matrix: number[][];
@@ -60,4 +62,19 @@ export type ImportJob = {
   status: string;
   asset_id?: string;
   error?: string;
+};
+
+export type DividendEvent = {
+  time: string;
+  amount: number;
+  yield_percent: number | null;
+};
+export type DividendHistory = {
+  currency: string;
+  coverage: {
+    first_date: string;
+    last_date: string;
+    updated_at: string;
+  } | null;
+  events: DividendEvent[];
 };

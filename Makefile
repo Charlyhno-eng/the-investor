@@ -17,3 +17,8 @@ test:
 	uv run pytest -q
 build:
 	cd frontend && npm run build
+
+.PHONY: test-web test-all
+test-web:
+	cd frontend && npm test
+test-all: test test-web

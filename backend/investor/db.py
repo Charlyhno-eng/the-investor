@@ -46,6 +46,11 @@ def connect():
     for column, kind in [("country_code", "TEXT"), ("benchmark_years", "INTEGER")]:
         if column not in columns:
             db.execute(f"ALTER TABLE assets ADD COLUMN {column} {kind}")
+    dividend_columns = {
+        row["name"] for row in db.execute("PRAGMA table_info(dividends)")
+    }
+    if "yield_percent" not in dividend_columns:
+        db.execute("ALTER TABLE dividends ADD COLUMN yield_percent REAL")
     try:
         yield db
         db.commit()
@@ -89,7 +94,13 @@ def save(
                 "DELETE FROM dividends WHERE asset_id=? AND date>=? AND date<=?",
                 (asset_id, first, last),
             )
-            db.executemany("INSERT INTO dividends VALUES (?,?,?)", dividends)
+            db.executemany(
+                "INSERT INTO dividends (asset_id,date,amount,yield_percent) VALUES (?,?,?,?)",
+                [
+                    tuple(event) if len(event) == 4 else (*event, None)
+                    for event in dividends
+                ],
+            )
             db.execute(
                 "INSERT OR REPLACE INTO dividend_imports VALUES (?,?,?,strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
                 (asset_id, first, last),

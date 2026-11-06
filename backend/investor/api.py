@@ -1,13 +1,34 @@
+from contextlib import asynccontextmanager
 from datetime import date
+from threading import Event, Thread
 
 from fastapi import FastAPI, HTTPException
 
 from investor.analysis.schemas import AnalysisRequest
 from investor.analysis.service import analyze
 from investor.db import connect
+from investor.import_runner import consume_imports
 from investor.market_api import router as market_router
 
-app = FastAPI(title="The Investor", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop = Event()
+    runner = Thread(
+        target=consume_imports, args=(stop,), daemon=True, name="asset-imports"
+    )
+    runner.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        # Finish any in-flight transaction before shutting down.
+        import asyncio
+
+        await asyncio.to_thread(runner.join)
+
+
+app = FastAPI(title="The Investor", version="0.1.0", lifespan=lifespan)
 app.include_router(market_router)
 
 
@@ -65,7 +86,7 @@ def dividends(asset_id: str):
         events = [
             dict(row)
             for row in db.execute(
-                "SELECT date AS time,amount FROM dividends WHERE asset_id=? ORDER BY date",
+                "SELECT date AS time,amount,yield_percent FROM dividends WHERE asset_id=? ORDER BY date",
                 (asset_id,),
             )
         ]

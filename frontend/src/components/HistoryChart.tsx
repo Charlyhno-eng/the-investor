@@ -1,28 +1,39 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AreaSeries,
   ColorType,
   createChart,
+  createSeriesMarkers,
+  type MouseEventParams,
   LineSeries,
   type Time,
 } from "lightweight-charts";
-import type { Analysis, Point } from "../lib/types";
+import { date, number } from "../lib/format";
+import type { Analysis, DividendEvent, Point } from "../lib/types";
 
 type Props = {
   points?: Point[];
   range?: number;
   comparison?: Analysis["equity"];
   compact?: boolean;
+  dividends?: DividendEvent[];
 };
 export function HistoryChart({
   points = [],
   range = 0,
   comparison,
   compact = false,
+  dividends,
 }: Props) {
+  const [hovered, setHovered] = useState<{
+    event: DividendEvent;
+    x: number;
+    y: number;
+  } | null>(null);
   const container = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!container.current) return;
+    setHovered(null);
     const chart = createChart(container.current, {
       autoSize: true,
       layout: {
@@ -77,6 +88,50 @@ export function HistoryChart({
         priceFormat: { type: "price", precision: 2, minMove: 0.01 },
       });
       series.setData(points.map((p) => ({ ...p, time: p.time as Time })));
+      const dates = new Set(points.map((point) => point.time));
+      const events = new Map(
+        (dividends ?? [])
+          .filter((event) => dates.has(event.time))
+          .map((event) => [event.time, event]),
+      );
+      createSeriesMarkers(
+        series,
+        [...events.values()].map((event) => ({
+          time: event.time as Time,
+          position: "belowBar",
+          color: "#91c9c2",
+          shape: "circle",
+          text: "D",
+          id: event.time,
+          size: 0.7,
+        })),
+      );
+      const showDividend = (param: MouseEventParams<Time>) => {
+        const time =
+          typeof param.hoveredObjectId === "string"
+            ? param.hoveredObjectId
+            : typeof param.time === "string"
+              ? param.time
+              : null;
+        const event = time ? events.get(time) : null;
+        if (!event || !param.point || !container.current) {
+          setHovered(null);
+          return;
+        }
+        setHovered({
+          event,
+          x: Math.max(
+            8,
+            Math.min(param.point.x + 14, container.current.clientWidth - 225),
+          ),
+          y: Math.max(
+            8,
+            Math.min(param.point.y - 85, container.current.clientHeight - 100),
+          ),
+        });
+      };
+      chart.subscribeCrosshairMove(showDividend);
+      chart.subscribeClick(showDividend);
     }
     const data = comparison ?? points;
     if (range && data.length > 1) {
@@ -93,17 +148,34 @@ export function HistoryChart({
       else chart.timeScale().fitContent();
     } else chart.timeScale().fitContent();
     return () => chart.remove();
-  }, [points, range, comparison]);
+  }, [points, range, comparison, dividends]);
   return (
-    <div
-      ref={container}
-      className={`history-chart ${compact ? "compact" : ""}`}
-      role="img"
-      aria-label={
-        comparison
-          ? "Capital de la stratégie et du marché, base 100"
-          : "Historique interactif : zoom et déplacement"
-      }
-    />
+    <div className={`history-chart ${compact ? "compact" : ""}`}>
+      <div
+        ref={container}
+        className="chart-canvas"
+        role="img"
+        aria-label={
+          comparison
+            ? "Capital de la stratégie et du marché, base 100"
+            : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher."
+        }
+      />
+      {hovered && (
+        <div
+          className="chart-dividend-tooltip"
+          role="status"
+          style={{ left: hovered.x, top: hovered.y }}
+        >
+          <span>DIVIDENDE · {date(hovered.event.time)}</span>
+          <strong>
+            {hovered.event.yield_percent == null
+              ? "Pourcentage indisponible"
+              : `${number(hovered.event.yield_percent, 3)} %`}
+          </strong>
+          <small>Du cours de la séance précédente · brut</small>
+        </div>
+      )}
+    </div>
   );
 }

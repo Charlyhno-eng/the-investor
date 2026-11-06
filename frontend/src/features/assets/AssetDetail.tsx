@@ -2,10 +2,10 @@ import { useEffect, useState } from "react";
 import { HistoryChart } from "../../components/HistoryChart";
 import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
-import { categories, date, number, percent, sources } from "../../lib/format";
+import { categories, date, number, percent } from "../../lib/format";
 import type { Asset, Point } from "../../lib/types";
 import { Tooltip } from "../../components/Tooltip";
-import { DividendPanel } from "./DividendPanel";
+import { useDividends } from "./useDividends";
 import { AnalysisPanel } from "../analysis/AnalysisPanel";
 export function AssetDetail({ asset }: { asset: Asset }) {
   const [points, setPoints] = useState<Point[]>([]),
@@ -29,6 +29,7 @@ export function AssetDetail({ asset }: { asset: Asset }) {
       });
     return () => controller.abort();
   }, [asset.id, asset.last_date, asset.points, asset.last_value]);
+  const dividends = useDividends(asset);
   const supportsAnalysis = asset.category !== "bond";
   const category = categories.find((c) => c.id === asset.category)!;
   const cutoff = new Date(`${asset.last_date}T00:00:00Z`);
@@ -47,13 +48,6 @@ export function AssetDetail({ asset }: { asset: Asset }) {
           : null;
   return (
     <div className="asset-detail">
-      <div className="asset-breadcrumb">
-        <span>Marchés</span>
-        <span>/</span>
-        <span>{category.name}</span>
-        <span>/</span>
-        <span>{asset.name}</span>
-      </div>
       <div className="asset-heading">
         <div className="asset-title">
           <span className={`asset-emblem ${asset.category}`}>
@@ -95,139 +89,101 @@ export function AssetDetail({ asset }: { asset: Asset }) {
             onClick={() => setTab("analysis")}
           >
             <Icon name="analysis" size={16} />
-            Analyse quantitative<span className="new-tag">HMM</span>
+            HMM
           </button>
         )}
       </div>
-      <section className="chart-panel">
-        <div className="quote-row">
-          <div>
-            {asset.category === "bond" && (
-              <div className="yield-caption">
-                Rendement actuel annualisé{" "}
-                <Tooltip label="Rendement et coupon">
-                  Dernier taux souverain disponible, au {date(asset.last_date)}.
-                  Cette série de référence ne fournit pas le coupon d’une
-                  émission précise. Le coupon est l’intérêt contractuel du titre
-                  ; le rendement dépend aussi de son prix.
+      {tab === "chart" && (
+        <section className="chart-panel">
+          <div className="quote-row">
+            <div>
+              {asset.category === "bond" && (
+                <div className="yield-caption">
+                  Rendement actuel annualisé{" "}
+                  <Tooltip label="Rendement et coupon">
+                    Dernier taux souverain disponible, au{" "}
+                    {date(asset.last_date)}. Cette série de référence ne fournit
+                    pas le coupon d’une émission précise. Le coupon est
+                    l’intérêt contractuel du titre ; le rendement dépend aussi
+                    de son prix.
+                  </Tooltip>
+                </div>
+              )}
+              <div className="quote">
+                <strong>
+                  {number(asset.last_value, asset.last_value < 1 ? 4 : 2)}
+                </strong>
+                <span>{asset.unit}</span>
+              </div>
+              <div
+                className={`quote-change ${difference == null ? "muted" : difference >= 0 ? "positive" : "negative"}`}
+              >
+                {difference == null
+                  ? "—"
+                  : asset.metric === "yield"
+                    ? `${difference > 0 ? "+" : ""}${number(difference)} pp`
+                    : percent(difference, true)}
+                <span>
+                  sur{" "}
+                  {range
+                    ? `${range} an${range > 1 ? "s" : ""}`
+                    : "la période complète"}
+                </span>
+              </div>
+            </div>
+            {asset.category === "stock" && (
+              <div className="dividend-legend">
+                <span className="dividend-dot">D</span>
+                {dividends.error
+                  ? "Dividendes indisponibles"
+                  : !dividends.history
+                    ? "Chargement…"
+                    : !dividends.history.coverage
+                      ? "Dividendes en attente"
+                      : !dividends.history.events.length
+                        ? "Aucun dividende enregistré"
+                        : "Dividendes"}
+                <Tooltip label="Repères de dividendes">
+                  {dividends.error ||
+                    "Survolez ou touchez un repère D : date de détachement et dividende brut en pourcentage de la clôture de la séance précédente, hors ajustement des dividendes. Pourcentage par versement, non annualisé. Les prix du graphique sont ajustés. Un pourcentage absent attend la prochaine actualisation."}
                 </Tooltip>
               </div>
             )}
-            <div className="quote">
-              <strong>
-                {number(asset.last_value, asset.last_value < 1 ? 4 : 2)}
-              </strong>
-              <span>{asset.unit}</span>
-            </div>
-            <div
-              className={`quote-change ${difference == null ? "muted" : difference >= 0 ? "positive" : "negative"}`}
-            >
-              {difference == null
-                ? "—"
-                : asset.metric === "yield"
-                  ? `${difference > 0 ? "+" : ""}${number(difference)} pp`
-                  : percent(difference, true)}
-              <span>
-                sur{" "}
-                {range
-                  ? `${range} an${range > 1 ? "s" : ""}`
-                  : "la période complète"}
-              </span>
+            <div className="range-buttons" aria-label="Période affichée">
+              {[1, 5, 10, 0].map((y) => (
+                <button
+                  key={y}
+                  onClick={() => setRange(y)}
+                  aria-pressed={range === y}
+                >
+                  {y ? `${y}A` : "Tout"}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="range-buttons" aria-label="Période affichée">
-            {[1, 5, 10, 0].map((y) => (
-              <button
-                key={y}
-                onClick={() => setRange(y)}
-                aria-pressed={range === y}
-              >
-                {y ? `${y}A` : "Tout"}
-              </button>
-            ))}
-          </div>
-        </div>
-        {loading ? (
-          <div className="chart-placeholder" role="status">
-            <span className="spinner" />
-            Chargement de l’historique
-          </div>
-        ) : error ? (
-          <div className="chart-placeholder error" role="alert">
-            {error}
-          </div>
-        ) : points.length ? (
-          <HistoryChart
-            points={points}
-            range={range}
-            compact={tab === "analysis"}
-          />
-        ) : (
-          <div className="chart-placeholder">Aucune observation.</div>
-        )}
-        <div className="chart-footer">
-          <span>
-            {date(asset.first_date)} <span className="muted">—</span>{" "}
-            {date(asset.last_date)}
-            <i />
-            {number(asset.points, 0)} observations
-          </span>
-          <a href={asset.source_url} target="_blank" rel="noreferrer">
-            {sources[asset.source] ?? asset.source}
-            <Icon name="external" size={11} />
-          </a>
-        </div>
-      </section>
+          {loading ? (
+            <div className="chart-placeholder" role="status">
+              <span className="spinner" />
+              Chargement de l’historique
+            </div>
+          ) : error ? (
+            <div className="chart-placeholder error" role="alert">
+              {error}
+            </div>
+          ) : points.length ? (
+            <HistoryChart
+              points={points}
+              range={range}
+              dividends={dividends.history?.events}
+            />
+          ) : (
+            <div className="chart-placeholder">Aucune observation.</div>
+          )}
+        </section>
+      )}
       {supportsAnalysis && tab === "analysis" && points.length > 2 && (
         <AnalysisPanel asset={asset} points={points} />
       )}
-      {asset.category === "stock" && <DividendPanel asset={asset} />}
-      {tab === "chart" && (
-        <div className="asset-facts">
-          <div>
-            <span className="field-label">Fréquence</span>
-            <strong>
-              {asset.frequency === "monthly" ? "Mensuelle" : "Quotidienne"}
-            </strong>
-          </div>
-          <div>
-            <span className="field-label">Dernière observation</span>
-            <strong>{date(asset.last_date)}</strong>
-          </div>
-          <div>
-            <span className="field-label">Mesure</span>
-            <strong>
-              {asset.metric === "yield"
-                ? "Rendement souverain"
-                : asset.metric === "index"
-                  ? "Indice"
-                  : asset.source === "yahoo"
-                    ? "Prix ajusté"
-                    : "Prix de référence"}
-            </strong>
-          </div>
-          {supportsAnalysis && (
-            <button
-              className="analysis-shortcut"
-              onClick={() => setTab("analysis")}
-            >
-              <span className="shortcut-icon">
-                <Icon name="analysis" />
-              </span>
-              <span>
-                Explorer les régimes<small>Modèle de Markov caché</small>
-              </span>
-              <Icon name="arrow" size={18} />
-            </button>
-          )}
-        </div>
-      )}
-      <footer className="workspace-footer">
-        <span>Données historiques · aucune cotation temps réel</span>
-        <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">
-          Charts by TradingView
-        </a>
-      </footer>
     </div>
   );
 }

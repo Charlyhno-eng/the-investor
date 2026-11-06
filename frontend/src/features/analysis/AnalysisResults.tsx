@@ -1,7 +1,7 @@
-import { HistoryChart } from "../../components/HistoryChart";
 import { Tooltip } from "../../components/Tooltip";
 import { date, number, percent } from "../../lib/format";
 import type { Analysis } from "../../lib/types";
+import { PerformanceChart } from "./PerformanceChart";
 import { MetricCards } from "./MetricCard";
 export function AnalysisResults({ result: r }: { result: Analysis }) {
   const strategy = r.strategy_metrics,
@@ -49,64 +49,20 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
                   </span>
                 </Tooltip>
               </span>
-              <strong>
-                {r.trades.length}
-                <span className="summary-unit">
-                  {" "}
-                  / {r.parameters.max_trades}
-                </span>
-              </strong>
+              <strong>{r.trades.length}</strong>
               <small>Exposition {percent(r.exposure)}</small>
             </div>
           </div>
-          <div className="equity-heading">
-            <span className="field-label">Évolution du capital · base 100</span>
-            <div className="chart-legend">
-              <span>
-                <i className="strategy-dot" />
-                Stratégie
-              </span>
-              <span>
-                <i className="market-dot" />
-                Marché
-              </span>
-            </div>
-          </div>
-          <HistoryChart comparison={r.equity} compact />
+          <PerformanceChart equity={r.equity} />
           <MetricCards strategy={strategy} benchmark={benchmark} />
         </>
       )}
-      <div className="regimes-section">
-        <div className="equity-heading">
-          <span className="field-label">Régimes détectés · période 2</span>
-          <div className="chart-legend">
-            {r.states.map((s, i) => (
-              <span key={s.name}>
-                <i className={`regime-${i}`} />
-                {s.name}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="regime-strip" aria-label="Chronologie des régimes">
-          {r.regimes.map((p) => (
-            <span
-              key={p.time}
-              className={`regime-${r.states.findIndex((s) => s.name === p.state)}`}
-              title={`${date(p.time)} · ${p.state} · ${percent(Math.max(...p.probabilities))}`}
-            />
-          ))}
-        </div>
-        <div className="timeline-dates">
-          <span>{date(r.actual_test[0])}</span>
-          <span>{date(r.actual_test[1])}</span>
-        </div>
-      </div>
       <details className="model-details">
         <summary>
           Modèle & transactions{" "}
           <span>
-            {r.train_points} points d’entraînement · 3 états gaussiens
+            {r.train_points} points d’entraînement · {r.states.length} états
+            gaussiens
           </span>
         </summary>
         <div className="model-tables">
@@ -150,7 +106,7 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
                       <tr>
                         <th>Date</th>
                         <th>Ordre</th>
-                        <th>Prob. porteuse</th>
+                        <th>Prob. de hausse</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -173,7 +129,8 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
           )}
         </div>
       </details>
-      <div className="analysis-notes">
+      <details className="analysis-notes">
+        <summary>Hypothèses et limites</summary>
         {r.warnings.map((note) => (
           <p key={note}>{note}</p>
         ))}
@@ -181,7 +138,7 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
           Simulation historique, sans garantie de surperformance. Réutiliser la
           période 2 pour ajuster les paramètres crée un biais de sélection.
         </p>
-      </div>
+      </details>
     </div>
   );
 }

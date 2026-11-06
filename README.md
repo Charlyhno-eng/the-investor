@@ -19,17 +19,17 @@ make web
 make worker
 ```
 
-Ces trois commandes correspondent à **trois processus séparés**. Ouvrir http://localhost:5173. API : http://127.0.0.1:8000 ; documentation `/docs`. `make worker` doit rester actif pour traiter les ajouts d’actions et les actualisations. Il traite les imports demandés entre les tâches d’actualisation et rafraîchit les sources toutes les 24 heures. Une source en cours de téléchargement peut retarder le prochain import.
+Ces trois commandes correspondent à **trois processus séparés**. Ouvrir http://localhost:5173. API : http://127.0.0.1:8000 ; documentation `/docs`. L’API traite automatiquement les ajouts d’actions en arrière-plan, même sans `make worker`. Le worker indépendant assure les actualisations de toutes les sources toutes les 24 heures. Les deux consommateurs réclament les tâches atomiquement pour éviter les doubles imports.
 
 L’interface n’affiche pas de cotations en temps réel. Les dates et fréquences restent visibles ; les historiques mensuels et rendements sont des courbes, sans bougies OHLC artificielles.
 
 ## Ajouter des actions
 
-Cliquer **Ajouter une action**, saisir le symbole de sa place de cotation (`AAPL`, `MC.PA`, `AIR.PA`, `7203.T`, etc.) et télécharger. Quelques suggestions facilitent la première utilisation, mais le champ accepte les symboles d’autres actions disponibles chez Yahoo. Les fonds, indices et contrats futures ne sont pas acceptés dans cette catégorie. Les noms des sociétés, devise et type d’instrument sont validés par les métadonnées du fournisseur.
+Cliquer **Ajouter une action**, rechercher un nom d’entreprise ou un symbole, puis sélectionner la cotation souhaitée (nom, symbole et place boursière). La recherche Yahoo est temporisée et mise en cache cinq minutes ; les actions locales restent accessibles en cas d’indisponibilité du fournisseur. Les suggestions et une option explicite de symbole exact permettent aussi l’ajout direct. Les fonds, indices et contrats futures ne sont pas acceptés dans cette catégorie. Les noms des sociétés, devise et type d’instrument sont validés par les métadonnées du fournisseur.
 
-Le serveur place la demande dans une file SQLite durable, sans requête au fournisseur. Le **worker indépendant** télécharge l’historique quotidien ajusté maximal disponible, archive les données et met à jour SQLite. La fenêtre peut être fermée pendant l’import ; le catalogue local se rafraîchit toutes les 15 secondes. En cas d’échec, le message du dialogue permet de réessayer. Le catalogue ne contient que les actions choisies. Apple a été ajoutée pour vérifier le parcours complet sur cette installation ; elle n’est pas imposée aux nouvelles installations.
+Le serveur place la demande dans une file SQLite durable. Un consommateur de fond démarre avec l’API et télécharge l’historique quotidien ajusté maximal disponible, archive les données et met à jour SQLite. La fenêtre peut être fermée pendant l’import ; le catalogue local se rafraîchit toutes les 15 secondes. En cas d’échec, le message du dialogue permet de réessayer. Le catalogue ne contient que les actions choisies. Apple a été ajoutée pour vérifier le parcours complet sur cette installation ; elle n’est pas imposée aux nouvelles installations.
 
-Les demandes sont dédupliquées pendant le téléchargement ; les données ne sont pas effacées après un échec. Une demande sur un symbole déjà importé ouvre l’actif existant ; ses futures mises à jour sont assurées par le worker. Une seule instance du worker doit tourner : au redémarrage, elle reprend les demandes restées en cours.
+Les demandes sont dédupliquées pendant le téléchargement ; les données ne sont pas effacées après un échec. Une demande sur un symbole déjà importé ouvre l’actif existant ; ses futures mises à jour sont assurées par le worker. Une demande interrompue brutalement redevient disponible après un délai de quinze minutes ; un redémarrage du worker ne réinitialise pas les téléchargements encore actifs. L’arrêt normal de l’API attend la fin de son import en cours.
 
 Connecteur : [yfinance, historique ajusté](https://ranaroussi.github.io/yfinance/reference/api/yfinance.Ticker.history.html). Accès non garanti, dépendant des disponibilités, corrections et limites du fournisseur. La bibliothèque n’est pas affiliée à Yahoo ; voir [ses conditions et avertissements](https://github.com/ranaroussi/yfinance) avant tout usage commercial ou redistribution des données. Les réglages/cache fournisseur restent dans `data/provider-cache/`.
 
@@ -48,11 +48,11 @@ Sources : [Banque mondiale, Commodity Markets](https://www.worldbank.org/en/rese
 
 Le worker télécharge aussi les événements `Dividends` de l’historique quotidien Yahoo (`actions=True`) et les conserve dans les tables `dividends` et `dividend_imports`. Les consultations `GET /api/assets/{id}/dividends` restent locales. Une actualisation réussie remplace les événements de la fenêtre téléchargée pour prendre en compte corrections et suppressions ; une erreur conserve les données précédentes. Les actions déjà présentes sont complétées à leur prochaine actualisation.
 
-Sous le graphique : dernier dividende connu et date de détachement, somme brute par action des douze derniers mois disponibles, puis dates personnalisables inclusives avec cumul et détail des événements. L’interface distingue les données en attente d’import d’une période connue sans dividende. La couverture est explicitement affichée. Il s’agit des montants historiques du fournisseur, corrigés des divisions d’actions, hors fiscalité et conversion de devise ; pas d’une prévision. Les prix ajustés du graphique incluent déjà l’ajustement des dividendes, donc les backtests ne les ajoutent pas une seconde fois. [Documentation du fournisseur](https://ranaroussi.github.io/yfinance/reference/yfinance.price_history.html).
+Les repères menthe « D » sont intégrés au graphique, sans panneau supplémentaire. Au survol ou au toucher : date de détachement et pourcentage du versement brut rapporté à la clôture de la séance précédente, hors ajustement des dividendes (pourcentage ponctuel, non annualisé). Le fournisseur renvoie `Close` et `Adj Close` avec `auto_adjust=False` : les observations utilisent `Adj Close`, tandis que les pourcentages utilisent `Close` ; les deux valeurs du ratio sont corrigées des divisions selon Yahoo. La première séance sans clôture précédente donne un pourcentage absent. Les anciennes données attendent une actualisation pour leur pourcentage, sans approximation à partir du prix ajusté. La légende distingue chargement, attente, erreur et historique sans dividende. Il s’agit des montants historiques du fournisseur, corrigés des divisions d’actions, hors fiscalité et conversion de devise ; pas d’une prévision. Les prix ajustés du graphique incluent déjà l’ajustement des dividendes, donc les backtests ne les ajoutent pas une seconde fois. [Documentation du fournisseur](https://ranaroussi.github.io/yfinance/reference/yfinance.price_history.html).
 
 ## Analyse quantitative
 
-L’onglet **Analyse quantitative**, présent sur les matières premières, actions et cryptos, propose un HMM à trois régimes. Sélectionner la carte entraînement ou test, puis faire glisser sur la miniature historique ; les champs de dates permettent aussi une sélection précise au clavier. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler frais, glissement, confirmation, détention minimale, plafond de transactions, seuils d’entrée/sortie et taux sans risque.
+L’onglet **HMM**, présent sur les matières premières, actions et cryptos, propose un `GaussianHMM` à deux régimes (hausse et neutre / baisse), alimenté par les variations et le momentum. Les résultats affichent les performances, l’exposition et le nombre d’ordres. Choisir les périodes d’entraînement et de test sur la courbe interactive ou dans les champs de dates. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler les frais en pourcentage (0,1 % par défaut) et les seuils d’achat/vente (80 % / 50 %). Les confirmations d’achat et de vente sont ajustables séparément : cinq observations avant achat et trois avant vente par défaut. Le glissement est nul dans l’interface.
 
 La simulation long/liquidités compare le capital net à l’achat-conservation du même actif, affiche les régimes, la matrice de transition et les transactions. Sharpe, Sortino, Calmar, volatilité annualisée, drawdown maximal, VaR 95 %, alpha et bêta disposent d’une infobulle au survol **et au focus clavier**, avec définition et repères. Le modèle n’a accès qu’à l’entraînement pour son ajustement ; les probabilités en période 2 sont filtrées causalement, avec exécution retardée.
 
@@ -67,7 +67,9 @@ backend/investor/
   ingest.py, countries.py  connecteurs Banque mondiale et OCDE/FRED
   market_catalog.py        sélection crypto initiale
   market_schemas.py        validation des demandes d’import
-  market_api.py            file d’import persistante, sans réseau fournisseur
+  market_api.py            file d’import et recherche par nom ou symbole
+  stock_search.py          découverte Yahoo, cache borné, repli local
+  import_runner.py         traitement automatique de la file avec l’API
   market.py                téléchargement et archives Yahoo
   worker.py                orchestration indépendante des imports
   analysis/
@@ -92,7 +94,7 @@ Les calculs s’appuient sur NumPy/SciPy et hmmlearn avec code numérique compil
 Banque mondiale / FRED / Yahoo → worker → archives + SQLite → API → React
 ```
 
-`data/raw/` conserve les téléchargements par SHA-256 et leur provenance ; les archives Yahoo sont des exports du tableau ajusté retourné par yfinance, pas les réponses HTTP brutes de Yahoo. `data/investor.sqlite3` conserve actifs, observations, imports, file des demandes et cache des analyses. Les écritures sont transactionnelles et idempotentes par actif/date ; réimporter corrige les valeurs sans dupliquer les points. Les historiques complets sont retéléchargés pour intégrer les révisions. La consultation des données et les analyses ne contactent aucun fournisseur.
+`data/raw/` conserve les téléchargements par SHA-256 et leur provenance ; les archives Yahoo sont des exports du tableau retourné par yfinance, avec les clôtures ajustées et non ajustées, pas les réponses HTTP brutes de Yahoo. `data/investor.sqlite3` conserve actifs, observations, imports, file des demandes et cache des analyses. Les écritures sont transactionnelles et idempotentes par actif/date ; réimporter corrige les valeurs sans dupliquer les points. Les historiques complets sont retéléchargés pour intégrer les révisions. La consultation des données et les analyses ne contactent aucun fournisseur.
 
 ```sh
 # Imports ponctuels ; ne nécessitent pas l’API
@@ -115,8 +117,26 @@ cd frontend
 npm run format:check
 ```
 
-Tests : parsing des fournisseurs, migrations, erreurs HTTP, queue persistante/dédupliquée, conservation après erreur, archives Yahoo et type d’instrument, séparation temporelle, causalité des variables et régimes, exécution retardée, coûts, limites de transactions/détention, formules connues, cas dégénérés, refus HMM des obligations, classement souverain sur douze mois, dividendes et corrections, cache invalidé après correction. Le build vérifie TypeScript puis produit `frontend/dist`.
+Tests : parsing des fournisseurs, migrations, erreurs HTTP, queue persistante/dédupliquée, conservation après erreur, archives Yahoo et type d’instrument, séparation temporelle, causalité des variables et régimes, exécution retardée, coûts, limites de transactions/détention, formules connues, cas dégénérés, refus HMM des obligations, classement souverain sur douze mois, dividendes et corrections, pourcentages sans double ajustement, recherche et repli local, imports automatiques sans worker, cache invalidé après correction. Le build vérifie TypeScript puis produit `frontend/dist`.
 
 Le proxy Vite sert `/api` en développement. Un déploiement devra router `/api` vers FastAPI et les routes d’interface vers `index.html`. Cette application est prévue pour un usage local : avant exposition publique, ajouter contrôle d’accès, quotas et supervision des imports/calculs.
 
 TradingView Lightweight Charts™ — Copyright © 2025 TradingView, Inc., Apache-2.0. [Projet et attribution](https://github.com/tradingview/lightweight-charts). Aucun compte TradingView requis.
+
+### Organisation et tests
+
+Le backend métier est dans `backend/investor/` et ses tests dans `backend/tests/`. L’analyse est séparée entre préparation et ajustement (`model.py`), simulation (`strategy.py`), métriques (`metrics.py`), validation des paramètres (`schemas.py`) et orchestration/cache (`service.py`).
+
+Le frontend répartit les fonctionnalités dans `src/features/`, les composants partagés dans `src/components/` et les types et appels API dans `src/lib/`. Le graphique de performance HMM est assemblé dans `PerformanceChart.tsx` à partir du composant partagé `HistoryChart` et des capitaux nets renvoyés par l’API. Les tests navigateur et leurs données synthétiques sont exclusivement dans `frontend/tests/`, hors du code de production.
+
+```sh
+make test                           # tests Python
+cd frontend
+npx playwright install chromium    # une fois, pour les tests navigateur
+npm test                           # tests sur ordinateur et mobile
+npm run build                      # TypeScript, imports/variables inutilisés, build
+```
+
+`make test-all` lance les deux suites après installation des dépendances et du navigateur. Pour utiliser un Chrome déjà installé, définir `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` avec son chemin. Les tests navigateur utilisent un serveur Vite dédié et des réponses API simulées : ils ne modifient pas la base locale et n’importent pas de données externes.
+
+L’accueil `/` ne sélectionne aucun actif. Choisir une catégorie affiche sa bibliothèque ; ouvrir un actif reste une action explicite. Après une simulation HMM, les chiffres sont complétés par la courbe du capital de la stratégie et celle de l’achat-conservation du même actif, base 100 et frais inclus.

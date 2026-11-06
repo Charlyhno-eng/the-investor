@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, Navigate, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { Icon } from "./components/Icon";
 import { AssetLibrary } from "./features/assets/AssetLibrary";
 import { AssetDetail } from "./features/assets/AssetDetail";
@@ -13,7 +13,7 @@ export function App() {
   const [assets, setAssets] = useState<Asset[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
-  const [category, setCategory] = useState<Category>("commodity"),
+  const [category, setCategory] = useState<Category>("stock"),
     [adding, setAdding] = useState(false),
     [revision, setRevision] = useState(0);
   const refresh = useCallback(() => setRevision((v) => v + 1), []);
@@ -46,17 +46,8 @@ export function App() {
   }, [categoryId]);
   function choose(value: Category) {
     setCategory(value);
-    const first = assets.find((a) => a.category === value);
-    if (first) navigate(`/assets/${first.id}`);
-    else navigate(`/markets/${value}`);
+    navigate(`/markets/${value}`);
   }
-  if (!id && !categoryId && assets.length)
-    return (
-      <Navigate
-        to={`/assets/${assets.find((a) => a.id === "wb-gold")?.id ?? assets[0].id}`}
-        replace
-      />
-    );
   return (
     <div className="app-shell">
       <header className="app-header">
