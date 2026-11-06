@@ -1,0 +1,26 @@
+[project]
+name = "the-investor"
+version = "0.1.0"
+description = "Local historical commodities and fixed-income data terminal"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.34,<1",
+    "httpx>=0.28,<1",
+    "openpyxl>=3.1,<4",
+    "numpy>=2,<2.5",
+    "scipy>=1.14,<2",
+    "hmmlearn>=0.3.3,<0.4",
+    "yfinance>=0.2.65,<2",
+    "threadpoolctl>=3,<4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8,<10",
+    "ruff>=0.14,<1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend"]
+testpaths = ["backend/tests"]
