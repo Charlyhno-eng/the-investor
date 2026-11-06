@@ -1,6 +1,6 @@
 # The Investor
 
-Espace local de recherche de marché : matières premières, obligations par pays, sélection d’actions et principales cryptos. React Router 7, React 19, TypeScript, Tailwind CSS 4, TradingView Lightweight Charts 5. API Python FastAPI, environnement **uv**, données SQLite. Interface noir encre, cuivre et bleu glacier, navigation extensible par catégorie et laboratoire quantitatif pour les matières premières, actions et cryptos.
+Espace local de recherche de marché : matières premières, obligations par pays, sélection d’actions et principales cryptos. React Router 7, React 19, TypeScript, Tailwind CSS 4, TradingView Lightweight Charts 5. API Python FastAPI, environnement **uv**, données SQLite. Interface noir encre, cuivre et bleu glacier, navigation extensible par catégorie et laboratoire quantitatif pour les actions et cryptos.
 
 ## Démarrer
 
@@ -52,11 +52,11 @@ Les repères menthe « D » sont intégrés au graphique, sans panneau suppléme
 
 ## Analyse quantitative
 
-L’onglet **HMM**, présent sur les matières premières, actions et cryptos, propose un `GaussianHMM` à deux régimes (hausse et neutre / baisse), alimenté par les variations et le momentum. Les résultats affichent les performances, l’exposition et le nombre d’ordres. Choisir les périodes d’entraînement et de test sur la courbe interactive ou dans les champs de dates. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler les frais en pourcentage (0,1 % par défaut) et les seuils d’achat/vente (80 % / 50 %). Les confirmations d’achat et de vente sont ajustables séparément : cinq observations avant achat et trois avant vente par défaut. Le glissement est nul dans l’interface.
+L’onglet **HMM**, présent sur les actions et cryptos, propose un `GaussianHMM` à deux régimes (hausse et neutre / baisse), alimenté par les variations et le momentum. Les résultats affichent les performances, l’exposition et le nombre d’ordres. Choisir les périodes d’entraînement et de test sur la courbe interactive ou dans les champs de dates. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler les frais en pourcentage (0,1 % par défaut) et les seuils d’achat/vente (80 % / 50 %). Les confirmations d’achat et de vente sont ajustables séparément : cinq observations avant achat et trois avant vente par défaut. Le glissement est nul dans l’interface.
 
 La simulation long/liquidités compare le capital net à l’achat-conservation du même actif, affiche les régimes, la matrice de transition et les transactions. Sharpe, Sortino, Calmar, volatilité annualisée, drawdown maximal, VaR 95 %, alpha et bêta disposent d’une infobulle au survol **et au focus clavier**, avec définition et repères. Le modèle n’a accès qu’à l’entraînement pour son ajustement ; les probabilités en période 2 sont filtrées causalement, avec exécution retardée.
 
-Les obligations ne proposent pas d’analyse HMM, et l’API refuse ces analyses. Elles sont classées par moyenne décroissante des taux annualisés sur les douze mois précédant la dernière observation souveraine du catalogue. Les observations absentes ne sont pas interpolées ; les pays sans données dans cette fenêtre sont placés en fin de liste. Le dernier taux disponible apparaît au-dessus du graphique. Ces séries n’identifient pas une émission et ne permettent donc pas d’afficher son coupon contractuel, ni de mesurer un rendement total réalisé sur un an. Pour les commodities mensuelles, la simulation reste un proxy de prix/indice et n’inclut pas le roulement de futures. Les limites sont rappelées dans le résultat. [Conventions, formules, exécution et limites détaillées](docs/analysis.md).
+Les matières premières et les obligations ne proposent pas d’analyse HMM ; l’API refuse ces analyses avant toute lecture du cache de résultats. Elles sont classées par moyenne décroissante des taux annualisés sur les douze mois précédant la dernière observation souveraine du catalogue. Les observations absentes ne sont pas interpolées ; les pays sans données dans cette fenêtre sont placés en fin de liste. Le dernier taux disponible apparaît au-dessus du graphique. Ces séries n’identifient pas une émission et ne permettent donc pas d’afficher son coupon contractuel, ni de mesurer un rendement total réalisé sur un an. Pour les commodities mensuelles, la simulation reste un proxy de prix/indice et n’inclut pas le roulement de futures. Les limites sont rappelées dans le résultat. [Conventions, formules, exécution et limites détaillées](docs/analysis.md).
 
 ## Organisation
 
@@ -140,3 +140,7 @@ npm run build                      # TypeScript, imports/variables inutilisés, 
 `make test-all` lance les deux suites après installation des dépendances et du navigateur. Pour utiliser un Chrome déjà installé, définir `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` avec son chemin. Les tests navigateur utilisent un serveur Vite dédié et des réponses API simulées : ils ne modifient pas la base locale et n’importent pas de données externes.
 
 L’accueil `/` ne sélectionne aucun actif. Choisir une catégorie affiche sa bibliothèque ; ouvrir un actif reste une action explicite. Après une simulation HMM, les chiffres sont complétés par la courbe du capital de la stratégie et celle de l’achat-conservation du même actif, base 100 et frais inclus.
+
+## Recherche HMM sur les actions et cryptomonnaies
+
+Le [benchmark des 11 actifs locaux](docs/hmm-benchmark.md) compare 432 configurations sur trois fenêtres de validation, puis un candidat figé sur une dernière fenêtre de test. Le candidat réduit les ordres mais dégrade plusieurs actifs et le Sharpe moyen : les paramètres de production sont conservés. Le [script reproductible](backend/research/hmm_benchmark.py) lit SQLite en lecture seule et produit un rapport JSON ; il ne modifie ni les historiques ni les réglages de l’application.

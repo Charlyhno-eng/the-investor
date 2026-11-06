@@ -30,7 +30,8 @@ export function AssetDetail({ asset }: { asset: Asset }) {
     return () => controller.abort();
   }, [asset.id, asset.last_date, asset.points, asset.last_value]);
   const dividends = useDividends(asset);
-  const supportsAnalysis = asset.category !== "bond";
+  const supportsAnalysis =
+    asset.category === "stock" || asset.category === "crypto";
   const category = categories.find((c) => c.id === asset.category)!;
   const cutoff = new Date(`${asset.last_date}T00:00:00Z`);
   cutoff.setUTCFullYear(cutoff.getUTCFullYear() - range);
@@ -93,7 +94,7 @@ export function AssetDetail({ asset }: { asset: Asset }) {
           </button>
         )}
       </div>
-      {tab === "chart" && (
+      {(!supportsAnalysis || tab === "chart") && (
         <section className="chart-panel">
           <div className="quote-row">
             <div>

@@ -2,13 +2,15 @@
 
 ## Données et périodes
 
+Le HMM est réservé aux actions et cryptomonnaies. Matières premières et obligations restent consultables dans la vue marché ; leur analyse HMM est masquée dans l’interface et refusée par l’API, avant lecture des observations ou du cache.
+
 Le calcul lit uniquement SQLite. L’utilisateur choisit deux fenêtres fermées, ordonnées et sans chevauchement. Une éventuelle zone entre entraînement et test sert seulement à mettre à jour le filtre, sans réentraîner le modèle ni ouvrir de position. Les premières observations de la fenêtre 1 initialisent le momentum glissant et sont exclues de l’ajustement. Minimum : 100 variations après initialisation pour entraîner, 20 variations pour tester ; maximum 40 000 observations au total.
 
 Les dates réellement observées figurent dans le résultat. Une variation datée au début de la fenêtre 2 est calculée depuis la clôture précédente disponible : cette clôture est la base 100 commune du benchmark et de la stratégie. Les jours sans observation ne sont pas interpolés. Les séries très lacunaires peuvent rendre l’annualisation peu représentative.
 
-Actions : clôtures ajustées Yahoo Finance, via `yfinance`, pour tenir compte des splits et distributions selon les ajustements du fournisseur. Crypto : clôtures quotidiennes en USD, sans rendement de staking. Commodities : prix de référence/indices mensuels Banque mondiale ; simulation illustrative, sans contrat exécutable, roulement de futures, stockage, spread variable ni contraintes de liquidité. Les valeurs négatives ou nulles rendent le calcul logarithmique indisponible sur la période choisie.
+Actions : clôtures ajustées Yahoo Finance, via `yfinance`, pour tenir compte des splits et distributions selon les ajustements du fournisseur. Crypto : clôtures quotidiennes en USD, sans rendement de staking. Commodities : prix de référence/indices mensuels Banque mondiale, consultables uniquement dans la vue marché. Les valeurs négatives ou nulles rendent le calcul logarithmique indisponible sur la période choisie.
 
-Obligations : les séries actuelles sont des **taux de référence**, parfois négatifs. L’analyse HMM est retirée de cette catégorie ; son accès API est refusé avant tout calcul ou lecture du cache. Le classement utilise la moyenne des taux annualisés disponibles sur les douze mois terminant à la dernière observation souveraine du catalogue. Ce n’est pas la performance totale réalisée sur un an. Le dernier taux apparaît au-dessus du graphique ; le coupon contractuel d’une émission précise n’est pas disponible dans ces séries. [Distinction entre prix, taux et rendement](https://www.treasurydirect.gov/marketable-securities/understanding-pricing/).
+Obligations : les séries actuelles sont des **taux de référence**, parfois négatifs. L’analyse HMM est désactivée sur cette catégorie comme sur les matières premières. Le classement utilise la moyenne des taux annualisés disponibles sur les douze mois terminant à la dernière observation souveraine du catalogue. Ce n’est pas la performance totale réalisée sur un an. Le dernier taux apparaît au-dessus du graphique ; le coupon contractuel d’une émission précise n’est pas disponible dans ces séries. [Distinction entre prix, taux et rendement](https://www.treasurydirect.gov/marketable-securities/understanding-pricing/).
 
 ## Modèle
 
@@ -71,3 +73,7 @@ La simulation ne promet pas de battre le marché. Modifier les paramètres aprè
 Les paramètres visibles sont ouverts par défaut : frais par ordre en pourcentage et seuils d’entrée/sortie. Deux champs distincts permettent de régler les confirmations à l’achat (5 par défaut) et à la vente (3 par défaut). Détention minimale, plafond d’ordres et taux sans risque restent compatibles avec les clients API, mais ne sont plus proposés dans l’interface. Celle-ci fixe respectivement 1 observation, aucun plafond et 0 %. Une courbe interactive permet de sélectionner les périodes d’entraînement et de test ; les résultats HMM affichent les chiffres et une courbe comparative stratégie / achat-conservation, sur le même actif, en base 100 et frais inclus ; la vue marché affiche uniquement le graphique et ses contrôles.
 
 La revue du nombre d’ordres et des frais est détaillée dans [le comparatif de rotation](hmm-turnover.md). Les champs numériques acceptent une saisie temporairement vide ; une valeur valide est enregistrée à la sortie du champ, sinon la précédente est conservée.
+
+## Benchmark multi-actifs
+
+La [recherche sur toutes les actions et cryptomonnaies locales](hmm-benchmark.md) expose le protocole, les compromis mesurés et les résultats par actif. Elle ne justifie pas un changement automatique des paramètres courants. Les comparatifs plus anciens sur les matières premières ci-dessus décrivent des fonctionnalités désormais désactivées.

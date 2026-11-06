@@ -1,6 +1,23 @@
 import { test, expect } from "@playwright/test";
 import { mockApi } from "./fixtures";
 
+for (const [id, available] of [
+  ["yf-test", true],
+  ["yf-btc-usd", true],
+  ["wb-gold", false],
+  ["bond-fr", false],
+] as const) {
+  test(`HMM availability for ${id}`, async ({ page }) => {
+    const { analysisRequests } = await mockApi(page);
+    await page.goto(`/assets/${id}`);
+    await expect(page.locator(".chart-panel canvas").first()).toBeVisible();
+    await expect(
+      page.getByRole("tab", { name: "HMM", exact: true }),
+    ).toHaveCount(available ? 1 : 0);
+    expect(analysisRequests).toHaveLength(0);
+  });
+}
+
 test("opens the workspace without selecting an asset, including after reload", async ({
   page,
 }) => {

@@ -205,6 +205,53 @@ def test_analysis_cache_and_data_revision(local, sample, monkeypatch):
     )
 
 
+@pytest.mark.parametrize("category", ["commodity", "bond"])
+def test_unsupported_categories_rejected_before_cache_and_fit(
+    local, sample, monkeypatch, category
+):
+    from investor.analysis import service
+
+    _, _, request = sample
+    db.save(
+        [
+            (
+                "unsupported",
+                "Unsupported",
+                category,
+                "price",
+                "USD",
+                "daily",
+                "test",
+                "https://example.com",
+            )
+        ],
+        [("unsupported", "2020-01-01", 100)],
+        "test",
+    )
+    with db.connect() as connection:
+        connection.execute(
+            "INSERT INTO analysis_runs(id,result) VALUES (?,?)",
+            ("old-result", '{"legacy":true}'),
+        )
+
+    def unexpected_fit(*args):
+        pytest.fail("Unsupported assets must be rejected before model fitting")
+
+    monkeypatch.setattr(service, "fit_model", unexpected_fit)
+
+    # A cache hit would be returned if the eligibility check were moved below hashing.
+    class LegacyHash:
+        def hexdigest(self):
+            return "old-result"
+
+    monkeypatch.setattr(service.hashlib, "sha256", lambda *args: LegacyHash())
+    response = local.post(
+        "/api/assets/unsupported/analysis", json=request.model_dump(mode="json")
+    )
+    assert response.status_code == 422
+    assert "réservée aux actions et cryptomonnaies" in response.json()["detail"]
+
+
 def test_scaled_filter_matches_prefix_posteriors():
     from hmmlearn.hmm import GaussianHMM
     from investor.analysis.model import forward_filter

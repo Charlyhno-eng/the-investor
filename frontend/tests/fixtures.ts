@@ -79,6 +79,14 @@ export async function mockApi(page: Page) {
         json: [
           stock,
           { ...stock, id: "wb-gold", name: "Or", category: "commodity" },
+          {
+            ...stock,
+            id: "bond-fr",
+            name: "France",
+            category: "bond",
+            metric: "yield",
+          },
+          { ...stock, id: "yf-btc-usd", name: "Bitcoin", category: "crypto" },
         ],
       });
     } else if (path.endsWith("/history")) {
