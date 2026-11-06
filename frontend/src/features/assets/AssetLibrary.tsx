@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
+import { stockCountry } from "../../lib/countries";
 import { Tooltip } from "../../components/Tooltip";
 import { Icon } from "../../components/Icon";
 import { categories, date, number } from "../../lib/format";
@@ -71,6 +72,12 @@ export function AssetLibrary({
   filtered.sort(
     (a, b) => favoriteRank(favorites[b.id]) - favoriteRank(favorites[a.id]),
   );
+  if (isLibrary(category))
+    filtered.sort(
+      (a, b) =>
+        categories.findIndex((c) => c.id === a.category) -
+        categories.findIndex((c) => c.id === b.category),
+    );
   const total = assets.filter((a) =>
     category === "portfolio"
       ? favorites[a.id] === "gold"
@@ -131,51 +138,59 @@ export function AssetLibrary({
         </div>
       )}
       <nav ref={list} aria-label="Actifs" className="asset-list">
-        {filtered.map((a) => (
-          <div className="asset-list-item" key={a.id}>
-            <Link
-              title={
-                a.category === "bond"
-                  ? `${a.name} · moyenne sur ${a.year_yield_samples} observation(s) · dernière donnée ${date(a.last_date)}`
-                  : a.name
-              }
-              to={`/assets/${a.id}${isLibrary(category) ? `?library=${category}` : ""}`}
-              aria-current={selected === a.id ? "page" : undefined}
-            >
-              <span className={`list-symbol ${a.category}`}>
-                {a.country_code ??
-                  (a.id.startsWith("yf-")
-                    ? a.id.slice(3).split("-")[0].slice(0, 3).toUpperCase()
-                    : a.name.slice(0, 2))}
-              </span>
-              <span className="list-name">
-                <strong>{a.name}</strong>
-                <small>
-                  {a.id.startsWith("yf-")
-                    ? a.id.slice(3).toUpperCase()
-                    : a.metric === "yield"
-                      ? "Souverain · %"
-                      : a.unit}
-                </small>
-              </span>
-              <span className="list-value">
-                {a.category === "bond"
-                  ? a.year_average_yield == null
-                    ? "—"
-                    : `${number(a.year_average_yield)} %`
-                  : number(a.last_value, a.last_value < 1 ? 3 : 2)}
-              </span>
-            </Link>
-            <button
-              className={`favorite-button ${favorites[a.id] ? `is-favorite ${favorites[a.id]}` : ""}`}
-              aria-label={favoriteLabel(favorites[a.id], a.name)}
-              title={favoriteLabel(favorites[a.id], a.name)}
-              aria-pressed={!!favorites[a.id]}
-              onClick={() => onToggleFavorite(a.id)}
-            >
-              <Icon name="star" size={15} />
-            </button>
-          </div>
+        {filtered.map((a, index) => (
+          <Fragment key={a.id}>
+            {isLibrary(category) &&
+              index > 0 &&
+              filtered[index - 1].category !== a.category && (
+                <div className="asset-category-divider" role="separator" />
+              )}
+            <div className="asset-list-item">
+              <Link
+                title={
+                  a.category === "bond"
+                    ? `${a.name} · moyenne sur ${a.year_yield_samples} observation(s) · dernière donnée ${date(a.last_date)}`
+                    : a.name
+                }
+                to={`/assets/${a.id}${isLibrary(category) ? `?library=${category}` : ""}`}
+                aria-current={selected === a.id ? "page" : undefined}
+              >
+                <span className={`list-symbol ${a.category}`}>
+                  {a.country_code ??
+                    (a.id.startsWith("yf-")
+                      ? a.id.slice(3).split("-")[0].slice(0, 3).toUpperCase()
+                      : a.name.slice(0, 2))}
+                </span>
+                <span className="list-name">
+                  <strong>{a.name}</strong>
+                  <small>
+                    {a.id.startsWith("yf-")
+                      ? a.id.slice(3).toUpperCase()
+                      : a.metric === "yield"
+                        ? "Souverain · %"
+                        : a.unit}
+                    {a.category === "stock" && ` · ${stockCountry(a)}`}
+                  </small>
+                </span>
+                <span className="list-value">
+                  {a.category === "bond"
+                    ? a.year_average_yield == null
+                      ? "—"
+                      : `${number(a.year_average_yield)} %`
+                    : number(a.last_value, a.last_value < 1 ? 3 : 2)}
+                </span>
+              </Link>
+              <button
+                className={`favorite-button ${favorites[a.id] ? `is-favorite ${favorites[a.id]}` : ""}`}
+                aria-label={favoriteLabel(favorites[a.id], a.name)}
+                title={favoriteLabel(favorites[a.id], a.name)}
+                aria-pressed={!!favorites[a.id]}
+                onClick={() => onToggleFavorite(a.id)}
+              >
+                <Icon name="star" size={15} />
+              </button>
+            </div>
+          </Fragment>
         ))}
         {loading && (
           <div className="library-empty" role="status">

@@ -10,6 +10,23 @@ from investor.api import app
 @pytest.fixture
 def local(tmp_path, monkeypatch):
     monkeypatch.setattr(db, "DATA_DIR", tmp_path)
+    with db.connect() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO reference_imports VALUES ('EURUSD=X',strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
+        )
+        connection.executemany(
+            "INSERT INTO reference_observations VALUES ('EURUSD=X',?,1.25)",
+            [
+                (day,)
+                for day in [
+                    "2025-09-25",
+                    *[
+                        (date.today() - timedelta(days=i)).isoformat()
+                        for i in range(45)
+                    ],
+                ]
+            ],
+        )
     return TestClient(app)
 
 
@@ -57,6 +74,8 @@ def test_valuation_uses_current_unadjusted_prices_and_correlations_use_returns(l
     ).json()
     assert r["status"] == "ready"
     assert r["total_usd"] == 80
+    assert r["currency"] == "EUR"
+    assert r["total"] == 64
     assert [p["weight"] for p in r["positions"]] == [0.5, 0.5]
     assert r["correlation"]["observations"] == 34
     assert r["correlation"]["matrix"][0][0] == pytest.approx(1)
@@ -174,3 +193,66 @@ def test_monthly_series_align_by_completed_month_and_indices_are_not_valued(loca
     assert result["correlation"]["matrix"][0][1] == pytest.approx(1)
     assert result["total_usd"] == 200
     assert result["excluded"][0]["id"] == "index"
+
+
+def test_currency_conversion_uses_last_known_rate_not_a_future_rate(local):
+    seed("a", raw=100)
+    with db.connect() as connection:
+        connection.execute("DELETE FROM reference_observations")
+        last = connection.execute(
+            "SELECT MAX(date) FROM price_observations"
+        ).fetchone()[0]
+        previous = (date.fromisoformat(last) - timedelta(days=2)).isoformat()
+        future = (date.fromisoformat(last) + timedelta(days=1)).isoformat()
+        connection.executemany(
+            "INSERT INTO reference_observations VALUES (?,?,?)",
+            [("EURUSD=X", previous, 1.25), ("EURUSD=X", future, 2)],
+        )
+        connection.execute(
+            "INSERT OR REPLACE INTO reference_imports VALUES ('EURUSD=X',strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
+        )
+    body = {"holdings": [{"asset_id": "a", "quantity": 2}], "currency": "EUR"}
+    result = local.post("/api/portfolio/analytics", json=body).json()
+    assert result["currency"] == "EUR"
+    assert result["total"] == 160
+    assert result["total_usd"] == 200
+    assert result["positions"][0]["value"] == 160
+    assert result["positions"][0]["price"] == 80
+    assert result["positions"][0]["fx_date"] == previous
+    assert result["positions"][0]["weight"] == 1
+    with db.connect() as connection:
+        connection.execute(
+            "DELETE FROM reference_observations WHERE date=?", (previous,)
+        )
+        connection.execute(
+            "INSERT INTO reference_observations VALUES ('EURUSD=X',?,1.1)",
+            ((date.fromisoformat(last) - timedelta(days=8)).isoformat(),),
+        )
+    result = local.post("/api/portfolio/analytics", json=body).json()
+    assert result["positions"] == []
+    assert "Change EUR indisponible" in result["excluded"][0]["reason"]
+    body["currency"] = "USD"
+    assert local.post("/api/portfolio/analytics", json=body).status_code == 422
+
+
+def test_missing_display_currency_rate_is_queued_and_empty_portfolio_needs_no_rate(
+    local,
+):
+    seed("a")
+    with db.connect() as connection:
+        connection.execute("DELETE FROM reference_imports")
+        connection.execute("DELETE FROM reference_observations")
+    body = {"holdings": [{"asset_id": "a", "quantity": 1}]}
+    assert local.post("/api/portfolio/analytics", json=body).json() == {
+        "status": "pending"
+    }
+    with db.connect() as connection:
+        assert (
+            connection.execute("SELECT symbol FROM import_jobs").fetchone()[0]
+            == "EURUSD=X"
+        )
+    result = local.post(
+        "/api/portfolio/analytics", json={"holdings": [], "currency": "EUR"}
+    ).json()
+    assert result["currency"] == "EUR"
+    assert result["total"] == 0

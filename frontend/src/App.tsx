@@ -27,11 +27,39 @@ export function App() {
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
   const [category, setCategory] = useState<Category | Library>(
-      isLibrary(library) ? library : "stock",
+      isLibrary(library) ? library : id ? "stock" : "portfolio",
     ),
     [adding, setAdding] = useState(false),
     [revision, setRevision] = useState(0);
   const [favorites, setFavorites] = useState<Favorites>(readFavorites);
+  const [removedAssets, setRemovedAssets] = useState<string[]>(() => {
+    try {
+      const saved: unknown = JSON.parse(
+        localStorage.getItem("investor-removed-assets") ?? "[]",
+      );
+      return Array.isArray(saved)
+        ? saved.filter((id): id is string => typeof id === "string")
+        : [];
+    } catch {
+      return [];
+    }
+  });
+  function removeAsset(id: string) {
+    const next = [...removedAssets, id];
+    setRemovedAssets(next);
+    try {
+      localStorage.setItem("investor-removed-assets", JSON.stringify(next));
+      setFavoriteError("");
+    } catch {
+      setFavoriteError(
+        "Le retrait reste effectif dans cette session, mais son enregistrement local a échoué.",
+      );
+    }
+    navigate(`/markets/${category}`);
+  }
+  const visibleAssets = assets.filter(
+    (asset) => !removedAssets.includes(asset.id),
+  );
   const [quantities, setQuantities] = useState<Quantities>(readQuantities);
   function updateQuantity(id: string, quantity: number) {
     const next = { ...quantities, [id]: quantity };
@@ -80,7 +108,7 @@ export function App() {
     const interval = setInterval(refresh, 15000);
     return () => clearInterval(interval);
   }, [refresh]);
-  const selected = assets.find((a) => a.id === id);
+  const selected = visibleAssets.find((a) => a.id === id);
   useEffect(() => {
     if (selected)
       setCategory((current) =>
@@ -94,7 +122,8 @@ export function App() {
   useEffect(() => {
     if (isLibrary(categoryId) || categories.some((c) => c.id === categoryId))
       setCategory(categoryId as Category | Library);
-  }, [categoryId]);
+    else if (!id) setCategory("portfolio");
+  }, [categoryId, id]);
   function choose(value: Category | Library) {
     setCategory(value);
     navigate(`/markets/${value}`);
@@ -114,16 +143,6 @@ export function App() {
           <span>Workspace</span>
           <span className="header-slash">/</span>
           <strong>Marchés</strong>
-        </div>
-        <div className="header-actions">
-          <span className="local-label">
-            <span className="status-dot" />
-            Données locales
-          </span>
-          <button className="secondary-button" onClick={() => setAdding(true)}>
-            <Icon name="plus" size={15} />
-            <span>Ajouter une action</span>
-          </button>
         </div>
       </header>
       <div className="app-body">
@@ -153,15 +172,11 @@ export function App() {
               <span>{c.short}</span>
             </button>
           ))}
-          <div className="rail-bottom">
-            <Icon name="layers" size={20} />
-            <span>v0.2</span>
-          </div>
         </nav>
         <AssetLibrary
           favorites={favorites}
           onToggleFavorite={toggleFavorite}
-          assets={assets}
+          assets={visibleAssets}
           category={category}
           selected={id}
           loading={loading}
@@ -179,14 +194,19 @@ export function App() {
             <AssetDetail
               key={selected.id}
               asset={selected}
-              quantity={quantities[selected.id] ?? 0}
-              onQuantity={(value) => updateQuantity(selected.id, value)}
               favorite={favorites[selected.id]}
               onToggleFavorite={() => toggleFavorite(selected.id)}
+              onRemove={() => removeAsset(selected.id)}
             />
           ) : category === "portfolio" ? (
             <PortfolioPanel
-              assets={assets.filter((a) => favorites[a.id] === "gold")}
+              assets={visibleAssets
+                .filter((a) => favorites[a.id] === "gold")
+                .sort(
+                  (a, b) =>
+                    categories.findIndex((c) => c.id === a.category) -
+                    categories.findIndex((c) => c.id === b.category),
+                )}
               quantities={quantities}
               onQuantity={updateQuantity}
             />

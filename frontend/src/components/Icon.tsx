@@ -1,5 +1,11 @@
 import type { CSSProperties } from "react";
 const paths: Record<string, React.ReactNode> = {
+  allocation: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3v9h9M12 12l-6 7" />
+    </>
+  ),
   commodity: (
     <>
       <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z" />
@@ -25,6 +31,7 @@ const paths: Record<string, React.ReactNode> = {
   star: (
     <path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z" />
   ),
+  minus: <path d="M5 12h14" />,
   plus: <path d="M12 5v14M5 12h14" />,
   search: (
     <>

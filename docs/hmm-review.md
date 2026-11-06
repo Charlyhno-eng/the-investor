@@ -1,5 +1,7 @@
 # Revue du HMM et passage à deux états
 
+> Étude historique : la méthode actuelle est décrite dans [la revue FrenchQuant](hmm-video.md).
+
 ## Dépôt examiné
 
 Référence : [crypto-trend-following-strategy](https://github.com/Charlyhno-eng/crypto-trend-following-strategy), commit `bb899d9219731cec71a1f877c0da06f4df9fec2b`, consulté le 6 novembre 2026. Lecture des scripts sources ; aucun modèle pickle externe n’a été chargé.

@@ -25,12 +25,13 @@ export function MarketComparison({
   asset,
   start,
   end,
+  reinvest,
 }: {
   asset: Asset;
   start?: string;
   end: string;
+  reinvest: boolean;
 }) {
-  const [reinvest, setReinvest] = useState(false);
   const [result, setResult] = useState<Comparison | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
@@ -68,15 +69,6 @@ export function MarketComparison({
   }, [asset.id, asset.last_value, start, end, revision, reinvest]);
   return (
     <section className="market-comparison" aria-label="Comparaison au S&P 500">
-      <div className="market-chart-actions">
-        <button
-          className="secondary-button"
-          aria-pressed={reinvest}
-          onClick={() => setReinvest((v) => !v)}
-        >
-          Dividendes réinvestis
-        </button>
-      </div>
       {error ? (
         <div className="chart-placeholder error" role="alert">
           {error}

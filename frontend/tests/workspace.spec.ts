@@ -27,14 +27,14 @@ test("opens the workspace without selecting an asset, including after reload", a
   const { historyRequests } = await mockApi(page);
   await page.goto("/");
   await expect(
-    page.getByRole("heading", { name: "Votre espace de recherche" }),
+    page.getByRole("heading", { name: "Portfolio", exact: true }),
   ).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator(".asset-list [aria-current]")).toHaveCount(0);
   expect(historyRequests).toHaveLength(0);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Votre espace de recherche" }),
+    page.getByRole("heading", { name: "Portfolio", exact: true }),
   ).toBeVisible();
   await expect(page).toHaveURL(/\/$/);
   expect(historyRequests).toHaveLength(0);
@@ -45,12 +45,22 @@ test("selects assets explicitly and returns home via the brand", async ({
 }) => {
   await mockApi(page);
   await page.goto("/");
+  await expect(
+    page
+      .locator(".header-actions")
+      .getByRole("button", { name: "Ajouter une action" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Actions", exact: true }).click();
   await page.getByRole("link", { name: /Action test/ }).click();
   await expect(page).toHaveURL(/\/assets\/yf-test$/);
   await expect(page.locator(".chart-panel canvas").first()).toBeVisible();
+  await expect(page.locator(".asset-subtitle")).toContainText("France");
   await page.getByRole("link", { name: /the investor/ }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator(".asset-detail")).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { name: "Portfolio", exact: true }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Matières", exact: true }).click();
   await expect(page).toHaveURL(/\/markets\/commodity$/);
   await expect(page.locator(".asset-detail")).toHaveCount(0);
@@ -70,21 +80,9 @@ test("HMM keeps date selection and shows the comparison only after running", asy
   });
   await expect(chart).toHaveCount(0);
   const inputs = page.locator(".parameters input");
-  await expect(inputs).toHaveCount(5);
+  await expect(inputs).toHaveCount(1);
   const fee = inputs.first();
-  await expect(fee).toHaveValue("0.1");
-  await expect(inputs.nth(1)).toHaveValue("80");
-  await expect(inputs.nth(2)).toHaveValue("50");
-  await expect(inputs.nth(3)).toHaveValue("5");
-  await expect(inputs.nth(4)).toHaveValue("3");
-  await inputs.nth(3).fill("");
-  await expect(inputs.nth(3)).toHaveValue("");
-  await inputs.nth(3).fill("4");
-  await inputs.nth(3).press("Tab");
-  await expect(inputs.nth(4)).toHaveValue("3");
-  await inputs.nth(4).fill("2");
-  await inputs.nth(4).press("Tab");
-  await expect(inputs.nth(3)).toHaveValue("4");
+  await expect(fee).toHaveValue("0.5");
   await expect(
     page.getByText("LABORATOIRE QUANTITATIF", { exact: true }),
   ).toHaveCount(0);
@@ -115,11 +113,9 @@ test("HMM keeps date selection and shows the comparison only after running", asy
   ).toBeVisible();
   await expect(chart.locator("canvas").first()).toBeVisible();
   expect(analysisRequests[0].fee_bps).toBe(20);
-  expect(analysisRequests[0].entry_confirmation).toBe(4);
-  expect(analysisRequests[0].exit_confirmation).toBe(2);
-  expect(analysisRequests[0].slippage_bps).toBe(0);
-  expect(analysisRequests[0].entry_probability).toBe(0.8);
-  expect(analysisRequests[0].exit_probability).toBe(0.5);
+  expect(Object.keys(analysisRequests[0]).sort()).toEqual(
+    ["train_start", "train_end", "test_start", "test_end", "fee_bps"].sort(),
+  );
   await chart.scrollIntoViewIfNeeded();
   await page.screenshot({ path: test.info().outputPath("comparison.png") });
   await expect
@@ -177,3 +173,98 @@ test("HMM serializes rapid edits and displays the latest result", async ({
     page.getByRole("region", { name: "Comparaison des performances" }),
   ).toBeVisible();
 });
+
+test("HMM exposes near-conservation behavior and separates regimes from positions", async ({
+  page,
+}) => {
+  const days = ["2022-01-01", "2022-01-02", "2022-01-03", "2022-01-04"];
+  await mockApi(page, {
+    exposure: 0.9967,
+    strategy_metrics: { total_return: 0.3068 },
+    benchmark_metrics: { total_return: 0.2999 },
+    regimes: days.map((time, i) => ({
+      time,
+      state: i < 2 ? "Hausse" : "Neutre / baisse",
+      probabilities: i < 2 ? [0, 1] : [1, 0],
+    })),
+    positions: days.map((time, i) => ({ time, position: i === 3 ? 0 : 1 })),
+    diagnostics: {
+      exit_reachable: false,
+      negative_states: 1,
+      negative_dominant_observations: 2,
+      negative_dominant_while_held: 2,
+      negative_dominant_without_exit_while_held: 2,
+      exit_signal_observations: 0,
+      net_excess_return: 0.0069,
+      nearly_always_invested: true,
+      nearly_always_cash: false,
+    },
+  });
+  await page.goto("/assets/yf-test");
+  await page.getByRole("tab", { name: "HMM", exact: true }).click();
+  await page.getByRole("button", { name: "Lancer la simulation" }).click();
+  const assessment = page.getByLabel("Évaluation face à la conservation");
+  await expect(assessment).toContainText("+0,69 points");
+  await expect(assessment).toContainText("Exposition presque permanente");
+  await expect(assessment).toContainText("Aucune sortie de régime possible");
+  const timeline = page.getByRole("region", {
+    name: "Régimes détectés et positions",
+  });
+  await expect(timeline).toBeVisible();
+  await expect(
+    timeline
+      .getByRole("img", { name: "Régime dominant", exact: true })
+      .locator("span"),
+  ).toHaveCount(2);
+  await expect(
+    timeline
+      .getByRole("img", { name: "Position après clôture", exact: true })
+      .locator("span")
+      .first(),
+  ).toHaveAttribute("title", /Investi · 3 observations/);
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+    )
+    .toBe(true);
+});
+
+for (const [id, fee, bps] of [
+  ["yf-test", "0.5", 50],
+  ["yf-btc-usd", "0.01", 1],
+] as const) {
+  test(`HMM defaults and compact controls for ${id}`, async ({
+    page,
+    isMobile,
+  }) => {
+    const { analysisRequests } = await mockApi(page);
+    await page.goto(`/assets/${id}`);
+    await page.getByRole("tab", { name: "HMM", exact: true }).click();
+    const input = page.locator(".parameters input");
+    const launch = page.getByRole("button", { name: "Lancer la simulation" });
+    await expect(input).toHaveValue(fee);
+    if (!isMobile) {
+      const field = (await input.boundingBox())!;
+      const button = (await launch.boundingBox())!;
+      const row = (await page.locator(".analysis-settings-row").boundingBox())!;
+      expect(button.x).toBeGreaterThan(field.x + field.width);
+      expect(
+        Math.abs(button.y + button.height - field.y - field.height),
+      ).toBeLessThan(3);
+      expect(
+        Math.abs(button.x + button.width - row.x - row.width),
+      ).toBeLessThan(3);
+    }
+    await launch.click();
+    await expect.poll(() => analysisRequests.at(-1)?.fee_bps).toBe(bps);
+    await expect(
+      page.getByRole("region", { name: "Comparaison des performances" }),
+    ).toBeVisible();
+    await expect(page.getByText(/stop.*10 %|Achats suspendus/i)).toHaveCount(0);
+    await expect
+      .poll(() =>
+        page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+      )
+      .toBe(true);
+  });
+}

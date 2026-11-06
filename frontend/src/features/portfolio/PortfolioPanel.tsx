@@ -1,9 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { post } from "../../lib/api";
-import { date, number, percent } from "../../lib/format";
+import { money } from "../../lib/currency";
+import { date, number } from "../../lib/format";
 import type { Asset } from "../../lib/types";
 import { NumberInput } from "../analysis/NumberInput";
+import { Tooltip } from "../../components/Tooltip";
+import { Icon } from "../../components/Icon";
+import { stockCountry } from "../../lib/countries";
+import { AllocationChart, correlationColor } from "./AllocationChart";
 export type Quantities = Record<string, number>;
 export function readQuantities(): Quantities {
   try {
@@ -29,15 +34,17 @@ type Position = {
   id: string;
   name: string;
   quantity: number;
-  price_usd: number;
-  value_usd: number;
+  price: number;
+  value: number;
+  fx_date: string | null;
   weight: number;
   date: string;
 };
 type Result = {
   status: "ready";
   positions: Position[];
-  total_usd: number;
+  total: number;
+  currency: "EUR";
   excluded: { id: string; name: string; reason: string }[];
   correlation: {
     assets: { id: string; name: string }[];
@@ -112,26 +119,47 @@ export function PortfolioPanel({
       className="portfolio-panel"
       aria-label="Vue d’ensemble du Portfolio"
     >
-      <h1>Portfolio</h1>
-      <p className="muted">
-        Vos actifs détenus · quantités enregistrées sur ce navigateur
-      </p>
+      <header className="portfolio-heading">
+        <div className="asset-title">
+          <span className="asset-emblem stock">
+            <Icon name="layers" size={24} />
+          </span>
+          <div>
+            <span className="eyebrow">VOTRE PATRIMOINE</span>
+            <h1>Portfolio</h1>
+          </div>
+        </div>
+        <div className="portfolio-summary">
+          <div className="portfolio-total">
+            <span>Valeur du Portfolio</span>
+            <strong>{result ? money(result.total) : "—"}</strong>
+          </div>
+          <div>
+            <span>Actifs détenus</span>
+            <strong>
+              {assets.filter((a) => (quantities[a.id] ?? 0) > 0).length}
+              <small> / {assets.length} sélectionnés</small>
+            </strong>
+          </div>
+        </div>
+      </header>
       <div
         className="detail-tabs"
         role="tablist"
         aria-label="Vues du Portfolio"
       >
         {[
-          ["positions", "Positions"],
-          ["allocation", "Répartition par actif"],
-          ["correlation", "Corrélations"],
-        ].map(([key, title]) => (
+          ["positions", "Positions", "layers"],
+          ["allocation", "Répartition par actif", "allocation"],
+          ["correlation", "Corrélations", "analysis"],
+        ].map(([key, title, icon]) => (
           <button
             key={key}
             role="tab"
             aria-selected={tab === key}
             onClick={() => setTab(key)}
           >
+            <Icon name={icon} size={16} />
             {title}
           </button>
         ))}
@@ -154,118 +182,149 @@ export function PortfolioPanel({
         <p>Ajoutez une étoile or à vos actifs détenus pour commencer.</p>
       )}
       {tab === "positions" && (
-        <div className="table-scroll">
-          <table className="positions-table">
-            <thead>
-              <tr>
-                <th>Actif</th>
-                <th>Quantité détenue</th>
-                <th>Valeur en USD</th>
-                <th>Dernier prix</th>
-              </tr>
-            </thead>
-            <tbody>
-              {assets.map((asset) => {
-                const position = result?.positions.find(
-                  (p) => p.id === asset.id,
-                );
-                return (
-                  <tr key={asset.id}>
-                    <th>
-                      <Link to={`/assets/${asset.id}?library=portfolio`}>
-                        {asset.name}
-                      </Link>
-                      <small>
-                        {asset.unit}
-                        {asset.category === "commodity"
-                          ? " · quantité dans l’unité cotée"
-                          : ""}
-                      </small>
-                    </th>
-                    <td>
-                      <label>
-                        <span className="sr-only">Quantité {asset.name}</span>
-                        <NumberInput
-                          min={0}
-                          max={1e15}
-                          step="any"
-                          value={quantities[asset.id] ?? 0}
-                          onChange={(value) => onQuantity(asset.id, value)}
-                        />
-                      </label>
-                    </td>
-                    <td>
-                      {position ? `${number(position.value_usd)} $` : "—"}
-                    </td>
-                    <td>{position ? date(position.date) : "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <section className="portfolio-content" aria-label="Positions détenues">
+          <div className="portfolio-section-heading">
+            <div>
+              <h2>Vos positions</h2>
+              <p>Ajustez vos quantités, y compris les fractions d’actif.</p>
+            </div>
+            <span className="fine-print">Enregistrées sur ce navigateur</span>
+          </div>
+          <div className="table-scroll">
+            <table className="positions-table">
+              <thead>
+                <tr>
+                  <th>Actif</th>
+                  <th>Quantité détenue</th>
+                  <th>Valeur en €</th>
+                  <th>Date du cours</th>
+                </tr>
+              </thead>
+              <tbody>
+                {assets.map((asset, index) => {
+                  const position = result?.positions.find(
+                    (p) => p.id === asset.id,
+                  );
+                  return (
+                    <tr
+                      key={asset.id}
+                      className={
+                        index > 0 &&
+                        assets[index - 1].category !== asset.category
+                          ? "position-category-start"
+                          : undefined
+                      }
+                    >
+                      <th>
+                        <Link to={`/assets/${asset.id}?library=portfolio`}>
+                          {asset.name}
+                        </Link>
+                        <small>
+                          {asset.category === "stock"
+                            ? `${stockCountry(asset)} · `
+                            : ""}
+                          {asset.unit}
+                          {asset.category === "commodity"
+                            ? " · quantité dans l’unité cotée"
+                            : ""}
+                        </small>
+                      </th>
+                      <td>
+                        <label>
+                          <span className="sr-only">Quantité {asset.name}</span>
+                          <NumberInput
+                            min={0}
+                            max={1e15}
+                            step="any"
+                            value={quantities[asset.id] ?? 0}
+                            onChange={(value) => onQuantity(asset.id, value)}
+                          />
+                        </label>
+                      </td>
+                      <td>{position ? money(position.value) : "—"}</td>
+                      <td>{position ? date(position.date) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
       {tab === "allocation" && (
         <>
-          <div className="portfolio-total">
-            <span>Valeur des positions valorisables</span>
-            <strong>{result ? `${number(result.total_usd)} USD` : "—"}</strong>
-          </div>
-          {!result?.positions.length && (
-            <p>
-              Renseignez vos quantités dans Positions pour afficher la
-              répartition.
-            </p>
-          )}
-          {result?.positions
-            .slice()
-            .sort((a, b) => b.weight - a.weight)
-            .map((p) => (
-              <div className="allocation-row" key={p.id}>
-                <div>
-                  <span>{p.name}</span>
-                  <strong>{percent(p.weight)}</strong>
-                  <span>{number(p.value_usd)} USD</span>
-                </div>
-                <progress
-                  max={1}
-                  value={p.weight}
-                  aria-label={`Poids de ${p.name}`}
-                />
+          <section className="portfolio-content">
+            <div className="portfolio-section-heading">
+              <div>
+                <h2>Répartition par actif</h2>
+                <p>
+                  Survolez une part ou sélectionnez un actif pour explorer sa
+                  contribution.
+                </p>
               </div>
-            ))}
+            </div>
+            {result?.positions.length ? (
+              <AllocationChart
+                positions={result.positions}
+                total={result.total}
+              />
+            ) : (
+              <div className="portfolio-empty">
+                Renseignez vos quantités dans Positions pour afficher la
+                répartition.
+              </div>
+            )}
+          </section>
           <p className="fine-print">
-            Quantité × dernier prix disponible, converti en USD. Les dates des
-            prix figurent dans Positions. Les actifs sans prix monétaire
-            exploitable sont exclus du total ; les quantités ne sont pas
-            réajustées automatiquement lors des divisions d’actions.
+            Quantité × dernier prix disponible, converti en euros. Le change
+            utilisé est celui du jour du cours, ou le dernier connu dans les 7
+            jours précédents. Les dates des prix figurent dans Positions. Les
+            actifs sans prix monétaire exploitable sont exclus du total ; les
+            quantités ne sont pas réajustées automatiquement lors des divisions
+            d’actions.
           </p>
         </>
       )}
       {tab === "correlation" && (
         <>
-          <label className="portfolio-period">
-            Historique de corrélation
-            <select
-              value={years}
-              onChange={(e) => setYears(Number(e.target.value))}
-            >
-              {[1, 3, 5, 10].map((year) => (
-                <option key={year} value={year}>
-                  {year} an{year > 1 ? "s" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <p className="fine-print">
-            Corrélation de Pearson des rendements logarithmiques en USD,
-            dividendes réinvestis pour les actions. −1 : mouvements opposés · 0
-            : faible relation linéaire · +1 : mouvements similaires. Les
-            quantités déterminent les actifs inclus, pas les coefficients.
-          </p>
+          <div className="portfolio-section-heading">
+            <div>
+              <h2 className="correlation-title">
+                Matrice de corrélation{" "}
+                <Tooltip label="Méthode de corrélation">
+                  Corrélation de Pearson des rendements logarithmiques en USD,
+                  dividendes réinvestis pour les actions. Dates communes
+                  uniquement, sans remplissage des données manquantes. Les
+                  quantités ne modifient pas les coefficients.
+                  {correlation?.frequency === "monthly" &&
+                    " Les séries sont alignées sur les mois terminés."}
+                  {correlation &&
+                    ` « — » : dispersion nulle ou moins de ${correlation.minimum} rendements communs.`}
+                </Tooltip>
+              </h2>
+            </div>
+            <label className="portfolio-period">
+              Période
+              <select
+                value={years}
+                onChange={(e) => setYears(Number(e.target.value))}
+              >
+                {[1, 3, 5, 10].map((year) => (
+                  <option key={year} value={year}>
+                    {year} an{year > 1 ? "s" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           {correlation && correlation.assets.length > 0 ? (
             <>
-              <div className="table-scroll">
+              <div className="correlation-scale">
+                <span>−1 · Opposés</span>
+                <i />
+                <span>+1 · Similaires</span>
+              </div>
+              <div className="table-scroll correlation-scroll">
                 <table className="correlation-table">
                   <caption>
                     {correlation.observations} rendements{" "}
@@ -293,8 +352,14 @@ export function PortfolioPanel({
                             style={{
                               background:
                                 value === null
-                                  ? undefined
-                                  : `${value >= 0 ? "rgba(101,199,165," : "rgba(238,129,144,"}${Math.abs(value) * 0.45 + 0.05})`,
+                                  ? "#171d29"
+                                  : correlationColor(value),
+                              color:
+                                value === null
+                                  ? "#8490a2"
+                                  : Math.abs(value) > 0.72
+                                    ? "#fff"
+                                    : "#172235",
                             }}
                           >
                             {value === null ? "—" : number(value, 2)}
@@ -305,15 +370,6 @@ export function PortfolioPanel({
                   </tbody>
                 </table>
               </div>
-              <p className="fine-print">
-                Dates communes uniquement, sans remplissage des données
-                manquantes.{" "}
-                {correlation.frequency === "monthly" &&
-                  "Présence de séries mensuelles : tous les actifs sont comparés à la dernière observation de chaque mois terminé. "}
-                « — » signifie une dispersion nulle ou moins de{" "}
-                {correlation.minimum} rendements communs. La corrélation passée
-                ne prédit pas celle à venir.
-              </p>
             </>
           ) : (
             <p>

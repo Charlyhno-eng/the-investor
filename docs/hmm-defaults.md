@@ -1,5 +1,7 @@
 # Réglages orientés vers une exposition réduite
 
+> Étude historique : la méthode actuelle est décrite dans [la revue FrenchQuant](hmm-video.md).
+
 Étude de la version précédente. Ces réglages sont remplacés par [la politique réduisant les allers-retours](hmm-turnover.md).
 
 Comparaison locale du 6 novembre 2026. Cinq actifs prédéfinis : BTC, ETH, Apple, Microsoft et or mensuel. Dernières 2 016 observations quotidiennes, historique entier pour le mensuel. Modèle entraîné sur les premiers 60 %, sélection sur les 20 % suivants, évaluation sur les derniers 20 %, sans réentraînement. Les périodes de test ne participent pas au score de sélection. Les données ont déjà servi à des diagnostics précédents : il ne s’agit pas d’une validation indépendante définitive.

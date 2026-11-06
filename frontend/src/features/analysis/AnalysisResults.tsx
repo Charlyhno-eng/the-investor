@@ -3,9 +3,14 @@ import { date, number, percent } from "../../lib/format";
 import type { Analysis } from "../../lib/types";
 import { PerformanceChart } from "./PerformanceChart";
 import { MetricCards } from "./MetricCard";
+import { RegimeTimeline } from "./RegimeTimeline";
 export function AnalysisResults({ result: r }: { result: Analysis }) {
   const strategy = r.strategy_metrics,
     benchmark = r.benchmark_metrics;
+  const excess =
+    strategy?.total_return != null && benchmark?.total_return != null
+      ? strategy.total_return - benchmark.total_return
+      : null;
   return (
     <div className="analysis-results">
       <div className="section-heading">
@@ -43,9 +48,9 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
                 <Tooltip label="Transactions">
                   <span>
                     Chaque achat et chaque vente compte pour une transaction,
-                    liquidation finale comprise. Frais et glissement
-                    s’appliquent à chaque transaction. Le benchmark supporte
-                    aussi une entrée et une sortie.
+                    liquidation finale comprise. Le même taux de frais
+                    s’applique à chaque transaction. Le benchmark supporte aussi
+                    une entrée et une sortie.
                   </span>
                 </Tooltip>
               </span>
@@ -53,7 +58,34 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
               <small>Exposition {percent(r.exposure)}</small>
             </div>
           </div>
+          <div
+            className="analysis-assessment"
+            aria-label="Évaluation face à la conservation"
+          >
+            {excess != null && (
+              <p>
+                Écart net face à la conservation :{" "}
+                <strong className={excess >= 0 ? "positive" : "negative"}>
+                  {excess > 0 ? "+" : ""}
+                  {number(excess * 100, 2)} points
+                </strong>
+              </p>
+            )}
+            {r.exposure != null && r.exposure >= 0.95 && (
+              <p>
+                Exposition presque permanente ({percent(r.exposure)}) : ce
+                résultat reste proche de l’achat-conservation.
+              </p>
+            )}
+            {r.diagnostics?.exit_reachable === false && (
+              <p>
+                Aucune sortie de régime possible avec ce modèle et sa règle de
+                frais. La vente finale est la seule sortie possible.
+              </p>
+            )}
+          </div>
           <PerformanceChart equity={r.equity} />
+          <RegimeTimeline result={r} />
           <MetricCards strategy={strategy} benchmark={benchmark} />
         </>
       )}
@@ -106,7 +138,8 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
                       <tr>
                         <th>Date</th>
                         <th>Ordre</th>
-                        <th>Prob. de hausse</th>
+                        <th>Prob. des régimes favorables</th>
+                        <th>Motif</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -119,6 +152,11 @@ export function AnalysisResults({ result: r }: { result: Analysis }) {
                             {t.side === "buy" ? "Achat" : "Vente"}
                           </td>
                           <td>{percent(t.probability)}</td>
+                          <td>
+                            {t.reason === "final_liquidation"
+                              ? "Fin de simulation"
+                              : "Régime"}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

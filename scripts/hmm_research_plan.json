@@ -1,0 +1,21 @@
+{
+  "created": "2026-11-06",
+  "purpose": "Local research only; no upload or push. Rules fixed before evaluating candidates.",
+  "development_assets": ["yf-aapl", "yf-msft", "yf-nvda", "yf-ai.pa", "yf-mc.pa", "yf-btc-usd", "yf-eth-usd", "yf-sol-usd"],
+  "audit_assets": ["yf-asml.as", "yf-besi.as", "yf-gtt.pa", "yf-rms.pa", "yf-saf.pa", "yf-su.pa", "yf-tte.pa", "yf-tsla", "yf-ada-usd", "yf-bnb-usd", "yf-xrp-usd", "yf-xmr-usd"],
+  "validation": {"train_start": "2015-01-01", "train_end": "2017-12-31", "test_start": "2018-01-01", "test_end": "2021-12-31"},
+  "audit": {"train_start": "2015-01-01", "train_end": "2021-12-31", "test_start": "2022-01-01", "test_end": "2025-12-31"},
+  "policies": {
+    "daily_original": {"review": "daily", "entry": 0.5, "exit": 0.5, "drawdown_stop": null, "trend_window": null},
+    "daily_guard": {"review": "daily", "entry": 0.5, "exit": 0.5, "drawdown_stop": 0.1, "trend_window": null},
+    "weekly_hmm": {"review": "weekly", "entry": 0.8, "exit": 0.2, "drawdown_stop": 0.1, "trend_window": null},
+    "weekly_trend_hmm": {"review": "weekly", "entry": 0.8, "exit": 0.2, "drawdown_stop": 0.1, "trend_window": 200},
+    "weekly_trend_control": {"review": "weekly", "entry": 0.8, "exit": 0.2, "drawdown_stop": 0.1, "trend_window": 200, "ignore_hmm": true}
+  },
+  "eligible": ["weekly_hmm", "weekly_trend_hmm"],
+  "selection": "Choose eligible policy with highest median net Sharpe on validation at 10 bps; tie favors weekly_hmm. Freeze before opening audit. Report controls; do not select them silently.",
+  "fees_bps": [0, 10, 50],
+  "risk": "Strategy net equity high-water mark including fees. Daily close detection; liquidation at following observed close. Permanently latched to end of test; never reset annually. Never clip losses to 10 percent.",
+  "limitations": "Previously examined years/assets are development data, not untouched holdouts. New audit assets provide only partial independence (correlated markets, survivorship). No proof of no overfitting or profitability. No parameters changed after audit.",
+  "model": "Same fixed two-state Gaussian HMM as v8, three seeds chosen by training likelihood; no refit or hyperparameter search on validation/audit returns. Calendar review at first available close of each ISO week, executes next close. Trend uses trailing 200 observed prices including signal close."
+}

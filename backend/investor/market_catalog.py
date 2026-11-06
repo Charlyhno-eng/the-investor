@@ -7,6 +7,7 @@ CRYPTO = {
     "ETH-USD": "Ethereum",
     "SOL-USD": "Solana",
     "BNB-USD": "BNB",
-    "XRP-USD": "XRP",
-    "ADA-USD": "Cardano",
 }
+
+# Preserve archived histories while removing these assets from the library and refreshes.
+REMOVED_CRYPTO = ("yf-ada-usd", "yf-xrp-usd")

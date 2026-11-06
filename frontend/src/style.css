@@ -1017,6 +1017,57 @@ h1 {
   background: #0d1016;
   margin: 0 -10px;
 }
+.analysis-assessment {
+  margin: -10px 0 20px;
+  color: #95a2b6;
+  font-size: 11px;
+  line-height: 1.7;
+}
+.analysis-assessment p {
+  margin: 3px 0;
+}
+.analysis-assessment strong {
+  font-weight: 500;
+}
+.regime-timeline {
+  margin: 20px 0;
+}
+.regime-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: #95a2b6;
+  font-size: 10px;
+  margin-bottom: 12px;
+}
+.regime-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.regime-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.regime-timeline-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 150px) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin: 7px 0;
+  color: #95a2b6;
+  font-size: 10px;
+}
+.regime-strip {
+  display: flex;
+  height: 10px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.regime-strip span {
+  min-width: 0;
+}
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2087,6 +2138,38 @@ td {
 
 .analysis-run-bar {
   justify-content: flex-end;
+  margin-top: 0;
+  padding-bottom: 18px;
+  flex-shrink: 0;
+}
+.analysis-settings-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  margin-top: 24px;
+}
+.analysis-settings-row .parameters {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  border: 0;
+}
+.analysis-settings-row .parameter-grid {
+  grid-template-columns: minmax(0, 454px);
+  padding-bottom: 18px;
+}
+@media (max-width: 560px) {
+  .analysis-settings-row {
+    flex-wrap: wrap;
+    gap: 0;
+  }
+  .analysis-settings-row .parameters,
+  .analysis-settings-row .analysis-run-bar {
+    width: 100%;
+    flex-basis: 100%;
+  }
 }
 
 .reversion-heading h2 {
@@ -2287,6 +2370,8 @@ td {
 .market-chart-actions {
   display: flex;
   justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 12px;
   padding: 0 24px 14px;
 }
 .market-comparison-summary {
@@ -2330,15 +2415,6 @@ td {
     flex-wrap: wrap;
   }
 }
-.holding-quantity {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  color: #939cab;
-  font-size: 12px;
-}
-.holding-quantity input,
 .positions-table input,
 .portfolio-period select {
   width: 130px;
@@ -2396,21 +2472,6 @@ td {
   font-size: 28px;
   color: #dde3ed;
 }
-.allocation-row {
-  margin: 20px 0;
-}
-.allocation-row > div {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  margin-bottom: 8px;
-  font-size: 12px;
-}
-.allocation-row progress {
-  width: 100%;
-  height: 12px;
-  accent-color: #edb786;
-}
 .portfolio-period {
   display: flex;
   gap: 16px;
@@ -2444,4 +2505,435 @@ td {
   color: #edb786;
   border-color: #edb78688;
   background: #edb78612;
+}
+/* Portfolio uses the same workspace scale and tabs as asset research. */
+.portfolio-panel {
+  padding: 32px 36px 60px;
+}
+.portfolio-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 32px;
+}
+.portfolio-heading h1 {
+  font-size: 27px;
+  margin: 5px 0 0;
+  letter-spacing: -0.035em;
+}
+.portfolio-summary {
+  display: flex;
+  margin-left: auto;
+  gap: 28px;
+  text-align: right;
+}
+.portfolio-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+.portfolio-summary > div + div {
+  border-left: 1px solid var(--line);
+  padding-left: 28px;
+}
+.portfolio-summary span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.portfolio-summary strong {
+  color: #e6e9ef;
+  font-size: clamp(20px, 2vw, 28px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+.portfolio-summary small {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+  letter-spacing: 0;
+}
+.portfolio-panel .detail-tabs {
+  gap: 28px;
+  margin-bottom: 30px;
+  overflow: visible;
+}
+.portfolio-panel .detail-tabs button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.portfolio-panel .table-scroll {
+  max-height: none;
+  height: auto;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.portfolio-panel .fine-print {
+  display: block;
+  line-height: 1.9;
+  margin: 20px 0;
+  max-width: 90ch;
+}
+.portfolio-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+  margin: 0 0 24px;
+}
+.portfolio-section-heading h2 {
+  font-size: 16px;
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+.portfolio-section-heading p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.portfolio-section-heading .fine-print {
+  margin: 0;
+  font-size: 11px;
+}
+.portfolio-panel .positions-table thead {
+  background: #ffffff03;
+}
+.portfolio-panel .positions-table thead th {
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  padding: 18px 20px;
+}
+.portfolio-panel .positions-table tbody th,
+.portfolio-panel .positions-table td {
+  padding: 20px;
+  height: 84px;
+}
+.portfolio-panel .positions-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+.portfolio-panel .positions-table tbody tr:hover {
+  background: #ffffff05;
+}
+.positions-table input {
+  width: 120px;
+  padding: 10px 12px;
+  background: #0d1119;
+  border-color: #ffffff18;
+  border-radius: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.portfolio-empty {
+  padding: 80px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+.allocation-chart {
+  display: grid;
+  grid-template-columns: minmax(230px, 1fr) minmax(220px, 1fr);
+  gap: 28px;
+  align-items: center;
+  padding: 20px 0 36px;
+}
+.allocation-donut {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  margin: auto;
+}
+.allocation-donut svg {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+.allocation-slice {
+  cursor: pointer;
+  pointer-events: stroke;
+  transition:
+    opacity 0.18s,
+    stroke-width 0.18s;
+}
+.donut-center {
+  position: absolute;
+  inset: 28% 24%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  pointer-events: none;
+}
+.donut-center > span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.donut-center strong {
+  font-size: clamp(19px, 2.2vw, 30px);
+  font-weight: 500;
+  letter-spacing: -0.04em;
+}
+.donut-center small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.allocation-legend-heading {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.allocation-legend-item {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  text-align: left;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 14px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 6px;
+}
+.allocation-legend-item:hover,
+.allocation-legend-item.active {
+  background: #ffffff05;
+}
+.allocation-legend-item > i {
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+}
+.allocation-legend-item > span {
+  font-size: 12px;
+  line-height: 1.5;
+}
+.allocation-legend-item > span:last-child {
+  text-align: right;
+}
+.allocation-legend-item strong {
+  font-weight: 500;
+}
+.allocation-legend-item small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.portfolio-period {
+  margin: 0;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--muted);
+}
+.portfolio-period select {
+  width: 90px;
+}
+.correlation-scale {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 10px;
+  color: var(--muted);
+  margin: 26px 0 18px;
+}
+.correlation-scale i {
+  height: 10px;
+  flex: 1;
+  max-width: 260px;
+  border-radius: 3px;
+  background: linear-gradient(
+    to right,
+    #2166ac,
+    #67a9cf,
+    #d1e5f0,
+    #f7f7f7,
+    #fddbc7,
+    #ef8a62,
+    #b2182b
+  );
+}
+.portfolio-panel .correlation-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 3px;
+}
+.portfolio-panel .correlation-table td {
+  min-width: 90px;
+  height: 76px;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  border: none;
+  border-radius: 3px;
+}
+.portfolio-panel .correlation-table td:hover {
+  outline: 2px solid #edb786;
+  outline-offset: -2px;
+}
+.portfolio-panel .correlation-table th {
+  font-size: 11px;
+  font-weight: 500;
+  color: #a9b2c1;
+  border: 0;
+  white-space: normal;
+  min-width: 100px;
+  max-width: 150px;
+  line-height: 1.6;
+  padding: 16px 12px;
+}
+.portfolio-panel .correlation-table caption {
+  padding: 18px 16px;
+  font-size: 11px;
+  line-height: 1.8;
+}
+@media (max-width: 1100px) {
+  .allocation-chart {
+    grid-template-columns: 1fr;
+  }
+  .allocation-donut {
+    max-width: 360px;
+  }
+}
+@media (max-width: 700px) {
+  .portfolio-panel {
+    padding: 26px 16px 40px;
+  }
+  .portfolio-heading {
+    align-items: flex-start;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .portfolio-summary {
+    gap: 20px;
+  }
+  .portfolio-summary > div + div {
+    padding-left: 20px;
+  }
+  .portfolio-heading .asset-title {
+    flex-shrink: 0;
+  }
+  .portfolio-summary strong {
+    font-size: 21px;
+  }
+  .portfolio-summary small {
+    display: block;
+    margin-top: 6px;
+    font-size: 10px;
+  }
+  .portfolio-panel .detail-tabs {
+    gap: 18px;
+  }
+  .portfolio-panel .detail-tabs button {
+    font-size: 11px;
+    gap: 6px;
+  }
+  .portfolio-panel .detail-tabs button svg {
+    width: 14px;
+  }
+  .portfolio-panel .positions-table tbody th,
+  .portfolio-panel .positions-table td {
+    padding: 16px 12px;
+  }
+  .portfolio-panel .positions-table thead th {
+    padding: 16px 12px;
+  }
+  .allocation-chart {
+    padding-top: 0;
+    gap: 16px;
+  }
+}
+.allocation-slice:focus-visible {
+  outline: none;
+  filter: drop-shadow(0 0 5px #edb78699);
+}
+.portfolio-panel .correlation-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #0d1119;
+}
+.portfolio-panel > [role="status"] {
+  margin: 0 0 20px;
+  color: var(--muted);
+  line-height: 1.8;
+}
+
+.correlation-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+@media (min-width: 701px) and (max-width: 1100px) {
+  .portfolio-heading {
+    gap: 16px;
+  }
+  .portfolio-heading .asset-emblem {
+    display: none;
+  }
+  .portfolio-summary {
+    gap: 16px;
+  }
+  .portfolio-summary > div + div {
+    padding-left: 16px;
+  }
+  .portfolio-summary span,
+  .portfolio-summary small {
+    font-size: 10px;
+  }
+}
+
+.detail-remove {
+  color: #fff;
+  border: 1px solid #e47777;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.detail-remove:hover,
+.detail-remove:focus-visible {
+  color: #fff;
+  border-color: #ff9999;
+  background: #e4777715;
+}
+.asset-category-divider {
+  height: 1px;
+  margin: 10px 12px;
+  background: #ffffff20;
+}
+.positions-table .position-category-start > * {
+  border-top: 1px solid #ffffff30;
+}
+.market-chart-actions > button {
+  min-width: 0;
+}
+@media (max-width: 700px) {
+  .asset-category-divider {
+    width: 1px;
+    height: auto;
+    margin: 6px;
+    flex: 0 0 1px;
+    align-self: stretch;
+  }
+  .market-chart-actions {
+    padding-inline: 12px;
+    gap: 8px;
+  }
+  .market-chart-actions > button {
+    padding-inline: 8px;
+    font-size: 11px;
+  }
 }

@@ -51,7 +51,11 @@ def connect():
       last_date TEXT NOT NULL, updated_at TEXT NOT NULL);
     """)
     columns = {row["name"] for row in db.execute("PRAGMA table_info(assets)")}
-    for column, kind in [("country_code", "TEXT"), ("benchmark_years", "INTEGER")]:
+    for column, kind in [
+        ("country_code", "TEXT"),
+        ("benchmark_years", "INTEGER"),
+        ("country", "TEXT"),
+    ]:
         if column not in columns:
             db.execute(f"ALTER TABLE assets ADD COLUMN {column} {kind}")
     dividend_columns = {

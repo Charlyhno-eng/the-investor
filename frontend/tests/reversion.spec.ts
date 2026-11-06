@@ -1,5 +1,8 @@
 import { test, expect } from "@playwright/test";
-import { fitRegression } from "../src/features/reversion/regression";
+import {
+  compareRegressionStrategy,
+  fitRegression,
+} from "../src/features/reversion/regression";
 import { mockApi } from "./fixtures";
 
 const series = (values: number[]) =>
@@ -7,6 +10,63 @@ const series = (values: number[]) =>
     time: new Date(Date.UTC(2020, 0, 1 + i)).toISOString().slice(0, 10),
     value,
   }));
+
+const bandRows = (values: number[]) =>
+  series(values).map((point) => ({
+    ...point,
+    lower: 90,
+    upper: 110,
+    z: (point.value - 100) / 10,
+  }));
+
+test("band strategy includes touches, holds between signals and reinvests sale proceeds", () => {
+  const result = compareRegressionStrategy(
+    bandRows([100, 90, 80, 100, 110, 120, 90, 95]),
+  );
+  expect(result.purchases).toBe(2);
+  expect(result.sales).toBe(1);
+  expect(result.invested).toBe(true);
+  expect(result.equity.map((p) => p.strategy)).toEqual([
+    100,
+    100,
+    (100 / 90) * 80,
+    (100 / 90) * 100,
+    (100 / 90) * 110,
+    (100 / 90) * 110,
+    (100 / 90) * 110,
+    (((100 / 90) * 110) / 90) * 95,
+  ]);
+  expect(result.benchmark.capital).toBeCloseTo(95);
+  expect(result.strategy.totalReturn).toBeCloseTo((110 / 90) * (95 / 90) - 1);
+  expect(result.strategy.maxDrawdown).toBeCloseTo(80 / 90 - 1);
+});
+
+test("overshoots execute at observed prices and no entry stays in cash", () => {
+  const result = compareRegressionStrategy(bandRows([80, 120, 130]));
+  expect(result.strategy.capital).toBe(150);
+  expect(result.sales).toBe(1);
+  expect(result.invested).toBe(false);
+  const noEntry = compareRegressionStrategy(bandRows([100, 110, 105]));
+  expect(noEntry.strategy.capital).toBe(100);
+  expect(noEntry.purchases).toBe(0);
+  expect(noEntry.sales).toBe(0);
+  expect(noEntry.benchmark.capital).toBe(105);
+});
+
+test("zero dispersion produces no trades, and threshold changes the comparison", () => {
+  const flat = fitRegression(series(Array(40).fill(100)), "log", 0);
+  expect(compareRegressionStrategy(flat.rows).purchases).toBe(0);
+  const points = series(
+    Array.from({ length: 80 }, (_, i) => 100 + 5 * Math.sin(i)),
+  );
+  expect(
+    compareRegressionStrategy(fitRegression(points, "linear", 2).rows)
+      .purchases,
+  ).toBe(0);
+  expect(
+    compareRegressionStrategy(fitRegression(points, "linear", 0.5).rows).sales,
+  ).toBeGreaterThan(0);
+});
 
 test("OLS recovers a known straight line and handles zero residual variance", () => {
   const fit = fitRegression(
@@ -75,6 +135,16 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
       "800 observations",
     );
     await expect(page.getByLabel("Seuil des zones")).toHaveValue("2");
+    const comparison = page.getByRole("region", {
+      name: "Comparaison des stratégies de régression",
+    });
+    await expect(
+      comparison.getByRole("img", {
+        name: "Capital des bandes de régression et de l’achat-conservation, base 100",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(comparison).toContainText("0 achats · 0 ventes");
     const canvas = panel.locator("canvas").first();
     await canvas.scrollIntoViewIfNeeded();
     const bounds = await canvas.boundingBox();
@@ -92,6 +162,8 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
       230,
     );
     await page.getByLabel("Seuil des zones").selectOption("1");
+    await expect(comparison).toContainText("Achat à −1 σ · vente à +1 σ");
+    await expect(comparison).not.toContainText("0 achats · 0 ventes");
     await page.getByLabel("Ajustement", { exact: true }).selectOption("linear");
     await page.getByLabel("Début de période").fill("2021-01-01");
     await expect(page.getByLabel("Diagnostic de la régression")).toContainText(

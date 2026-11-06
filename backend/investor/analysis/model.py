@@ -10,15 +10,15 @@ from scipy.special import logsumexp
 from threadpoolctl import threadpool_limits
 
 
-def features(values, is_yield, window):
+def features(values, is_yield):
+    """One observable: daily simple return, as in the FrenchQuant example.
+
+    Log returns are returned separately for the close-to-close simulator.
+    There is no rolling indicator or warm-up beyond the first price.
+    """
     changes = np.diff(values) if is_yield else np.diff(np.log(values))
-    # Trailing cumulative momentum: log(price_t / price_{t-window}).
-    # Warm-up rows use the available prefix and are excluded by the service.
-    sums = np.concatenate(([0.0], np.cumsum(changes)))
-    ends = np.arange(1, len(changes) + 1)
-    starts = np.maximum(0, ends - window)
-    momentum = sums[ends] - sums[starts]
-    return changes, np.column_stack((changes, momentum))
+    observed = changes if is_yield else np.expm1(changes)
+    return changes, observed[:, None]
 
 
 def fit_model(training):
@@ -40,9 +40,9 @@ def _fit_cached(shape, data):
         for seed in (17, 41, 83):
             model = GaussianHMM(
                 n_components=2,
-                covariance_type="diag",
-                n_iter=150,
-                tol=1e-4,
+                covariance_type="full",
+                n_iter=1000,
+                tol=1e-2,
                 min_covar=1e-3,
                 random_state=seed,
                 implementation="scaling",
@@ -77,15 +77,9 @@ def _fit_cached(shape, data):
 
 def forward_filter(model, observations):
     """p(state_t | x_1..x_t), O(T*K²); likelihoods are vectorized in NumPy."""
-    variance = np.maximum(model._covars_, 1e-10)
-    emissions = -0.5 * (
-        np.log(2 * np.pi * variance).sum(axis=1)[None, :]
-        + ((observations[:, None, :] - model.means_[None, :, :]) ** 2 / variance).sum(
-            axis=2
-        )
-    )
     if not len(observations):
         return np.empty((0, model.n_components))
+    emissions = model._compute_log_likelihood(observations)
     # The compiled hmmlearn forward kernel returns causal filtered posteriors.
     # predict_proba would instead smooth using future observations. Row scaling
     # cancels in normalization and avoids Gaussian-density underflow.

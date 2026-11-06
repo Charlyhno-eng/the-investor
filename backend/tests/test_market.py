@@ -95,6 +95,7 @@ def test_yahoo_type_validation_and_archiving(local, monkeypatch):
         index=pd.to_datetime(["2020-01-01", "2020-01-02"]),
     )
     ticker = SimpleNamespace(
+        get_info=lambda: {"country": "France"},
         history=lambda **kwargs: frame,
         get_history_metadata=lambda: {
             "instrumentType": "EQUITY",
@@ -105,9 +106,13 @@ def test_yahoo_type_validation_and_archiving(local, monkeypatch):
     monkeypatch.setattr(market.yf, "Ticker", lambda symbol: ticker)
     assert market.import_symbol("EX.PA", "stock") == "yf-ex.pa"
     assert local.get("/api/assets").json()[0]["unit"] == "EUR"
+    assert local.get("/api/assets").json()[0]["country"] == "France"
+    ticker.get_info = dict
+    market.update_country(ticker, "yf-ex.pa")
+    assert local.get("/api/assets").json()[0]["country"] == "France"
     assert len(list((db.DATA_DIR / "raw").glob("*.csv"))) == 1
     assert len(list((db.DATA_DIR / "raw").glob("*.json"))) == 1
-    with pytest.raises(ValueError, match="catégorie incompatible"):
+    with pytest.raises(ValueError, match="Cryptomonnaie absente"):
         market.import_symbol("EX.PA", "crypto")
     assert len(local.get("/api/assets").json()) == 1
     result = local.get("/api/assets/yf-ex.pa/dividends").json()
@@ -129,6 +134,42 @@ def test_yahoo_type_validation_and_archiving(local, monkeypatch):
         local.get("/api/assets/yf-ex.pa/dividends").json()["events"][0]["amount"] == 0.5
     )
     assert local.get("/api/assets/missing/dividends").status_code == 404
+
+
+def test_removed_crypto_are_hidden_and_cannot_be_reimported(local):
+    from investor.market_catalog import CRYPTO
+
+    for symbol in ("ADA-USD", "XRP-USD", "BTC-USD"):
+        asset_id = "yf-" + symbol.lower()
+        db.save(
+            [
+                (
+                    asset_id,
+                    symbol,
+                    "crypto",
+                    "price",
+                    "USD",
+                    "daily",
+                    "yahoo",
+                    "https://example.com",
+                )
+            ],
+            [(asset_id, "2025-01-01", 100)],
+            "test:" + symbol,
+        )
+    assert [a["id"] for a in local.get("/api/assets").json()] == ["yf-btc-usd"]
+    for symbol in ("ADA-USD", "XRP-USD"):
+        assert symbol not in CRYPTO
+        assert (
+            local.post(
+                "/api/asset-imports", json={"symbol": symbol, "category": "crypto"}
+            ).status_code
+            == 422
+        )
+        with pytest.raises(ValueError, match="absente du catalogue"):
+            market.import_symbol(symbol, "crypto")
+    # Removal from the catalogue does not erase archived price histories.
+    assert local.get("/api/assets/yf-ada-usd/history").json()[0]["value"] == 100
 
 
 def test_dividends_distinguish_pending_from_known_zero(local):

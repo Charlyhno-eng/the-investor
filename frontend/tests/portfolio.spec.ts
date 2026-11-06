@@ -14,21 +14,21 @@ test("quantities persist and drive allocation and correlations", async ({
   await page.goto("/markets/portfolio");
   await page.getByLabel("Quantité Action test", { exact: true }).fill("2.5");
   await page.getByLabel("Quantité Bitcoin", { exact: true }).fill("1");
-  await expect(
-    page.getByRole("cell", { name: "250 $", exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole("cell", { name: /200,00\s*€/ })).toBeVisible();
   await page.reload();
   await expect(
     page.getByLabel("Quantité Action test", { exact: true }),
   ).toHaveValue("2.5");
   await page.getByRole("tab", { name: "Répartition par actif" }).click();
-  await expect(page.locator(".portfolio-total")).toContainText("350 USD");
-  await expect(
-    page.getByRole("progressbar", {
-      name: "Poids de Action test",
-      exact: true,
-    }),
-  ).toHaveAttribute("value", String(2.5 / 3.5));
+  await expect(page.locator(".portfolio-total")).toContainText(/280,00\s*€/);
+  const slice = page.locator(".allocation-slice").first();
+  await expect(slice).toHaveAttribute("aria-label", /Action test/);
+  await slice.focus();
+  await expect(page.locator(".donut-center")).toContainText("Action test");
+  await expect(page.locator(".donut-center")).toContainText("200");
+  await page.screenshot({
+    path: test.info().outputPath("portfolio-allocation.png"),
+  });
   await page.getByRole("tab", { name: "Corrélations", exact: true }).click();
   await expect(page.locator(".correlation-table")).toContainText("-0,5");
   await expect(page.locator(".correlation-table")).toContainText(
@@ -48,14 +48,13 @@ test("quantities persist and drive allocation and correlations", async ({
     .click();
   await expect(
     page.getByLabel("Quantité détenue", { exact: true }),
-  ).toHaveValue("2.5");
-  await page.getByLabel("Quantité détenue", { exact: true }).fill("3");
+  ).toHaveCount(0);
   await page
     .getByRole("link", { name: "Vue d’ensemble du Portfolio", exact: true })
     .click();
   await expect(
     page.getByLabel("Quantité Action test", { exact: true }),
-  ).toHaveValue("3");
+  ).toHaveValue("2.5");
 });
 
 test("selecting assets preserves library scroll", async ({
@@ -107,4 +106,131 @@ test("selecting assets preserves library scroll", async ({
       ),
     )
     .toBe(before);
+});
+
+test("portfolio tables expand to show every position and correlation row", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route("**/api/assets", (route) =>
+    route.fulfill({
+      json: Array.from({ length: 9 }, (_, i) => ({
+        ...stock,
+        id: `yf-position-${i}`,
+        name: `Position ${i + 1}`,
+      })),
+    }),
+  );
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "investor-favorites",
+      JSON.stringify(
+        Object.fromEntries(
+          Array.from({ length: 9 }, (_, i) => [`yf-position-${i}`, "gold"]),
+        ),
+      ),
+    );
+    localStorage.setItem(
+      "investor-quantities",
+      JSON.stringify(
+        Object.fromEntries(
+          Array.from({ length: 9 }, (_, i) => [`yf-position-${i}`, 1]),
+        ),
+      ),
+    );
+  });
+  await page.goto("/");
+  await expect(
+    page.getByRole("heading", { name: "Portfolio", exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".positions-table tbody tr")).toHaveCount(9);
+  for (const selector of [".positions-table", ".correlation-table"]) {
+    if (selector.includes("correlation"))
+      await page
+        .getByRole("tab", { name: "Corrélations", exact: true })
+        .click();
+    await expect(page.locator(`${selector} tbody tr`)).toHaveCount(9);
+    expect(
+      await page.locator(selector).evaluate((table) => {
+        const wrapper = table.closest(".table-scroll")!;
+        return wrapper.clientHeight >= table.clientHeight;
+      }),
+    ).toBe(true);
+  }
+  await expect(page.locator(".correlation-table td").first()).toHaveCSS(
+    "background-color",
+    "rgb(178, 24, 43)",
+  );
+  await page.screenshot({
+    path: test.info().outputPath("portfolio-expanded.png"),
+    fullPage: true,
+  });
+});
+
+test("portfolio stays in euros and keeps summary at the right of its heading", async ({
+  page,
+  isMobile,
+}) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    localStorage.setItem("investor-currency", "GBP");
+    localStorage.setItem(
+      "investor-favorites",
+      JSON.stringify({ "yf-test": "gold" }),
+    );
+    localStorage.setItem(
+      "investor-quantities",
+      JSON.stringify({ "yf-test": 2.5 }),
+    );
+  });
+  await page.goto("/");
+  await expect(page.locator(".portfolio-total")).toContainText(/200,00\s*€/);
+  await expect(
+    page.getByRole("button", { name: "Paramètres", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText("Vos positions, leur répartition et leurs corrélations.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  const header = page.locator(".portfolio-heading");
+  const summary = header.locator(".portfolio-summary");
+  await expect(summary).toBeVisible();
+  const headingBounds = (await header.boundingBox())!;
+  const summaryBounds = (await summary.boundingBox())!;
+  expect(
+    Math.abs(
+      headingBounds.x +
+        headingBounds.width -
+        summaryBounds.x -
+        summaryBounds.width,
+    ),
+  ).toBeLessThan(2);
+  if (!isMobile) {
+    const titleBounds = (await header.locator(".asset-title").boundingBox())!;
+    expect(summaryBounds.x).toBeGreaterThan(titleBounds.x + titleBounds.width);
+    expect(summaryBounds.y).toBeLessThan(titleBounds.y + titleBounds.height);
+  }
+  await page.screenshot({
+    path: test.info().outputPath("portfolio-heading.png"),
+  });
+  await page.getByRole("tab", { name: "Corrélations", exact: true }).click();
+  await expect(
+    page.getByText(
+      "Les mouvements de vos actifs, comparés sur la même période.",
+      { exact: true },
+    ),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(/Corrélation de Pearson des rendements/),
+  ).not.toBeVisible();
+  await page
+    .getByRole("button", {
+      name: "Définition : Méthode de corrélation",
+      exact: true,
+    })
+    .focus();
+  await expect(page.getByRole("tooltip")).toBeVisible();
+  await page.reload();
+  await expect(page.locator(".portfolio-total")).toContainText(/200,00\s*€/);
 });

@@ -37,7 +37,7 @@ Connecteur : [yfinance, historique ajusté](https://ranaroussi.github.io/yfinanc
 
 - **71 séries Banque mondiale**, incluant benchmarks, variantes et indices : énergie, métaux, agriculture, engrais, etc. Historiques mensuels disponibles depuis 1960 selon la série. Ce n’est pas l’intégralité des matières premières, places ou contrats futures.
 - **34 références souveraines**, une entrée par pays : États-Unis, Canada, Mexique, Chili, France, Allemagne, Royaume-Uni, Italie, Espagne, Pays-Bas, Belgique, Autriche, Portugal, Irlande, Grèce, Finlande, Danemark, Suède, Norvège, Suisse, Pologne, Tchéquie, Hongrie, Slovaquie, Slovénie, Islande, Lituanie, Lettonie, Japon, Corée du Sud, Australie, Nouvelle-Zélande, Inde et Afrique du Sud. Rendement mensuel OCDE à 10 ans distribué par FRED. Ce sont des taux de référence, pas des prix d’obligations ni un agrégat de toutes les durées. Chine et Brésil restent à intégrer ; l’Islande s’arrête en août 2022 dans cette source. Les 11 anciennes séries US par maturité sont conservées dans SQLite et accessibles par l’API, mais masquées du catalogue et non actualisées.
-- **6 cryptos en USD** : Bitcoin, Ethereum, Solana, BNB, XRP et Cardano. Historiques quotidiens maximaux disponibles chez Yahoo, téléchargés par `make import` ou par le worker. Pas de série synthétique en cas d’indisponibilité.
+- **6 cryptos en USD** : Bitcoin, Ethereum, Solana, BNB, Monero et Hyperliquid. Historiques quotidiens maximaux disponibles chez Yahoo, téléchargés par `make import` ou par le worker. Cardano et XRP sont retirés du catalogue ; leurs archives restent conservées. Pas de série synthétique en cas d’indisponibilité.
 - **Actions à la demande** : historique quotidien ajusté maximal selon le symbole et la place ; pas de chargement du catalogue mondial.
 
 La couverture et les dernières dates varient selon l’actif. Il n’y a ni interpolation des jours manquants, ni données simulées dans le catalogue. Un cours quotidien téléchargé pendant une séance peut encore être révisé par le fournisseur.
@@ -52,7 +52,9 @@ Les repères menthe « D » sont intégrés au graphique, sans panneau suppléme
 
 ## Analyse quantitative
 
-L’onglet **HMM**, présent sur les actions et cryptos, propose un `GaussianHMM` à deux régimes (hausse et neutre / baisse), alimenté par les variations et le momentum. Les résultats affichent les performances, l’exposition et le nombre d’ordres. Choisir les périodes d’entraînement et de test sur la courbe interactive ou dans les champs de dates. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler les frais en pourcentage (0,1 % par défaut) et les seuils d’achat/vente (80 % / 50 %). Les confirmations d’achat et de vente sont ajustables séparément : cinq observations avant achat et trois avant vente par défaut. Le glissement est nul dans l’interface.
+L’onglet **HMM**, présent sur les actions et cryptos, utilise un GaussianHMM directionnel à deux ou trois états. Une validation chronologique dans l’entraînement choisit entre le rendement seul et un contexte de tendance/volatilité sur 20 observations, selon la qualité de prévision du prochain rendement. Les décisions quotidiennes tiennent compte des frais et de la persistance des états, sans stop de drawdown ni quota de transactions. Seuls les frais sont réglables, identiques à l’achat et à la vente : **0,01 % pour les cryptos, 0,5 % pour les actions par défaut**. Le bouton de simulation se trouve à droite du champ de frais sur ordinateur. Les périodes restent sélectionnables. [Méthode et benchmarks locaux](docs/hmm-directional.md). La [recherche complémentaire sur cinq variantes](docs/hmm-literature.md) confirme que l’objectif de surperformance n’est pas atteint ; aucune variante expérimentale n’a remplacé le moteur actif.
+
+L’[analyse de la passivité](docs/hmm-passivity.md) documente une sixième variante de tendance réentraînée et 298 nouveaux backtests : des courbes différentes, mais une performance insuffisante ; elle reste hors API. Les résultats actifs affichent désormais l’écart net en points, les régimes et positions sur une chronologie, et un diagnostic lorsque la règle de continuation rend toute sortie impossible. Le cache a été versionné pour ajouter ces informations ; les ordres du moteur actif ne changent pas.
 
 La simulation long/liquidités compare le capital net à l’achat-conservation du même actif, affiche les régimes, la matrice de transition et les transactions. Sharpe, Sortino, Calmar, volatilité annualisée, drawdown maximal, VaR 95 %, alpha et bêta disposent d’une infobulle au survol **et au focus clavier**, avec définition et repères. Le modèle n’a accès qu’à l’entraînement pour son ajustement ; les probabilités en période 2 sont filtrées causalement, avec exécution retardée.
 
@@ -76,8 +78,10 @@ backend/investor/
   worker.py                orchestration indépendante des imports
   analysis/
     schemas.py             validation des périodes et paramètres
-    model.py               variables, ajustement HMM, filtre causal
-    strategy.py            règles, exécution et coûts
+    regimes.py             observations, sélection interne et ajustement HMM
+    switching.py           décisions HMM avec frais, exécution sans stop
+    model.py               filtre causal et modèle historique
+    legacy.py, strategy.py politiques historiques pour comparaisons explicites
     metrics.py             mesure de risque/performance vectorisée
     service.py             orchestration, concurrence et cache versionné
 frontend/src/
@@ -149,4 +153,4 @@ Après un premier lancement HMM, les paramètres valides déclenchent une actual
 
 Dans la **Vue du marché**, le bouton **Comparer au S&P 500** affiche les performances en base 100 sur la durée sélectionnée. La comparaison affiche d’abord les prix hors dividendes (indice S&P 500 `^GSPC`). Le bouton **Dividendes réinvestis** bascule vers les prix ajustés des actions et l’indice de rendement total `^SP500TR`, pour mesurer la différence. Les actions dans une autre devise sont converties en USD aux taux historiques. Les dates communes effectivement observées sont affichées. Les taux obligataires sont exclus ; les matières premières restent des proxys de prix ou d’indice. Les références et taux de change sont mis en cache localement et importés par la queue persistante, sans nouveau service ni clé API.
 
-Le **Portfolio** propose les vues **Positions**, **Répartition par actif** et **Corrélations**. Saisissez vos quantités, y compris fractionnaires, depuis Positions ou la fiche d’un actif détenu. Elles sont enregistrées dans le navigateur. Les poids utilisent les derniers prix monétaires disponibles convertis en USD ; les dates de valorisation et les exclusions sont affichées. La matrice représente la corrélation des rendements des positions dont la quantité est positive, sur les dates communes de la durée choisie. Changer d’actif conserve le défilement de la bibliothèque. Monero (`XMR-USD`) fait partie des cryptos importées.
+Le **Portfolio** propose les vues **Positions**, **Répartition par actif** et **Corrélations**. Saisissez vos quantités, y compris fractionnaires, depuis Positions. Elles sont enregistrées dans le navigateur. Les montants utilisent les derniers prix monétaires disponibles, convertis uniquement en euros. La valeur totale et le nombre d’actifs figurent à droite du titre du Portfolio ; les dates de valorisation et les exclusions sont affichées. La matrice représente la corrélation des rendements des positions dont la quantité est positive, sur les dates communes de la durée choisie. Changer d’actif conserve le défilement de la bibliothèque. Monero (`XMR-USD`) fait partie des cryptos importées.

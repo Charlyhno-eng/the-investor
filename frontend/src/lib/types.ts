@@ -13,6 +13,7 @@ export type Asset = {
   last_date: string;
   last_value: number;
   country_code: string | null;
+  country?: string | null;
   benchmark_years: number | null;
   year_average_yield: number | null;
   year_yield_samples: number;
@@ -27,14 +28,6 @@ export type Periods = {
 };
 export type Parameters = Periods & {
   fee_bps: number;
-  slippage_bps: number;
-  min_hold: number;
-  entry_confirmation: number;
-  exit_confirmation: number;
-  max_trades: number | null;
-  entry_probability: number;
-  exit_probability: number;
-  risk_free_rate: number;
 };
 export type Metrics = Record<string, number | null>;
 export type Analysis = {
@@ -54,7 +47,23 @@ export type Analysis = {
   regimes: { time: string; state: string; probabilities: number[] }[];
   states: { name: string; mean_change: number; persistence: number }[];
   transition_matrix: number[][];
-  trades: { time: string; side: string; probability: number | null }[];
+  diagnostics?: {
+    exit_reachable: boolean;
+    negative_states: number;
+    negative_dominant_observations: number;
+    negative_dominant_while_held: number;
+    negative_dominant_without_exit_while_held: number;
+    exit_signal_observations: number;
+    net_excess_return: number;
+    nearly_always_invested: boolean;
+    nearly_always_cash: boolean;
+  };
+  trades: {
+    time: string;
+    side: string;
+    probability: number | null;
+    reason?: string;
+  }[];
   exposure: number | null;
 };
 export type ImportJob = {

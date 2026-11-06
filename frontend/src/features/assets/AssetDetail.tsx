@@ -7,22 +7,20 @@ import type { Asset, Point } from "../../lib/types";
 import { Tooltip } from "../../components/Tooltip";
 import { useDividends } from "./useDividends";
 import { AnalysisPanel } from "../analysis/AnalysisPanel";
-import { NumberInput } from "../analysis/NumberInput";
+import { stockCountry } from "../../lib/countries";
 import { MarketComparison } from "./MarketComparison";
 import { ReversionPanel } from "../reversion/ReversionPanel";
 import { favoriteLabel, type Favorite } from "../../lib/favorites";
 export function AssetDetail({
   asset,
   favorite,
-  quantity,
-  onQuantity,
   onToggleFavorite,
+  onRemove,
 }: {
   asset: Asset;
   favorite?: Favorite;
-  quantity: number;
-  onQuantity: (value: number) => void;
   onToggleFavorite: () => void;
+  onRemove: () => void;
 }) {
   const [points, setPoints] = useState<Point[]>([]),
     [error, setError] = useState(""),
@@ -47,6 +45,7 @@ export function AssetDetail({
   }, [asset.id, asset.last_date, asset.points, asset.last_value]);
   const dividends = useDividends(asset);
   const [compareMarket, setCompareMarket] = useState(false);
+  const [reinvest, setReinvest] = useState(false);
   const supportsAnalysis =
     asset.category === "stock" || asset.category === "crypto";
   const category = categories.find((c) => c.id === asset.category)!;
@@ -82,11 +81,32 @@ export function AssetDetail({
               >
                 <Icon name="star" size={20} />
               </button>
+              <button
+                className="favorite-button detail-remove"
+                aria-label={`Retirer ${asset.name} de la liste`}
+                title="Retirer cet actif de la liste"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Retirer « ${asset.name} » de la liste ? Son historique sera conservé.`,
+                    )
+                  )
+                    onRemove();
+                }}
+              >
+                <Icon name="minus" size={20} />
+              </button>
             </h1>
             <span className="asset-subtitle">
               {asset.id.startsWith("yf-")
                 ? asset.id.slice(3).toUpperCase()
                 : (asset.country_code ?? asset.unit)}
+              {asset.category === "stock" && (
+                <>
+                  <i />
+                  {stockCountry(asset)}
+                </>
+              )}
               <i />{" "}
               {asset.metric === "yield"
                 ? `Référence souveraine ${asset.benchmark_years ?? 10} ans`
@@ -101,18 +121,6 @@ export function AssetDetail({
           Historique local
         </span>
       </div>
-      {favorite === "gold" && (
-        <label className="holding-quantity">
-          Quantité détenue
-          <NumberInput
-            min={0}
-            max={1e15}
-            step="any"
-            value={quantity}
-            onChange={onQuantity}
-          />
-        </label>
-      )}
       <div className="detail-tabs" role="tablist" aria-label="Vue de l’actif">
         <button
           role="tab"
@@ -227,6 +235,15 @@ export function AssetDetail({
             </div>
           </div>
           <div className="market-chart-actions">
+            {compareMarket && (
+              <button
+                className="secondary-button"
+                aria-pressed={reinvest}
+                onClick={() => setReinvest((v) => !v)}
+              >
+                Dividendes réinvestis
+              </button>
+            )}
             <button
               className="secondary-button"
               disabled={asset.metric === "yield"}
@@ -243,6 +260,7 @@ export function AssetDetail({
           </div>
           {compareMarket && !loading && !error && points.length ? (
             <MarketComparison
+              reinvest={reinvest}
               asset={asset}
               start={range ? cutoff.toISOString().slice(0, 10) : undefined}
               end={asset.last_date}

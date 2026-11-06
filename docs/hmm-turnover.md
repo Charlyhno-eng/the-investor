@@ -1,5 +1,7 @@
 # Réduction des allers-retours HMM
 
+> Étude historique : la méthode actuelle est décrite dans [la revue FrenchQuant](hmm-video.md).
+
 Comparaison locale du 6 novembre 2026, sur BTC, ETH, Apple, Microsoft et or. Même modèle et mêmes coûts : 10 pb de frais et 5 pb de glissement par ordre. Dernières 2 016 observations quotidiennes, historique complet mensuel. Entraînement sur 60 %, comparaison de 12 réglages (entrée 65/75/85 %, sortie 25/35 %, confirmation 2/3) sur les 20 % suivants, évaluation sur les derniers 20 %. Le score de validation est le rendement annualisé borné à [−100 %, 200 %], moins 0,3 fois l’exposition et 0,5 fois le drawdown. Les données ont déjà servi à d’autres diagnostics ; ces essais ne constituent pas une preuve indépendante de généralisation.
 
 Ancienne politique : 75/35 %, une confirmation à l’entrée, sortie immédiate et forcée dès que le momentum devient non positif. Nouvelle politique sélectionnée : 75/35 %, deux confirmations sur achat et vente ; le momentum positif conditionne seulement les entrées. Aucune détention minimale imposée ni plafond d’ordres dans les deux politiques.

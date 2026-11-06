@@ -49,9 +49,9 @@ export function fitRegression(
       upper: restore(predicted[i] + threshold * sigma),
       z,
       zone:
-        z !== null && z < -threshold
+        z !== null && z <= -threshold
           ? "entry"
-          : z !== null && z > threshold
+          : z !== null && z >= threshold
             ? "exit"
             : "neutral",
     };
@@ -88,5 +88,54 @@ export function fitRegression(
     r2: yy > 1e-20 ? Math.max(0, Math.min(1, 1 - sse / yy)) : null,
     annualTrend: scale === "log" ? Math.expm1(slope) : slope / points[0].value,
     reversal: firstSlope * secondSlope < 0,
+  };
+}
+
+/** Full-period fitted bands: descriptive simulation with hindsight, not out of sample. */
+export function compareRegressionStrategy(
+  rows: Pick<
+    ReturnType<typeof fitRegression>["rows"][number],
+    "time" | "value" | "lower" | "upper" | "z"
+  >[],
+) {
+  let cash = 100;
+  let units = 0;
+  let purchases = 0;
+  let sales = 0;
+  const equity = rows.map((row) => {
+    if (row.z !== null) {
+      if (units === 0 && row.value <= row.lower) {
+        units = cash / row.value;
+        cash = 0;
+        purchases++;
+      } else if (units > 0 && row.value >= row.upper) {
+        cash = units * row.value;
+        units = 0;
+        sales++;
+      }
+    }
+    return {
+      time: row.time,
+      strategy: cash + units * row.value,
+      benchmark: (100 * row.value) / rows[0].value,
+    };
+  });
+  const metrics = (key: "strategy" | "benchmark") => {
+    let peak = 100;
+    let maxDrawdown = 0;
+    for (const point of equity) {
+      peak = Math.max(peak, point[key]);
+      maxDrawdown = Math.min(maxDrawdown, point[key] / peak - 1);
+    }
+    const capital = equity.at(-1)?.[key] ?? 100;
+    return { capital, totalReturn: capital / 100 - 1, maxDrawdown };
+  };
+  return {
+    equity,
+    strategy: metrics("strategy"),
+    benchmark: metrics("benchmark"),
+    purchases,
+    sales,
+    invested: units > 0,
   };
 }

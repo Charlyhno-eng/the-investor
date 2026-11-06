@@ -24,9 +24,16 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
     await expect(region).toContainText("+20 %");
     await expect(region).toContainText("+10 %");
     await expect(region).toContainText("hors dividendes");
-    await region
-      .getByRole("button", { name: "Dividendes réinvestis", exact: true })
-      .click();
+    const reinvestButton = page.getByRole("button", {
+      name: "Dividendes réinvestis",
+      exact: true,
+    });
+    const priceButton = page.getByRole("button", { name: "Revenir au prix" });
+    const left = (await reinvestButton.boundingBox())!;
+    const right = (await priceButton.boundingBox())!;
+    expect(left.x + left.width).toBeLessThanOrEqual(right.x);
+    expect(Math.abs(left.y - right.y)).toBeLessThan(2);
+    await reinvestButton.click();
     await expect
       .poll(() =>
         new URL(comparisonRequests.at(-1)!).searchParams.get("reinvest"),

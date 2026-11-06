@@ -25,6 +25,8 @@ def main():
                         for row in connection.execute(
                             "SELECT id,category FROM assets WHERE source='yahoo'"
                         )
+                        if row["category"] != "crypto"
+                        or row["id"][3:].upper() in CRYPTO
                     ]
                 symbols = {s: "crypto" for s in CRYPTO}
                 symbols.update(dict(imported))

@@ -19,6 +19,7 @@ export const stock: Asset = {
   last_date: points.at(-1)!.time,
   last_value: points.at(-1)!.value,
   country_code: null,
+  country: "France",
   benchmark_years: null,
   year_average_yield: null,
   year_yield_samples: 0,
@@ -69,7 +70,10 @@ function result(parameters: Parameters): Analysis {
   };
 }
 
-export async function mockApi(page: Page) {
+export async function mockApi(
+  page: Page,
+  analysisOverrides: Partial<Analysis> = {},
+) {
   const analysisRequests: Parameters[] = [];
   const historyRequests: string[] = [];
   const comparisonRequests: string[] = [];
@@ -99,6 +103,8 @@ export async function mockApi(page: Page) {
       });
     } else if (path === "/api/portfolio/analytics") {
       const body = route.request().postDataJSON();
+      const currency = "EUR";
+      const rate = 0.8;
       const positions = body.holdings.map(
         (h: { asset_id: string; quantity: number }) => ({
           id: h.asset_id,
@@ -106,6 +112,9 @@ export async function mockApi(page: Page) {
           quantity: h.quantity,
           price_usd: 100,
           value_usd: h.quantity * 100,
+          price: 100 * rate,
+          value: h.quantity * 100 * rate,
+          fx_date: "2022-03-10",
           date: "2022-03-10",
           weight:
             h.quantity /
@@ -119,6 +128,11 @@ export async function mockApi(page: Page) {
       await route.fulfill({
         json: {
           status: "ready",
+          currency,
+          total: positions.reduce(
+            (sum: number, p: { value: number }) => sum + p.value,
+            0,
+          ),
           total_usd: positions.reduce(
             (sum: number, p: { value_usd: number }) => sum + p.value_usd,
             0,
@@ -168,7 +182,9 @@ export async function mockApi(page: Page) {
     } else if (path.endsWith("/analysis")) {
       const parameters = route.request().postDataJSON() as Parameters;
       analysisRequests.push(parameters);
-      await route.fulfill({ json: result(parameters) });
+      await route.fulfill({
+        json: { ...result(parameters), ...analysisOverrides },
+      });
     } else
       await route.fulfill({
         status: 404,

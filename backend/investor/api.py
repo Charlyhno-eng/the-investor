@@ -9,6 +9,7 @@ from investor.analysis.service import analyze
 from investor.db import connect
 from investor.import_runner import consume_imports
 from investor.market_api import router as market_router
+from investor.market_catalog import REMOVED_CRYPTO
 from investor.portfolio import PortfolioRequest, portfolio
 
 
@@ -48,7 +49,8 @@ def assets():
     with connect() as db:
         return [
             dict(row)
-            for row in db.execute("""
+            for row in db.execute(
+                """
           WITH ranking AS (
             SELECT MAX(o.date) AS end_date FROM observations o JOIN assets a ON a.id=o.asset_id
             WHERE a.category='bond' AND a.country_code IS NOT NULL
@@ -65,9 +67,12 @@ def assets():
             r.end_date AS bond_ranking_date
           FROM assets a JOIN observations o ON o.asset_id=a.id
           LEFT JOIN annual y ON y.asset_id=a.id CROSS JOIN ranking r
-          WHERE a.category != 'bond' OR a.country_code IS NOT NULL
+          WHERE (a.category != 'bond' OR a.country_code IS NOT NULL)
+            AND a.id NOT IN (?, ?)
           GROUP BY a.id ORDER BY a.category, y.average_yield DESC, a.name
-          """)
+          """,
+                REMOVED_CRYPTO,
+            )
         ]
 
 
@@ -134,8 +139,6 @@ def asset_comparison(
     from investor.comparison import compare
 
     return compare(asset_id, start, end, reinvest)
-
-
 
 
 @app.post("/api/portfolio/analytics")

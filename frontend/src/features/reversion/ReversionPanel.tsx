@@ -2,7 +2,11 @@ import { useMemo, useState } from "react";
 import { HistoryChart } from "../../components/HistoryChart";
 import { date, number, percent } from "../../lib/format";
 import type { Asset, Point } from "../../lib/types";
-import { fitRegression, type RegressionScale } from "./regression";
+import {
+  compareRegressionStrategy,
+  fitRegression,
+  type RegressionScale,
+} from "./regression";
 
 export function ReversionPanel({
   asset,
@@ -35,6 +39,10 @@ export function ReversionPanel({
     }
   }, [points, start, end, scale, threshold]);
   const fit = result.fit;
+  const comparison = useMemo(
+    () => (fit ? compareRegressionStrategy(fit.rows) : null),
+    [fit],
+  );
   const last = fit?.rows.at(-1);
   const overlays = useMemo(
     () =>
@@ -209,6 +217,76 @@ export function ReversionPanel({
             pointColors={colors}
             logarithmic={scale === "log"}
           />
+          {comparison && (
+            <section aria-label="Comparaison des stratégies de régression">
+              <div className="reversion-heading">
+                <h3>Achat-conservation vs bandes de régression</h3>
+                <p>
+                  Achat à −{number(threshold, 1)} σ · vente à +
+                  {number(threshold, 1)} σ · capital initial de 100.
+                </p>
+              </div>
+              <div className="reversion-summary">
+                {(
+                  [
+                    ["Bandes de régression", comparison.strategy],
+                    ["Achat-conservation", comparison.benchmark],
+                  ] as const
+                ).map(([label, metrics]) => (
+                  <div key={label}>
+                    <span>{label}</span>
+                    <strong
+                      className={
+                        metrics.totalReturn >= 0 ? "positive" : "negative"
+                      }
+                    >
+                      {percent(metrics.totalReturn, true)}
+                    </strong>
+                    <small>Capital final : {number(metrics.capital)}</small>
+                    <small>
+                      Baisse maximale : {percent(metrics.maxDrawdown)}
+                    </small>
+                  </div>
+                ))}
+                <div>
+                  <span>Opérations sur les bandes</span>
+                  <strong>
+                    {comparison.purchases} achats · {comparison.sales} ventes
+                  </strong>
+                  <small>
+                    Position finale :{" "}
+                    {comparison.invested ? "investi" : "liquidités"}
+                  </small>
+                </div>
+              </div>
+              <div className="reversion-legend">
+                <span className="trend-key">━ Bandes de régression</span>
+                <span>━ Achat-conservation</span>
+              </div>
+              <HistoryChart
+                comparison={comparison.equity}
+                comparisonLabels={{
+                  strategy: "Bandes de régression",
+                  benchmark: "Achat-conservation",
+                  accessible:
+                    "Capital des bandes de régression et de l’achat-conservation, base 100",
+                }}
+              />
+              <p className="reversion-notes">
+                Simulation rétrospective : les bandes sont ajustées sur toute la
+                période, avec connaissance des prix futurs. Départ en liquidités
+                pour la stratégie ; achat dès la première observation pour
+                l’achat-conservation. Au premier prix observé inférieur ou égal
+                à la borne basse, tout le capital est investi ; au premier prix
+                supérieur ou égal à la borne haute, tout est vendu. Les
+                opérations utilisent le prix observé, même si la borne est
+                dépassée. Entre ces deux seuils, la position est conservée. Les
+                liquidités ne rapportent rien ; une position encore ouverte est
+                valorisée au dernier prix. Hors frais, fiscalité et dividendes
+                ajoutés.
+              </p>
+            </section>
+          )}
           <div className="reversion-notes" role="status">
             {fit.slope <= 0 && (
               <p>
@@ -251,15 +329,16 @@ export function ReversionPanel({
               Les seuils utilisent l’écart-type des résidus, calculé avec n − 2
               degrés de liberté. À zéro, tout prix inférieur à la tendance est
               une entrée potentielle, tout prix supérieur une vente potentielle.
-              Un seuil positif laisse une zone neutre. Ces bandes décrivent la
-              dispersion passée, pas un intervalle de confiance.
+              Le contact avec une borne est inclus dans le signal. Un seuil
+              positif laisse une zone neutre. Ces bandes décrivent la dispersion
+              passée, pas un intervalle de confiance.
             </p>
             <p>
               La droite utilise toute la période sélectionnée : modifier sa fin
-              recalcule aussi les zones passées. Cette vue descriptive ne
-              constitue pas un backtest. Un R² élevé ne démontre ni un retour à
-              la moyenne ni une rentabilité ; les frais et l’exécution des
-              ordres ne sont pas simulés.
+              recalcule aussi les zones et la simulation passées. Le comparatif
+              utilise donc des informations futures : il ne mesure pas une
+              performance hors échantillon. Un R² élevé ne démontre ni un retour
+              à la moyenne ni une rentabilité.
             </p>
             <p>
               Méthode :{" "}

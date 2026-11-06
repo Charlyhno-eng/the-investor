@@ -2,6 +2,7 @@
 
 import math
 from datetime import date, timedelta
+from typing import Literal
 
 import numpy as np
 from fastapi import HTTPException
@@ -19,6 +20,7 @@ class Holding(BaseModel):
 class PortfolioRequest(BaseModel):
     holdings: list[Holding] = Field(max_length=200)
     years: int = Field(default=3, ge=1, le=20)
+    currency: Literal["EUR"] = "EUR"
 
 
 def portfolio(request: PortfolioRequest):
@@ -52,6 +54,8 @@ def portfolio(request: PortfolioRequest):
             if asset["category"] == "stock":
                 pending = ensure_prices(connection, asset) or pending
             assets.append((asset, holding.quantity, currency))
+        if assets and request.currency != "USD":
+            symbols.add(f"{request.currency}USD=X")
         pending = ensure_references(connection, sorted(symbols)) or pending
         if pending:
             return {"status": "pending"}
@@ -136,6 +140,28 @@ def portfolio(request: PortfolioRequest):
             value = price * quantity
             if not math.isfinite(value):
                 raise HTTPException(422, "Valeur de position trop grande.")
+            exchange_rate, fx_date = 1.0, None
+            if request.currency != "USD":
+                # FX markets close on weekends; use a known rate, never a future one.
+                fx_row = connection.execute(
+                    "SELECT date,value FROM reference_observations "
+                    "WHERE symbol=? AND date<=? AND date>=date(?,'-7 days') "
+                    "AND value>0 ORDER BY date DESC LIMIT 1",
+                    (f"{request.currency}USD=X", row["date"], row["date"]),
+                ).fetchone()
+                if fx_row is None or not math.isfinite(fx_row["value"]):
+                    excluded.append(
+                        {
+                            "id": asset["id"],
+                            "name": asset["name"],
+                            "reason": f"Change {request.currency} indisponible à la date du prix (7 jours maximum).",
+                        }
+                    )
+                    continue
+                exchange_rate, fx_date = fx_row["value"], fx_row["date"]
+            converted = value / exchange_rate
+            if not math.isfinite(converted):
+                raise HTTPException(422, "Valeur de position trop grande.")
             positions.append(
                 {
                     "id": asset["id"],
@@ -143,12 +169,15 @@ def portfolio(request: PortfolioRequest):
                     "quantity": quantity,
                     "price_usd": price,
                     "value_usd": value,
+                    "price": price / exchange_rate,
+                    "value": converted,
+                    "fx_date": fx_date,
                     "date": row["date"],
                 }
             )
-        total = sum(p["value_usd"] for p in positions)
+        total = sum(p["value"] for p in positions)
         for p in positions:
-            p["weight"] = p["value_usd"] / total if total > 0 else 0
+            p["weight"] = p["value"] / total if total > 0 else 0
         monthly = any(a["frequency"] == "monthly" for a, _ in histories)
         if monthly:
             # Last actually observed price in each completed month; no forward fill.
@@ -184,9 +213,10 @@ def portfolio(request: PortfolioRequest):
             matrix.append(row)
         return {
             "status": "ready",
-            "currency": "USD",
+            "currency": request.currency,
             "positions": positions,
-            "total_usd": total,
+            "total_usd": sum(p["value_usd"] for p in positions),
+            "total": total,
             "excluded": excluded,
             "correlation": {
                 "assets": [{"id": a["id"], "name": a["name"]} for a, _ in histories],

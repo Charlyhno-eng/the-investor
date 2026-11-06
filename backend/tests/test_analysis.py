@@ -8,7 +8,7 @@ from investor.analysis.metrics import metrics
 from investor.analysis.model import features
 from investor.analysis.schemas import AnalysisRequest
 from investor.analysis.service import calculate
-from investor.analysis.strategy import simulate
+from investor.analysis.strategy import POLICIES, simulate
 from investor.api import app
 
 
@@ -44,8 +44,8 @@ def sample():
 
 def test_features_are_causal():
     values = np.array([100, 101, 98, 97, 109, 120.0])
-    _, whole = features(values, False, 3)
-    _, prefix = features(values[:4], False, 3)
+    _, whole = features(values, False)
+    _, prefix = features(values[:4], False)
     np.testing.assert_allclose(whole[:3], prefix)
 
 
@@ -57,33 +57,34 @@ def test_hmm_future_changes_do_not_change_past_results(sample):
         revised[i]["value"] *= 1.5
     second = calculate(asset, revised, request)
     assert first["states"] == second["states"]
+    assert first["model_selection"] == second["model_selection"]
     assert first["transition_matrix"] == second["transition_matrix"]
     assert first["regimes"][:280] == second["regimes"][:280]
     assert first["equity"][:281] == second["equity"][:281]
-    assert request.max_trades is None or len(first["trades"]) <= request.max_trades
     assert all(
         np.isfinite(v) for v in first["strategy_metrics"].values() if v is not None
     )
 
 
-def test_execution_lag_costs_and_trade_cap():
+def test_execution_lag_and_symmetric_costs():
     request = AnalysisRequest(
         train_start="2000-01-01",
         train_end="2005-01-01",
         test_start="2006-01-01",
         test_end="2007-01-01",
         fee_bps=100,
-        slippage_bps=0,
-        min_hold=1,
-        entry_confirmation=1,
-        exit_confirmation=1,
-        max_trades=2,
     )
     # A perfect bullish signal at bar 0 enters only at bar 1's close.
     probabilities = np.tile([0.0, 0.0, 1.0], (5, 1))
     changes = np.log1p([0.5, 0.5, 0.1, 0.1, 0.1])
     net, benchmark, trades, _positions = simulate(
-        changes, probabilities, ["a", "b", "c", "d", "e"], 2, request, 252
+        changes,
+        probabilities,
+        ["a", "b", "c", "d", "e"],
+        2,
+        request,
+        252,
+        policy=POLICIES["daily_original"],
     )
     assert net[0] == 0
     assert net[1] == pytest.approx(-0.01)
@@ -92,29 +93,6 @@ def test_execution_lag_costs_and_trade_cap():
     assert [t["side"] for t in trades] == ["buy", "sell"]
     assert trades[0]["time"] == "b" and trades[-1]["time"] == "e"
     assert benchmark[0] == pytest.approx(1.5 * 0.99 - 1)
-
-
-def test_hysteresis_confirmation_minimum_holding_and_cap():
-    request = AnalysisRequest(
-        train_start="2000-01-01",
-        train_end="2005-01-01",
-        test_start="2006-01-01",
-        test_end="2007-01-01",
-        min_hold=6,
-        entry_confirmation=2,
-        exit_confirmation=2,
-        max_trades=4,
-    )
-    probabilities = np.zeros((60, 3))
-    probabilities[:, 2] = np.tile([1, 1, 0, 0, 0, 0], 10)
-    net, _, trades, _ = simulate(
-        np.zeros(60), probabilities, list(range(60)), 2, request, 252
-    )
-    assert len(trades) <= 4
-    for buy, sell in zip(trades[::2], trades[1::2]):
-        assert sell["time"] - buy["time"] >= 6 or sell["time"] == 59
-    assert trades[0]["time"] >= 2
-    assert net.sum() <= 0
 
 
 def test_metrics_known_drawdown_beta_alpha_and_degenerate_cases():
@@ -173,18 +151,26 @@ def test_analysis_cache_and_data_revision(local, sample, monkeypatch):
         [("sample", r["date"], r["value"]) for r in rows],
         "test",
     )
-    original = service.fit_model
+    original = service.fit_regimes
     calls = []
 
     def spy(training):
         calls.append(len(training))
         return original(training)
 
-    monkeypatch.setattr(service, "fit_model", spy)
+    monkeypatch.setattr(service, "fit_regimes", spy)
     path = "/api/assets/sample/analysis"
     payload = request.model_dump(mode="json")
     first = local.post(path, json=payload)
     assert first.status_code == 200
+    assert first.json()["parameters"]["fee_bps"] == 50
+    assert "exit_reachable" in first.json()["diagnostics"]
+    assert (
+        local.post(
+            path, json={k: v for k, v in payload.items() if k != "fee_bps"}
+        ).json()
+        == first.json()
+    )
     assert local.post(path, json=payload).json() == first.json()
     assert len(calls) == 1
     with db.connect() as connection:
@@ -237,7 +223,7 @@ def test_unsupported_categories_rejected_before_cache_and_fit(
     def unexpected_fit(*args):
         pytest.fail("Unsupported assets must be rejected before model fitting")
 
-    monkeypatch.setattr(service, "fit_model", unexpected_fit)
+    monkeypatch.setattr(service, "fit_regimes", unexpected_fit)
 
     # A cache hit would be returned if the eligibility check were moved below hashing.
     class LegacyHash:
@@ -269,35 +255,35 @@ def test_scaled_filter_matches_prefix_posteriors():
 
 
 def test_training_cache_reuses_fit_for_simulation_and_test_changes(sample, monkeypatch):
-    from investor.analysis import model
+    from investor.analysis import regimes
 
-    model._fit_cached.cache_clear()
-    original = model.GaussianHMM.fit
+    regimes._fit_cached.cache_clear()
+    original = regimes._fit
     calls = []
 
-    def fit(self, x, *args, **kwargs):
-        calls.append(len(x))
-        return original(self, x, *args, **kwargs)
+    def fit(training, count):
+        calls.append((len(training), count))
+        return original(training, count)
 
-    monkeypatch.setattr(model.GaussianHMM, "fit", fit)
+    monkeypatch.setattr(regimes, "_fit", fit)
     asset, rows, request = sample
     first = calculate(asset, rows, request)
-    assert len(calls) == 3
-    changed = request.model_copy(update={"fee_bps": 50})
+    fitted = len(calls)
+    assert fitted >= 3  # Two internal validation models and the final refit.
+    changed = request.model_copy(update={"fee_bps": 100})
     second = calculate(asset, rows, changed)
-    assert len(calls) == 3
+    assert len(calls) == fitted
     assert second["states"] == first["states"]
     assert second["regimes"] == first["regimes"]
-    assert second["equity"] != first["equity"]
     revised = [dict(row) for row in rows]
     revised[-1]["value"] *= 1.5
     calculate(asset, revised, request)
-    assert len(calls) == 3
+    assert len(calls) == fitted
     revised[200]["value"] *= 1.01
     calculate(asset, revised, request)
-    assert len(calls) == 6
-    assert model._fit_cached.cache_info().maxsize == 8
-    model._fit_cached.cache_clear()
+    assert len(calls) > fitted
+    assert regimes._fit_cached.cache_info().maxsize == 8
+    regimes._fit_cached.cache_clear()
 
 
 def test_forward_filter_extreme_observations_and_zero_transitions():
@@ -318,123 +304,6 @@ def test_forward_filter_extreme_observations_and_zero_transitions():
     assert forward_filter(model, np.empty((0, 2))).shape == (0, 3)
 
 
-def test_momentum_uses_only_trailing_log_returns():
-    returns = np.array([0.01, 0.02, -0.01, 0.03])
-    prices = 100 * np.exp(np.r_[0, np.cumsum(returns)])
-    changes, x = features(prices, False, 3)
-    np.testing.assert_allclose(changes, returns)
-    np.testing.assert_allclose(x[:, 1], [0.01, 0.03, 0.02, 0.04])
-
-
-def test_binary_model_and_executed_positions(sample):
-    asset, rows, request = sample
-    rng = np.random.default_rng(73)
-    # Both directions are present in training and test, with sustained trends.
-    returns = np.repeat([0.006, -0.006, 0.006, -0.006], 200)
-    returns += rng.normal(0, 0.001, len(returns))
-    values = 100 * np.exp(np.cumsum(returns))
-    revised = [dict(row, value=float(v)) for row, v in zip(rows, values)]
-    result = calculate(asset, revised, request)
-    assert [s["name"] for s in result["states"]] == ["Neutre / baisse", "Hausse"]
-    assert np.array(result["transition_matrix"]).shape == (2, 2)
-    assert all(len(p["probabilities"]) == 2 for p in result["regimes"])
-    assert len(result["positions"]) == result["test_points"]
-    position = 0
-    trades = {t["time"]: t for t in result["trades"]}
-    for p in result["positions"]:
-        if p["time"] in trades:
-            position = int(trades[p["time"]]["side"] == "buy")
-        assert p["position"] == position
-    assert any(p["position"] == 1 for p in result["positions"][:80])
-    assert all(p["position"] == 0 for p in result["positions"][150:])
-    assert result["positions"][-1]["position"] == 0
-
-
-def test_no_buy_when_both_trained_states_lose_money(sample, monkeypatch):
-    from types import SimpleNamespace
-
-    from investor.analysis import service
-
-    asset, rows, request = sample
-    fake = SimpleNamespace(
-        means_=np.array([[-0.02, -0.1], [-0.01, -0.05]]),
-        transmat_=np.array([[0.9, 0.1], [0.1, 0.9]]),
-    )
-    monkeypatch.setattr(
-        service, "fit_model", lambda x: (fake, np.zeros(2), np.ones(2), True)
-    )
-    monkeypatch.setattr(
-        service, "forward_filter", lambda m, x: np.tile([0, 1.0], (len(x), 1))
-    )
-    result = calculate(asset, rows, request)
-    assert result["trades"] == []
-    assert all(p["position"] == 0 for p in result["positions"])
-    assert result["strategy_metrics"]["total_return"] == 0
-
-
-def test_strategy_confirms_exit_as_well_as_entry():
-    request = AnalysisRequest(
-        train_start="2000-01-01",
-        train_end="2001-01-01",
-        test_start="2002-01-01",
-        test_end="2003-01-01",
-        entry_confirmation=3,
-        exit_confirmation=3,
-    )
-    p = np.array([[0, 1.0]] * 4 + [[1.0, 0]] * 6)
-    _, _, trades, _ = simulate(
-        np.zeros(len(p)), p, list(range(len(p))), 1, request, 252
-    )
-    assert trades[0]["time"] == 3
-    assert trades[1]["time"] == 7
-    assert request.max_trades is None
-
-
-def test_nonpositive_momentum_blocks_bullish_model(sample, monkeypatch):
-    from types import SimpleNamespace
-
-    from investor.analysis import service
-
-    asset, rows, request = sample
-    revised = [
-        dict(r, value=100 * np.exp(-i * 0.001 + 0.0001 * np.sin(i)))
-        for i, r in enumerate(rows)
-    ]
-    fake = SimpleNamespace(
-        means_=np.array([[-0.01, -0.1], [0.01, 0.1]]),
-        transmat_=np.array([[0.9, 0.1], [0.1, 0.9]]),
-    )
-    monkeypatch.setattr(
-        service, "fit_model", lambda x: (fake, np.zeros(2), np.ones(2), True)
-    )
-    monkeypatch.setattr(
-        service, "forward_filter", lambda m, x: np.tile([0.0, 1.0], (len(x), 1))
-    )
-    result = calculate(asset, revised, request)
-    assert not result["trades"]
-
-
-def test_confirmation_reduces_churn_and_costs(sample):
-    request = sample[2].model_copy(
-        update={"entry_confirmation": 2, "exit_confirmation": 2}
-    )
-    p = np.array([[0.0, 1.0]] * 5 + [[1.0, 0.0], [0.0, 1.0]] * 10)
-    net, _, trades, _ = simulate(
-        np.zeros(len(p)), p, list(range(len(p))), 1, request, 252
-    )
-    fast, _, frequent, _ = simulate(
-        np.zeros(len(p)),
-        p,
-        list(range(len(p))),
-        1,
-        request.model_copy(update={"entry_confirmation": 1, "exit_confirmation": 1}),
-        252,
-    )
-    assert len(trades) == 2
-    assert len(frequent) > len(trades)
-    assert np.prod(1 + net) > np.prod(1 + fast)
-
-
 def test_comparison_curves_match_reported_net_returns(sample):
     result = calculate(*sample)
     curve = result["equity"]
@@ -449,33 +318,170 @@ def test_comparison_curves_match_reported_net_returns(sample):
     )
 
 
-@pytest.mark.parametrize("entry,exit,buy_at,sell_at", [(5, 3, 5, 12), (2, 6, 2, 15)])
-def test_independent_entry_and_exit_confirmations(sample, entry, exit, buy_at, sell_at):
-    request = sample[2].model_copy(
-        update={"entry_confirmation": entry, "exit_confirmation": exit}
+def test_observable_is_simple_return_without_momentum():
+    prices = np.array([100, 110, 99, 118.8])
+    changes, x = features(prices, False)
+    np.testing.assert_allclose(x[:, 0], [0.1, -0.1, 0.2])
+    np.testing.assert_allclose(np.expm1(changes), x[:, 0])
+    assert x.shape == (3, 1)
+
+
+def test_regimes_are_ordered_by_training_return(sample):
+    result = calculate(*sample)
+    count = len(result["states"])
+    means = [s["mean_change"] for s in result["states"]]
+    assert means == sorted(means)
+    assert count in (2, 3)
+    assert np.array(result["transition_matrix"]).shape == (count, count)
+    for row in result["regimes"]:
+        assert len(row["probabilities"]) == count
+        assert sum(row["probabilities"]) == pytest.approx(1)
+    position = 0
+    trades = {t["time"]: t for t in result["trades"]}
+    for row in result["positions"]:
+        if row["time"] in trades:
+            position = int(trades[row["time"]]["side"] == "buy")
+        assert row["position"] == position
+    assert result["positions"][-1]["position"] == 0
+
+
+def test_full_covariance_filter_matches_causal_prefixes():
+    from hmmlearn.hmm import GaussianHMM
+    from investor.analysis.model import forward_filter
+
+    m = GaussianHMM(n_components=2, covariance_type="full", init_params="")
+    m.startprob_ = np.array([0.5, 0.5])
+    m.transmat_ = np.array([[0.97, 0.03], [0.1, 0.9]])
+    m.means_ = np.array([[0.001], [-0.005]])
+    m.covars_ = np.array([[[0.0001]], [[0.0025]]])
+    x = np.array([[0.01], [-0.08], [0.06], [0.001], [0.002]])
+    expected = np.array([m.predict_proba(x[:i])[-1] for i in range(1, len(x) + 1)])
+    np.testing.assert_allclose(forward_filter(m, x), expected, atol=1e-12)
+
+
+def test_negative_predictive_return_does_not_buy_even_in_calm_regime(
+    sample, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from investor.analysis import service
+
+    fake = SimpleNamespace(
+        means_=np.array([[-0.01, -0.01, -4], [0.1, 0.1, -2]]),
+        covars_=np.array([[[0.0001]], [[0.01]]]),
+        transmat_=np.array([[0.99, 0.01], [0.1, 0.9]]),
     )
-    bullish = np.array([0.9] * 9 + [0.1] * 8)
-    probabilities = np.column_stack((1 - bullish, bullish))
-    _, _, trades, _ = simulate(
-        np.zeros(17), probabilities, list(range(17)), 1, request, 252
+    monkeypatch.setattr(
+        service,
+        "fit_regimes",
+        lambda x: (
+            fake,
+            np.zeros(3),
+            np.ones(3),
+            True,
+            {"observable_columns": [0, 1, 2]},
+        ),
     )
-    assert [(t["side"], t["time"]) for t in trades] == [
-        ("buy", buy_at),
-        ("sell", sell_at),
+    monkeypatch.setattr(
+        service, "forward_filter", lambda m, x: np.tile([1.0, 0.0], (len(x), 1))
+    )
+    asset, rows, request = sample
+    rows = [
+        dict(r, value=100 * np.exp(i * 0.001 + 0.0001 * np.sin(i)))
+        for i, r in enumerate(rows)
     ]
+    result = calculate(asset, rows, request)
+    assert result["trades"] == []
+    assert result["exposure"] == 0
 
 
-def test_interrupted_entry_and_exit_confirmation_streaks_reset(sample):
-    bullish = np.array(
-        [0.9] * 4 + [0.6] + [0.9] * 5 + [0.1] * 2 + [0.6] + [0.1] * 3 + [0.6] * 3
-    )
-    probabilities = np.column_stack((1 - bullish, bullish))
-    _, _, trades, _ = simulate(
-        np.zeros(len(bullish)),
-        probabilities,
-        list(range(len(bullish))),
-        1,
-        sample[2],
+def test_regime_switch_executes_next_close_and_fee_is_same_on_both_sides(sample):
+    request = sample[2].model_copy(update={"fee_bps": 100})
+    # Calm at 0 buys at 1; extreme at 2 sells at 3.
+    p = np.array([[1.0, 0], [1.0, 0], [0.0, 1], [0.0, 1], [1.0, 0], [1.0, 0], [1.0, 0]])
+    net, benchmark, trades, positions = simulate(
+        np.zeros(7),
+        p,
+        list(range(7)),
+        0,
+        request,
         252,
+        policy=POLICIES["daily_original"],
     )
-    assert [(t["side"], t["time"]) for t in trades] == [("buy", 10), ("sell", 16)]
+    assert [(t["time"], t["side"]) for t in trades] == [
+        (1, "buy"),
+        (3, "sell"),
+        (5, "buy"),
+        (6, "sell"),
+    ]
+    assert positions == [0, 1, 1, 0, 0, 1, 0]
+    assert np.prod(1 + net) == pytest.approx(0.99**4)
+    assert np.prod(1 + benchmark) == pytest.approx(0.99**2)
+
+
+@pytest.mark.parametrize(
+    "field",
+    [
+        "slippage_bps",
+        "entry_probability",
+        "exit_probability",
+        "entry_confirmation",
+        "exit_confirmation",
+        "min_hold",
+        "max_trades",
+        "risk_free_rate",
+    ],
+)
+def test_only_fees_are_configurable(sample, field):
+    with pytest.raises(ValueError, match="Extra inputs"):
+        AnalysisRequest(**sample[2].model_dump(), **{field: 1})
+
+
+def test_higher_fees_preserve_hmm_and_no_stop_is_configured(sample):
+    asset, rows, request = sample
+    zero = calculate(asset, rows, request.model_copy(update={"fee_bps": 0}))
+    high = calculate(asset, rows, request.model_copy(update={"fee_bps": 100}))
+    assert high["regimes"] == zero["regimes"]
+    assert high["states"] == zero["states"]
+    assert "risk_control" not in high
+    assert high["policy"]["position_stop"] is None
+    assert zero["policy"]["position_stop"] is None
+
+
+def test_unreachable_exit_is_reported_even_when_adverse_regime_is_detected(
+    sample, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from investor.analysis import service
+
+    # Parameters of the structural failure seen on Air Liquide: every pure
+    # state's continuation stays above -cost, despite a negative state mean.
+    model = SimpleNamespace(
+        means_=np.array([[-0.00081365], [0.00086961]]),
+        covars_=np.array([[[0.0004]], [[0.0001]]]),
+        transmat_=np.array([[0.913911, 0.086089], [0.015879, 0.984121]]),
+    )
+    monkeypatch.setattr(
+        service,
+        "fit_regimes",
+        lambda x: (model, np.zeros(1), np.ones(1), True, {"observable_columns": [0]}),
+    )
+
+    def beliefs(model, x):
+        p = np.tile([0.0, 1.0], (len(x), 1))
+        p[-100:] = [1.0, 0.0]
+        return p
+
+    monkeypatch.setattr(service, "forward_filter", beliefs)
+    result = calculate(*sample)
+    diagnostic = result["diagnostics"]
+    assert diagnostic["exit_reachable"] is False
+    assert diagnostic["negative_dominant_observations"] == 100
+    assert diagnostic["negative_dominant_without_exit_while_held"] == 100
+    assert (
+        len(result["trades"]) == 2
+        and result["trades"][-1]["reason"] == "final_liquidation"
+    )
+    assert any("Aucune sortie de régime" in note for note in result["warnings"])
+    assert result["diagnostics"]["nearly_always_invested"] is True

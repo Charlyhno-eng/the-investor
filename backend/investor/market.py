@@ -16,6 +16,8 @@ log = logging.getLogger(__name__)
 
 
 def import_symbol(symbol: str, category: str) -> str:
+    if category == "crypto" and symbol not in CRYPTO:
+        raise ValueError("Cryptomonnaie absente du catalogue.")
     yf.set_tz_cache_location(str(db.DATA_DIR / "provider-cache"))
     ticker = yf.Ticker(symbol)
     frame = ticker.history(
@@ -113,6 +115,8 @@ def import_symbol(symbol: str, category: str) -> str:
         dividends=dividends,
         dividend_coverage=coverage,
     )
+    if category == "stock":
+        update_country(ticker, asset_id)
     with db.connect() as connection:
         connection.executemany(
             "INSERT OR REPLACE INTO price_observations VALUES (?,?,?)",
@@ -123,6 +127,20 @@ def import_symbol(symbol: str, category: str) -> str:
             ],
         )
     return asset_id
+
+
+def update_country(ticker, asset_id: str):
+    """Company domicile from its profile; never infer it from the listing venue."""
+    try:
+        country = ticker.get_info().get("country")
+        if isinstance(country, str) and country.strip():
+            with db.connect() as connection:
+                connection.execute(
+                    "UPDATE assets SET country=? WHERE id=?",
+                    (country.strip(), asset_id),
+                )
+    except Exception:
+        log.exception("Pays indisponible pour %s ; métadonnées conservées", asset_id)
 
 
 def process_one() -> bool:
