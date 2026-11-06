@@ -1,6 +1,6 @@
 # The Investor
 
-Espace local de recherche de marché : matières premières, obligations par pays, sélection d’actions et principales cryptos. React Router 7, React 19, TypeScript, Tailwind CSS 4, TradingView Lightweight Charts 5. API Python FastAPI, environnement **uv**, données SQLite. Interface noir encre, cuivre et bleu glacier, navigation extensible par catégorie et laboratoire quantitatif pour chaque actif.
+Espace local de recherche de marché : matières premières, obligations par pays, sélection d’actions et principales cryptos. React Router 7, React 19, TypeScript, Tailwind CSS 4, TradingView Lightweight Charts 5. API Python FastAPI, environnement **uv**, données SQLite. Interface noir encre, cuivre et bleu glacier, navigation extensible par catégorie et laboratoire quantitatif pour les matières premières, actions et cryptos.
 
 ## Démarrer
 
@@ -44,13 +44,19 @@ La couverture et les dernières dates varient selon l’actif. Il n’y a ni int
 
 Sources : [Banque mondiale, Commodity Markets](https://www.worldbank.org/en/research/commodity-markets), [classeur historique](https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx), [OCDE, taux longs](https://www.oecd.org/en/data/indicators/long-term-interest-rates.html), [OCDE via FRED, France](https://fred.stlouisfed.org/series/IRLTLT01FRM156N), [Yahoo Finance](https://finance.yahoo.com/). Attribution OCDE (2026), Main Economic Indicators, via FRED, Federal Reserve Bank of St. Louis, consultation le 6 novembre 2026.
 
+## Dividendes des actions
+
+Le worker télécharge aussi les événements `Dividends` de l’historique quotidien Yahoo (`actions=True`) et les conserve dans les tables `dividends` et `dividend_imports`. Les consultations `GET /api/assets/{id}/dividends` restent locales. Une actualisation réussie remplace les événements de la fenêtre téléchargée pour prendre en compte corrections et suppressions ; une erreur conserve les données précédentes. Les actions déjà présentes sont complétées à leur prochaine actualisation.
+
+Sous le graphique : dernier dividende connu et date de détachement, somme brute par action des douze derniers mois disponibles, puis dates personnalisables inclusives avec cumul et détail des événements. L’interface distingue les données en attente d’import d’une période connue sans dividende. La couverture est explicitement affichée. Il s’agit des montants historiques du fournisseur, corrigés des divisions d’actions, hors fiscalité et conversion de devise ; pas d’une prévision. Les prix ajustés du graphique incluent déjà l’ajustement des dividendes, donc les backtests ne les ajoutent pas une seconde fois. [Documentation du fournisseur](https://ranaroussi.github.io/yfinance/reference/yfinance.price_history.html).
+
 ## Analyse quantitative
 
-L’onglet **Analyse quantitative**, présent sur chaque actif, propose un HMM à trois régimes. Sélectionner la carte entraînement ou test, puis faire glisser sur la miniature historique ; les champs de dates permettent aussi une sélection précise au clavier. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler frais, glissement, confirmation, détention minimale, plafond de transactions, seuils d’entrée/sortie et taux sans risque.
+L’onglet **Analyse quantitative**, présent sur les matières premières, actions et cryptos, propose un HMM à trois régimes. Sélectionner la carte entraînement ou test, puis faire glisser sur la miniature historique ; les champs de dates permettent aussi une sélection précise au clavier. Les fenêtres doivent être ordonnées et disjointes. Les paramètres permettent de régler frais, glissement, confirmation, détention minimale, plafond de transactions, seuils d’entrée/sortie et taux sans risque.
 
 La simulation long/liquidités compare le capital net à l’achat-conservation du même actif, affiche les régimes, la matrice de transition et les transactions. Sharpe, Sortino, Calmar, volatilité annualisée, drawdown maximal, VaR 95 %, alpha et bêta disposent d’une infobulle au survol **et au focus clavier**, avec définition et repères. Le modèle n’a accès qu’à l’entraînement pour son ajustement ; les probabilités en période 2 sont filtrées causalement, avec exécution retardée.
 
-Sur les taux obligataires, l’outil produit les régimes de taux et leur matrice, sans performance fictive. Pour les commodities mensuelles, la simulation reste un proxy de prix/indice et n’inclut pas le roulement de futures. Les limites sont rappelées dans le résultat. [Conventions, formules, exécution et limites détaillées](docs/analysis.md).
+Les obligations ne proposent pas d’analyse HMM, et l’API refuse ces analyses. Elles sont classées par moyenne décroissante des taux annualisés sur les douze mois précédant la dernière observation souveraine du catalogue. Les observations absentes ne sont pas interpolées ; les pays sans données dans cette fenêtre sont placés en fin de liste. Le dernier taux disponible apparaît au-dessus du graphique. Ces séries n’identifient pas une émission et ne permettent donc pas d’afficher son coupon contractuel, ni de mesurer un rendement total réalisé sur un an. Pour les commodities mensuelles, la simulation reste un proxy de prix/indice et n’inclut pas le roulement de futures. Les limites sont rappelées dans le résultat. [Conventions, formules, exécution et limites détaillées](docs/analysis.md).
 
 ## Organisation
 
@@ -109,7 +115,7 @@ cd frontend
 npm run format:check
 ```
 
-Tests : parsing des fournisseurs, migrations, erreurs HTTP, queue persistante/dédupliquée, conservation après erreur, archives Yahoo et type d’instrument, séparation temporelle, causalité des variables et régimes, exécution retardée, coûts, limites de transactions/détention, formules connues, cas dégénérés, régimes de taux, cache invalidé après correction. Le build vérifie TypeScript puis produit `frontend/dist`.
+Tests : parsing des fournisseurs, migrations, erreurs HTTP, queue persistante/dédupliquée, conservation après erreur, archives Yahoo et type d’instrument, séparation temporelle, causalité des variables et régimes, exécution retardée, coûts, limites de transactions/détention, formules connues, cas dégénérés, refus HMM des obligations, classement souverain sur douze mois, dividendes et corrections, cache invalidé après correction. Le build vérifie TypeScript puis produit `frontend/dist`.
 
 Le proxy Vite sert `/api` en développement. Un déploiement devra router `/api` vers FastAPI et les routes d’interface vers `index.html`. Cette application est prévue pour un usage local : avant exposition publique, ajouter contrôle d’accès, quotas et supervision des imports/calculs.
 

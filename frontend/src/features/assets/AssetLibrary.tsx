@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
+import { Tooltip } from "../../components/Tooltip";
 import { Icon } from "../../components/Icon";
-import { categories, number } from "../../lib/format";
+import { categories, date, number } from "../../lib/format";
 import type { Asset, Category } from "../../lib/types";
 export function AssetLibrary({
   assets,
@@ -54,6 +55,12 @@ export function AssetLibrary({
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  if (category === "bond")
+    filtered.sort(
+      (a, b) =>
+        (b.year_average_yield ?? -Infinity) -
+          (a.year_average_yield ?? -Infinity) || a.name.localeCompare(b.name),
+    );
   const total = assets.filter((a) => a.category === category).length;
   return (
     <aside className="asset-library">
@@ -84,13 +91,29 @@ export function AssetLibrary({
       </label>
       <div className="list-heading">
         <span>ACTIF</span>
-        <span>DERNIER</span>
+        <span>{category === "bond" ? "MOY. 12 M ↓" : "DERNIER"}</span>
       </div>
+      {category === "bond" && (
+        <div className="ranking-note">
+          Rendement moyen décroissant{" "}
+          <Tooltip label="Classement sur douze mois">
+            Moyenne des taux annualisés disponibles sur les douze mois se
+            terminant à la dernière observation souveraine du catalogue. Ce taux
+            n’est ni un coupon ni la performance réalisée sur un an. Les pays
+            sans observation récente sont placés en fin de liste ; devises et
+            risques diffèrent.
+          </Tooltip>
+        </div>
+      )}
       <nav ref={list} aria-label="Actifs" className="asset-list">
         {filtered.map((a) => (
           <Link
             key={a.id}
-            title={a.name}
+            title={
+              a.category === "bond"
+                ? `${a.name} · moyenne sur ${a.year_yield_samples} observation(s) · dernière donnée ${date(a.last_date)}`
+                : a.name
+            }
             to={`/assets/${a.id}`}
             aria-current={selected === a.id ? "page" : undefined}
           >
@@ -111,7 +134,11 @@ export function AssetLibrary({
               </small>
             </span>
             <span className="list-value">
-              {number(a.last_value, a.last_value < 1 ? 3 : 2)}
+              {category === "bond"
+                ? a.year_average_yield == null
+                  ? "—"
+                  : `${number(a.year_average_yield)} %`
+                : number(a.last_value, a.last_value < 1 ? 3 : 2)}
             </span>
           </Link>
         ))}

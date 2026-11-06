@@ -8,7 +8,7 @@ Les dates réellement observées figurent dans le résultat. Une variation daté
 
 Actions : clôtures ajustées Yahoo Finance, via `yfinance`, pour tenir compte des splits et distributions selon les ajustements du fournisseur. Crypto : clôtures quotidiennes en USD, sans rendement de staking. Commodities : prix de référence/indices mensuels Banque mondiale ; simulation illustrative, sans contrat exécutable, roulement de futures, stockage, spread variable ni contraintes de liquidité. Les valeurs négatives ou nulles rendent le calcul logarithmique indisponible sur la période choisie.
 
-Obligations : les séries actuelles sont des **taux de référence**, parfois négatifs. Leur variation en points de pourcentage alimente le modèle de régimes. Aucun rendement de portefeuille, ratio de performance ou alpha/bêta n’est fabriqué à partir d’un taux : il faut une série de prix ou de rendement total pour cela. L’outil reste accessible et produit les trois régimes de taux et leur matrice de transition.
+Obligations : les séries actuelles sont des **taux de référence**, parfois négatifs. L’analyse HMM est retirée de cette catégorie ; son accès API est refusé avant tout calcul ou lecture du cache. Le classement utilise la moyenne des taux annualisés disponibles sur les douze mois terminant à la dernière observation souveraine du catalogue. Ce n’est pas la performance totale réalisée sur un an. Le dernier taux apparaît au-dessus du graphique ; le coupon contractuel d’une émission précise n’est pas disponible dans ces séries. [Distinction entre prix, taux et rendement](https://www.treasurydirect.gov/marketable-securities/understanding-pricing/).
 
 ## Modèle
 

@@ -21,6 +21,10 @@ def analyze(asset_id, request):
         asset = db.execute("SELECT * FROM assets WHERE id=?", (asset_id,)).fetchone()
         if not asset:
             raise HTTPException(404, "Actif introuvable")
+        if asset["category"] == "bond":
+            raise HTTPException(
+                422, "L’analyse HMM n’est pas disponible pour les obligations d’État."
+            )
         rows = db.execute(
             "SELECT date,value FROM observations WHERE asset_id=? AND date>=? AND date<=? ORDER BY date",
             (asset_id, request.train_start.isoformat(), request.test_end.isoformat()),

@@ -2112,3 +2112,167 @@ td {
     font-size: 9px;
   }
 }
+
+/* Income data stays next to the price chart, with its own period controls. */
+.yield-caption,
+.ranking-note {
+  color: var(--text-muted, #929aab);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.yield-caption {
+  margin-bottom: 10px;
+}
+.ranking-note {
+  padding: 0 20px 14px;
+  line-height: 1.5;
+}
+.dividend-panel {
+  margin-top: 24px;
+  padding: 24px;
+  background: #0d1016;
+  border: 1px solid #252a34;
+  border-radius: 16px;
+}
+.dividend-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.dividend-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 19px;
+  margin: 8px 0 0;
+}
+.dividend-summary {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin: 24px 0;
+  gap: 24px;
+}
+.dividend-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 12px;
+}
+.dividend-summary strong {
+  font-size: 27px;
+  font-weight: 500;
+}
+.dividend-summary small,
+.dividend-total small {
+  font-size: 13px;
+  margin-left: 8px;
+  color: #929aab;
+}
+.dividend-period {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  padding: 20px 0;
+  border-top: 1px solid #252a34;
+}
+.dividend-period > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-right: auto;
+  font-size: 12px;
+}
+.dividend-period label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  color: #aab2c1;
+}
+.dividend-period input {
+  min-width: 0;
+  color-scheme: dark;
+  background: #141923;
+  color: #e6e9ef;
+  border: 1px solid #303745;
+  border-radius: 7px;
+  padding: 9px;
+  font: inherit;
+}
+.dividend-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  border: 1px solid #34302c;
+  border-radius: 10px;
+  background: #191612;
+  font-size: 12px;
+  color: #b6b0a8;
+}
+.dividend-total strong {
+  display: block;
+  margin-top: 8px;
+  color: #e6b68d;
+  font-size: 25px;
+  font-weight: 500;
+}
+.dividend-events {
+  margin-top: 18px;
+  font-size: 13px;
+}
+.dividend-events summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.dividend-table {
+  max-height: 300px;
+  overflow: auto;
+}
+.dividend-table table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.dividend-table th,
+.dividend-table td {
+  padding: 12px 5px;
+  border-bottom: 1px solid #252a34;
+  text-align: left;
+}
+.dividend-table th:last-child,
+.dividend-table td:last-child {
+  text-align: right;
+}
+.dividend-coverage {
+  font-size: 11px;
+  color: #929aab;
+  margin-top: 18px;
+  line-height: 1.6;
+}
+@media (max-width: 700px) {
+  .dividend-panel {
+    padding: 18px;
+  }
+  .dividend-summary {
+    gap: 12px;
+  }
+  .dividend-period > div {
+    width: 100%;
+  }
+  .dividend-period label {
+    flex: 1;
+    min-width: 115px;
+  }
+  .dividend-heading .source-badge {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .ranking-note {
+    padding-bottom: 10px;
+  }
+}

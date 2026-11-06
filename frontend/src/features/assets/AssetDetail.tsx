@@ -4,6 +4,8 @@ import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
 import { categories, date, number, percent, sources } from "../../lib/format";
 import type { Asset, Point } from "../../lib/types";
+import { Tooltip } from "../../components/Tooltip";
+import { DividendPanel } from "./DividendPanel";
 import { AnalysisPanel } from "../analysis/AnalysisPanel";
 export function AssetDetail({ asset }: { asset: Asset }) {
   const [points, setPoints] = useState<Point[]>([]),
@@ -27,6 +29,7 @@ export function AssetDetail({ asset }: { asset: Asset }) {
       });
     return () => controller.abort();
   }, [asset.id, asset.last_date, asset.points, asset.last_value]);
+  const supportsAnalysis = asset.category !== "bond";
   const category = categories.find((c) => c.id === asset.category)!;
   const cutoff = new Date(`${asset.last_date}T00:00:00Z`);
   cutoff.setUTCFullYear(cutoff.getUTCFullYear() - range);
@@ -85,18 +88,31 @@ export function AssetDetail({ asset }: { asset: Asset }) {
           <Icon name="stock" size={16} />
           Vue du marché
         </button>
-        <button
-          role="tab"
-          aria-selected={tab === "analysis"}
-          onClick={() => setTab("analysis")}
-        >
-          <Icon name="analysis" size={16} />
-          Analyse quantitative<span className="new-tag">HMM</span>
-        </button>
+        {supportsAnalysis && (
+          <button
+            role="tab"
+            aria-selected={tab === "analysis"}
+            onClick={() => setTab("analysis")}
+          >
+            <Icon name="analysis" size={16} />
+            Analyse quantitative<span className="new-tag">HMM</span>
+          </button>
+        )}
       </div>
       <section className="chart-panel">
         <div className="quote-row">
           <div>
+            {asset.category === "bond" && (
+              <div className="yield-caption">
+                Rendement actuel annualisé{" "}
+                <Tooltip label="Rendement et coupon">
+                  Dernier taux souverain disponible, au {date(asset.last_date)}.
+                  Cette série de référence ne fournit pas le coupon d’une
+                  émission précise. Le coupon est l’intérêt contractuel du titre
+                  ; le rendement dépend aussi de son prix.
+                </Tooltip>
+              </div>
+            )}
             <div className="quote">
               <strong>
                 {number(asset.last_value, asset.last_value < 1 ? 4 : 2)}
@@ -162,9 +178,10 @@ export function AssetDetail({ asset }: { asset: Asset }) {
           </a>
         </div>
       </section>
-      {tab === "analysis" && points.length > 2 && (
+      {supportsAnalysis && tab === "analysis" && points.length > 2 && (
         <AnalysisPanel asset={asset} points={points} />
       )}
+      {asset.category === "stock" && <DividendPanel asset={asset} />}
       {tab === "chart" && (
         <div className="asset-facts">
           <div>
@@ -189,18 +206,20 @@ export function AssetDetail({ asset }: { asset: Asset }) {
                     : "Prix de référence"}
             </strong>
           </div>
-          <button
-            className="analysis-shortcut"
-            onClick={() => setTab("analysis")}
-          >
-            <span className="shortcut-icon">
-              <Icon name="analysis" />
-            </span>
-            <span>
-              Explorer les régimes<small>Modèle de Markov caché</small>
-            </span>
-            <Icon name="arrow" size={18} />
-          </button>
+          {supportsAnalysis && (
+            <button
+              className="analysis-shortcut"
+              onClick={() => setTab("analysis")}
+            >
+              <span className="shortcut-icon">
+                <Icon name="analysis" />
+              </span>
+              <span>
+                Explorer les régimes<small>Modèle de Markov caché</small>
+              </span>
+              <Icon name="arrow" size={18} />
+            </button>
+          )}
         </div>
       )}
       <footer className="workspace-footer">

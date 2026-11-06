@@ -19,7 +19,7 @@ def import_symbol(symbol: str, category: str) -> str:
     yf.set_tz_cache_location(str(db.DATA_DIR / "provider-cache"))
     ticker = yf.Ticker(symbol)
     frame = ticker.history(
-        period="max", interval="1d", auto_adjust=True, actions=False, timeout=30
+        period="max", interval="1d", auto_adjust=True, actions=True, timeout=30
     )
     metadata = ticker.get_history_metadata()
     expected = "CRYPTOCURRENCY" if category == "crypto" else "EQUITY"
@@ -45,6 +45,25 @@ def import_symbol(symbol: str, category: str) -> str:
         or symbol
     )
     currency = metadata.get("currency", "USD")
+    dividends = None
+    coverage = None
+    if category == "stock":
+        if "Dividends" not in frame:
+            raise ValueError(
+                "Historique des dividendes absent de la réponse fournisseur."
+            )
+        dividends = []
+        for stamp, value in frame["Dividends"].items():
+            amount = float(value)
+            if not math.isfinite(amount) or amount < 0:
+                raise ValueError("Dividende invalide ; données précédentes conservées.")
+            if amount > 0:
+                dividends.append((asset_id, stamp.date().isoformat(), amount))
+        coverage = (
+            asset_id,
+            frame.index[0].date().isoformat(),
+            frame.index[-1].date().isoformat(),
+        )
     raw = db.DATA_DIR / "raw"
     raw.mkdir(parents=True, exist_ok=True)
     payload = frame.to_csv().encode()
@@ -77,6 +96,8 @@ def import_symbol(symbol: str, category: str) -> str:
         ],
         points,
         f"yahoo:{symbol}",
+        dividends=dividends,
+        dividend_coverage=coverage,
     )
     return asset_id
 

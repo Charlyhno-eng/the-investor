@@ -14,6 +14,9 @@ export type Asset = {
   last_value: number;
   country_code: string | null;
   benchmark_years: number | null;
+  year_average_yield: number | null;
+  year_yield_samples: number;
+  bond_ranking_date: string | null;
 };
 export type Point = { time: string; value: number };
 export type Periods = {

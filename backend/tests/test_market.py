@@ -91,7 +91,8 @@ def test_yahoo_type_validation_and_archiving(local, monkeypatch):
     import pandas as pd
 
     frame = pd.DataFrame(
-        {"Close": [100, 101]}, index=pd.to_datetime(["2020-01-01", "2020-01-02"])
+        {"Close": [100, 101], "Dividends": [0, 0.25]},
+        index=pd.to_datetime(["2020-01-01", "2020-01-02"]),
     )
     ticker = SimpleNamespace(
         history=lambda **kwargs: frame,
@@ -109,3 +110,44 @@ def test_yahoo_type_validation_and_archiving(local, monkeypatch):
     with pytest.raises(ValueError, match="catégorie incompatible"):
         market.import_symbol("EX.PA", "crypto")
     assert len(local.get("/api/assets").json()) == 1
+    result = local.get("/api/assets/yf-ex.pa/dividends").json()
+    assert result["events"] == [{"time": "2020-01-02", "amount": 0.25}]
+    assert result["coverage"]["first_date"] == "2020-01-01"
+    # Provider correction replaces the window, including deletion of an old event.
+    frame["Dividends"] = [0.5, 0]
+    market.import_symbol("EX.PA", "stock")
+    assert local.get("/api/assets/yf-ex.pa/dividends").json()["events"] == [
+        {"time": "2020-01-01", "amount": 0.5}
+    ]
+    frame["Dividends"] = [float("nan"), 0]
+    with pytest.raises(ValueError, match="Dividende invalide"):
+        market.import_symbol("EX.PA", "stock")
+    assert (
+        local.get("/api/assets/yf-ex.pa/dividends").json()["events"][0]["amount"] == 0.5
+    )
+    assert local.get("/api/assets/missing/dividends").status_code == 404
+
+
+def test_dividends_distinguish_pending_from_known_zero(local):
+    asset = (
+        "stock",
+        "Stock",
+        "stock",
+        "price",
+        "USD",
+        "daily",
+        "test",
+        "https://example.com",
+    )
+    db.save([asset], [("stock", "2025-01-01", 100)], "test")
+    assert local.get("/api/assets/stock/dividends").json()["coverage"] is None
+    db.save(
+        [asset],
+        [("stock", "2025-01-01", 100)],
+        "test",
+        dividends=[],
+        dividend_coverage=("stock", "2025-01-01", "2025-01-01"),
+    )
+    result = local.get("/api/assets/stock/dividends").json()
+    assert result["events"] == []
+    assert result["coverage"]["last_date"] == "2025-01-01"

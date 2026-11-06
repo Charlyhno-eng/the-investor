@@ -35,6 +35,12 @@ def connect():
     CREATE TABLE IF NOT EXISTS analysis_runs (
       id TEXT PRIMARY KEY, result TEXT NOT NULL,
       created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
+    CREATE TABLE IF NOT EXISTS dividends (
+      asset_id TEXT REFERENCES assets(id), date TEXT NOT NULL, amount REAL NOT NULL,
+      PRIMARY KEY(asset_id,date));
+    CREATE TABLE IF NOT EXISTS dividend_imports (
+      asset_id TEXT PRIMARY KEY REFERENCES assets(id), first_date TEXT NOT NULL,
+      last_date TEXT NOT NULL, updated_at TEXT NOT NULL);
     """)
     columns = {row["name"] for row in db.execute("PRAGMA table_info(assets)")}
     for column, kind in [("country_code", "TEXT"), ("benchmark_years", "INTEGER")]:
@@ -50,7 +56,16 @@ def connect():
         db.close()
 
 
-def save(assets, observations, source, *, country_code=None, benchmark_years=None):
+def save(
+    assets,
+    observations,
+    source,
+    *,
+    country_code=None,
+    benchmark_years=None,
+    dividends=None,
+    dividend_coverage=None,
+):
     if not assets or not observations:
         raise ValueError(f"{source}: import vide, données locales conservées")
     with connect() as db:
@@ -67,6 +82,18 @@ def save(assets, observations, source, *, country_code=None, benchmark_years=Non
             "INSERT INTO observations VALUES (?,?,?) ON CONFLICT(asset_id,date) DO UPDATE SET value=excluded.value",
             observations,
         )
+        if dividends is not None and dividend_coverage is not None:
+            asset_id, first, last = dividend_coverage
+            # Replace only the successfully fetched window, including removed/corrected events.
+            db.execute(
+                "DELETE FROM dividends WHERE asset_id=? AND date>=? AND date<=?",
+                (asset_id, first, last),
+            )
+            db.executemany("INSERT INTO dividends VALUES (?,?,?)", dividends)
+            db.execute(
+                "INSERT OR REPLACE INTO dividend_imports VALUES (?,?,?,strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+                (asset_id, first, last),
+            )
         db.execute(
             "INSERT INTO imports VALUES (?,strftime('%Y-%m-%dT%H:%M:%SZ','now'),?) ON CONFLICT(source) DO UPDATE SET completed_at=excluded.completed_at, observations=excluded.observations",
             (source, len(observations)),
