@@ -30,13 +30,20 @@ function intervals(points: { time: string; label: string; color: string }[]) {
 export function RegimeTimeline({ result }: { result: Analysis }) {
   if (!result.regimes.length || !result.positions.length) return null;
   const colors = new Map(
-    result.states.map((state) => [
+    result.states.map((state, index) => [
       state.name,
-      state.mean_change < 0
-        ? "#bf747d"
-        : state.mean_change > 0
-          ? "#75aca5"
-          : "#768090",
+      result.states.length === 1
+        ? "#768090"
+        : result.model_selection?.method ===
+            "fixed_two_states_training_likelihood"
+          ? index === 0
+            ? "#768090"
+            : "#75aca5"
+          : state.mean_change < 0
+            ? "#bf747d"
+            : state.mean_change > 0
+              ? "#75aca5"
+              : "#768090",
     ]),
   );
   const rows = [

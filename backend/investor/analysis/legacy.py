@@ -3,7 +3,8 @@
 import numpy as np
 
 from investor.analysis.metrics import equity, metrics
-from investor.analysis.model import features, fit_model, forward_filter
+from investor.analysis.model import forward_filter
+from investor.analysis.research_legacy import features, fit_model
 from investor.analysis.strategy import (
     DEFAULT_POLICY_NAME,
     POLICIES,

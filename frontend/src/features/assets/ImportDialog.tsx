@@ -21,10 +21,12 @@ const suggestions: Stock[] = [
 ];
 export function ImportDialog({
   close,
-  refresh,
+  onImported,
+  removedAssets,
 }: {
   close: () => void;
-  refresh: () => void;
+  onImported: (assetId: string) => void;
+  removedAssets: string[];
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const navigate = useNavigate();
@@ -74,7 +76,7 @@ export function ImportDialog({
   }, [query, selected]);
   useEffect(() => {
     if (job?.status === "completed" && job.asset_id) {
-      refresh();
+      onImported(job.asset_id);
       navigate(`/assets/${job.asset_id}`);
       close();
       return;
@@ -103,7 +105,7 @@ export function ImportDialog({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [job, pollRevision, close, navigate, refresh]);
+  }, [job, pollRevision, close, navigate, onImported]);
   function choose(stock: Stock) {
     setSelected(stock);
     setQuery(stock.name);
@@ -212,7 +214,11 @@ export function ImportDialog({
                     </small>
                   </span>
                   <span className="stock-result-tag">
-                    {stock.imported ? "Déjà ajouté" : "Choisir"}
+                    {removedAssets.includes(`yf-${stock.symbol.toLowerCase()}`)
+                      ? "Réajouter"
+                      : stock.imported
+                        ? "Déjà ajouté"
+                        : "Choisir"}
                   </span>
                 </button>
               ))}
@@ -303,9 +309,12 @@ export function ImportDialog({
         >
           {loading
             ? "Import en cours"
-            : selected?.imported
-              ? "Ouvrir l’action"
-              : "Télécharger l’historique"}
+            : selected &&
+                removedAssets.includes(`yf-${selected.symbol.toLowerCase()}`)
+              ? "Réajouter à la liste"
+              : selected?.imported
+                ? "Ouvrir l’action"
+                : "Télécharger l’historique"}
           <Icon name={loading ? "layers" : "arrow"} size={16} />
         </button>
       </form>

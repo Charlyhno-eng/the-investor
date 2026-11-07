@@ -14,6 +14,7 @@ export type Asset = {
   last_value: number;
   country_code: string | null;
   country?: string | null;
+  is_dividend?: boolean;
   benchmark_years: number | null;
   year_average_yield: number | null;
   year_yield_samples: number;
@@ -45,9 +46,28 @@ export type Analysis = {
   benchmark_metrics: Metrics | null;
   positions: { time: string; position: 0 | 1 }[];
   regimes: { time: string; state: string; probabilities: number[] }[];
-  states: { name: string; mean_change: number; persistence: number }[];
+  states: {
+    name: string;
+    mean_change: number;
+    persistence: number;
+    volatility?: number;
+  }[];
+  model_version?: string;
+  model_selection?: {
+    method: string;
+    selected_states: number;
+    regimes_supported: boolean;
+    validation_points: number;
+    validation_scores: Record<string, number>;
+    baseline_score: number | null;
+  };
   transition_matrix: number[][];
   diagnostics?: {
+    entry_reachable?: boolean;
+    entry_signal_observations?: number;
+    minimum_state_forecast?: number;
+    maximum_state_forecast?: number;
+    round_trip_threshold?: number;
     exit_reachable: boolean;
     negative_states: number;
     negative_dominant_observations: number;

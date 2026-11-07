@@ -21,17 +21,14 @@ def request(fee=0):
     )
 
 
-def test_trailing_observations_have_no_future_padding():
+def test_return_observations_have_no_future_padding_or_warmup():
     values = np.exp(np.cumsum(np.random.default_rng(5).normal(0, 0.02, 120)))
     _, whole = observations(values)
     _, prefix = observations(values[:70])
     np.testing.assert_allclose(prefix, whole[:69], equal_nan=True)
-    assert np.isnan(whole[:19]).all()
-    assert np.isfinite(whole[19:]).all()
-    returns = np.diff(np.log(values))
-    assert whole[19, 0] == pytest.approx(returns[19])
-    assert whole[19, 1] == pytest.approx(returns[:20].mean())
-    assert whole[19, 2] == pytest.approx(np.log(returns[:20].std()))
+    assert whole.shape == (119, 1)
+    assert np.isfinite(whole).all()
+    np.testing.assert_allclose(whole[:, 0], np.diff(np.log(values)))
 
 
 def test_hmm_recognizes_opposite_drifts_with_the_same_noise_level():
@@ -39,17 +36,15 @@ def test_hmm_recognizes_opposite_drifts_with_the_same_noise_level():
     drift = np.repeat([0.006, -0.006, 0.006, -0.006, 0.006, -0.006], 180)
     returns = drift + rng.normal(0, 0.006, len(drift))
     _, x = observations(np.r_[100, 100 * np.exp(np.cumsum(returns))])
-    model, mean, scale, _, selection = fit_regimes(x[19:720])
-    p = forward_filter(
-        model, (x[19:][:, selection["observable_columns"]] - mean) / scale
-    )
+    model, mean, scale, _, selection = fit_regimes(x[:720])
+    p = forward_filter(model, (x[:, selection["observable_columns"]] - mean) / scale)
     estimated = model.means_[:, 0] * scale[0] + mean[0]
-    # Last two segments were never fitted. Exclude the first context window
-    # after each change; the test allows causal detection delay.
+    # Last two segments were never fitted. Allow 30 observations of causal
+    # detection delay after each change.
     for start, end, positive in [(750, 900, True), (930, 1080, False)]:
-        expected = p[start - 19 : end - 19] @ estimated
+        expected = p[start:end] @ estimated
         assert np.mean((expected > 0) == positive) > 0.9
-    assert selection["fit_points"] + selection["validation_points"] == 701
+    assert selection["fit_points"] + selection["validation_points"] == 720
     assert selection["selected_states"] in (2, 3)
 
 
@@ -79,17 +74,16 @@ def test_validation_scores_next_return_density_from_past_only():
     )
 
 
-def test_bellman_costs_use_learned_persistence_and_execution_delay():
+def test_finite_horizon_forecast_accounts_for_execution_delay_and_roundtrip_cost():
     model = SimpleNamespace(transmat_=np.array([[0.99, 0.01], [0.01, 0.99]]))
     means = np.array([0.01, -0.01])
     advantage, cost = switching_values(model, means, 50)
-    expected = model.transmat_ @ model.transmat_ @ means + model.transmat_ @ np.array(
-        [cost, -cost]
-    )
+    # In the symmetric chain the signed drift decays by 0.98 each step.
+    expected = means * sum(0.98**step for step in range(2, 7))
     np.testing.assert_allclose(advantage, expected)
-    assert cost == pytest.approx(-np.log(0.995))
+    assert cost == pytest.approx(-2 * np.log(0.995))
     free, threshold = switching_values(model, means, 0)
-    np.testing.assert_allclose(free, model.transmat_ @ model.transmat_ @ means)
+    np.testing.assert_allclose(free, advantage)
     assert threshold == 0
 
 
@@ -112,13 +106,13 @@ def test_no_drawdown_stop_or_permanent_lock_even_after_large_loss():
     ]
 
 
-def test_cost_policy_converges_for_periodic_transitions():
+def test_finite_horizon_handles_periodic_transitions_without_iteration():
     model = SimpleNamespace(transmat_=np.array([[0.0, 1.0], [1.0, 0.0]]))
     advantage, cost = switching_values(
         model, np.array([0.01, -0.01]), (1 - np.exp(-0.01)) * 10000
     )
-    np.testing.assert_allclose(advantage, [0.005, -0.005], atol=1e-10)
-    assert cost == pytest.approx(0.01)
+    np.testing.assert_allclose(advantage, [0.01, -0.01], atol=1e-10)
+    assert cost == pytest.approx(0.02)
 
 
 def test_regime_switch_and_reentry_are_executed_next_close():

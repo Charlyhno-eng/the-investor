@@ -163,7 +163,7 @@ def main():
         "scripts/backtest_hmm_literature.py",
         "scripts/backtest_regimes.py",
         "backend/investor/analysis/model.py",
-        "backend/investor/analysis/regimes.py",
+        "backend/investor/analysis/research_legacy.py",
         "backend/investor/analysis/switching.py",
         "backend/investor/analysis/metrics.py",
     ]

@@ -1,5 +1,7 @@
 # Stop par position, réentrée et décisions du modèle
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 > Étude historique : le stop est retiré à la demande de l’utilisateur. La politique actuelle est décrite dans [la revue directionnelle](hmm-directional.md).
 
 Correction du 6 novembre 2026, après clarification explicite : **stop de 10 % par position, puis réentrée sur une nouvelle hausse**. Le verrou définitif et la revue hebdomadaire sont supprimés de la stratégie courante. Les résultats restent locaux sous `data/backtests/hmm-reentry/`, ignoré par Git. Aucun push.

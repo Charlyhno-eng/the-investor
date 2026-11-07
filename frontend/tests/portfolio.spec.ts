@@ -234,3 +234,69 @@ test("portfolio stays in euros and keeps summary at the right of its heading", a
   await page.reload();
   await expect(page.locator(".portfolio-total")).toContainText(/200,00\s*€/);
 });
+
+test("positions display colored regression deviations with their actual dates", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "investor-favorites",
+      JSON.stringify({ "yf-test": "gold", "yf-btc-usd": "gold" }),
+    ),
+  );
+  await page.goto("/markets/portfolio");
+  const deviations = page.locator(".regression-deviation");
+  await expect(deviations).toHaveCount(2);
+  await expect(deviations.first()).toContainText("-1,8 σ");
+  await expect(deviations.last()).toContainText("+1,9 σ");
+  await expect(deviations.first()).toHaveAttribute("title", /2020.*2022/);
+  expect(
+    await deviations.first().evaluate((el) => getComputedStyle(el).color),
+  ).not.toBe(
+    await deviations.last().evaluate((el) => getComputedStyle(el).color),
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("regression column tooltip escapes the table clipping and stays on screen", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "investor-favorites",
+      JSON.stringify({ "yf-test": "gold" }),
+    ),
+  );
+  await page.goto("/markets/portfolio");
+  const button = page.getByRole("button", {
+    name: "Définition : Écart à la régression sur cinq ans",
+    exact: true,
+  });
+  await button.scrollIntoViewIfNeeded();
+  await button.focus();
+  const tooltip = page.getByRole("tooltip");
+  await expect(tooltip).toContainText("cinq dernières années");
+  await expect(tooltip).toHaveCSS("position", "fixed");
+  expect(
+    await tooltip.evaluate(
+      (element) => element.parentElement === document.body,
+    ),
+  ).toBe(true);
+  const bounds = (await tooltip.boundingBox())!;
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.y).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(
+    page.viewportSize()!.width,
+  );
+  await page.screenshot({
+    path: testInfo.outputPath("positions-regression-tooltip.png"),
+  });
+  await button.press("Escape");
+  await expect(tooltip).toHaveCount(0);
+});

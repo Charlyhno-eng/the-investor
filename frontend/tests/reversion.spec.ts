@@ -39,6 +39,30 @@ test("band strategy includes touches, holds between signals and reinvests sale p
   expect(result.benchmark.capital).toBeCloseTo(95);
   expect(result.strategy.totalReturn).toBeCloseTo((110 / 90) * (95 / 90) - 1);
   expect(result.strategy.maxDrawdown).toBeCloseTo(80 / 90 - 1);
+  expect(result.exposure).toBeCloseTo(4 / 7);
+});
+
+test("fees apply to executed notional and exposure measures calendar holding time", () => {
+  const rows = bandRows([80, 120, 130]);
+  rows[1].time = "2020-01-04";
+  rows[2].time = "2020-01-05";
+  const result = compareRegressionStrategy(rows, 0.001, 0.002);
+  expect(result.strategy.capital).toBeCloseTo(
+    (100 / (80 * 1.001)) * 120 * 0.998,
+    10,
+  );
+  expect(result.benchmark.capital).toBeCloseTo((100 / (80 * 1.001)) * 130, 10);
+  expect(result.exposure).toBe(0.75);
+  const noEntry = compareRegressionStrategy(
+    bandRows([100, 105, 110]),
+    0.001,
+    0.002,
+  );
+  expect(noEntry.exposure).toBe(0);
+  expect(noEntry.strategy.capital).toBe(100);
+  const lastEntry = compareRegressionStrategy(bandRows([100, 105, 80]));
+  expect(lastEntry.invested).toBe(true);
+  expect(lastEntry.exposure).toBe(0);
 });
 
 test("overshoots execute at observed prices and no entry stays in cash", () => {
@@ -134,7 +158,7 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
     await expect(page.getByLabel("Diagnostic de la régression")).toContainText(
       "800 observations",
     );
-    await expect(page.getByLabel("Seuil des zones")).toHaveValue("2");
+    await expect(page.getByLabel("Seuil des zones")).toHaveValue("1.5");
     const comparison = page.getByRole("region", {
       name: "Comparaison des stratégies de régression",
     });
@@ -144,6 +168,8 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
         exact: true,
       }),
     ).toBeVisible();
+    await expect(comparison).toContainText("Achat à −1,5 σ · vente à +1,5 σ");
+    await page.getByLabel("Seuil des zones").selectOption("2");
     await expect(comparison).toContainText("0 achats · 0 ventes");
     const canvas = panel.locator("canvas").first();
     await canvas.scrollIntoViewIfNeeded();
@@ -182,3 +208,59 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
     expect(errors).toEqual([]);
   });
 }
+
+test("regression exposes time invested and editable fees with two decimal places", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.goto("/assets/yf-test");
+  await page.getByRole("tab", { name: "Régression", exact: true }).click();
+  const comparison = page.getByRole("region", {
+    name: "Comparaison des stratégies de régression",
+  });
+  await expect(comparison.locator(".reversion-summary > div")).toHaveCount(4);
+  await expect(comparison).toContainText("Temps d’exposition");
+  const fee = comparison.getByRole("spinbutton", {
+    name: "Frais (%)",
+    exact: true,
+  });
+  await expect(comparison.getByRole("spinbutton")).toHaveCount(1);
+  await expect(comparison).not.toContainText("Capital final");
+  const options = page.getByLabel("Seuil des zones").locator("option");
+  expect(
+    await options.evaluateAll((items) =>
+      items.map((item) => (item as HTMLOptionElement).value),
+    ),
+  ).toEqual(["0", "0.5", "1", "1.2", "1.4", "1.5", "1.6", "1.8", "2"]);
+  await page.getByLabel("Seuil des zones").selectOption("1.2");
+  await expect(comparison).toContainText("Achat à −1,2 σ");
+  await expect(fee).toHaveValue("0,10");
+  const before = await comparison.locator(".reversion-summary").textContent();
+  await fee.fill("0,00");
+  await fee.blur();
+  await expect(fee).toHaveValue("0,00");
+  await expect(comparison.locator(".reversion-summary")).not.toHaveText(
+    before!,
+  );
+  await comparison
+    .getByRole("button", { name: "Augmenter frais", exact: true })
+    .click();
+  await expect(fee).toHaveValue("0,01");
+  await fee.press("ArrowUp");
+  await expect(fee).toHaveValue("0,02");
+  await comparison
+    .getByRole("button", { name: "Diminuer frais", exact: true })
+    .click();
+  await expect(fee).toHaveValue("0,01");
+  await expect(comparison).not.toContainText(
+    "Simulation rétrospective : les bandes",
+  );
+  await comparison.screenshot({
+    path: testInfo.outputPath("regression-fees-exposure.png"),
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});

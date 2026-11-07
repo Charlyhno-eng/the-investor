@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { VolatilityPanel } from "../volatility/VolatilityPanel";
 import { HistoryChart } from "../../components/HistoryChart";
 import { Icon } from "../../components/Icon";
 import { api } from "../../lib/api";
@@ -16,17 +17,21 @@ export function AssetDetail({
   favorite,
   onToggleFavorite,
   onRemove,
+  onDividendChange,
 }: {
   asset: Asset;
   favorite?: Favorite;
   onToggleFavorite: () => void;
   onRemove: () => void;
+  onDividendChange: (enabled: boolean) => void;
 }) {
   const [points, setPoints] = useState<Point[]>([]),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
-    [tab, setTab] = useState<"chart" | "analysis" | "reversion">("chart");
+    [tab, setTab] = useState<"chart" | "analysis" | "reversion" | "volatility">(
+      "chart",
+    );
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -46,6 +51,27 @@ export function AssetDetail({
   const dividends = useDividends(asset);
   const [compareMarket, setCompareMarket] = useState(false);
   const [reinvest, setReinvest] = useState(false);
+  const [savingDividend, setSavingDividend] = useState(false);
+  const [dividendError, setDividendError] = useState("");
+  async function toggleDividend() {
+    setSavingDividend(true);
+    setDividendError("");
+    try {
+      const result = await api<{ is_dividend: boolean }>(
+        `/assets/${encodeURIComponent(asset.id)}/dividend-status`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_dividend: !asset.is_dividend }),
+        },
+      );
+      onDividendChange(result.is_dividend);
+    } catch (e) {
+      setDividendError((e as Error).message);
+    } finally {
+      setSavingDividend(false);
+    }
+  }
   const supportsAnalysis =
     asset.category === "stock" || asset.category === "crypto";
   const category = categories.find((c) => c.id === asset.category)!;
@@ -116,11 +142,29 @@ export function AssetDetail({
             </span>
           </div>
         </div>
-        <span className="source-badge">
-          <span className="status-dot" />
-          Historique local
-        </span>
+        <div className="asset-heading-actions">
+          {asset.category === "stock" && (
+            <button
+              className="secondary-button dividend-toggle"
+              aria-label="Action à dividende"
+              aria-pressed={!!asset.is_dividend}
+              disabled={savingDividend}
+              onClick={toggleDividend}
+              title="Inclure cette action dans votre sélection dividendes"
+            >
+              <span className="dividend-dot" aria-hidden="true">
+                D
+              </span>
+              Dividende{asset.is_dividend ? " activé" : ""}
+            </button>
+          )}
+        </div>
       </div>
+      {dividendError && (
+        <p className="error" role="alert">
+          {dividendError}
+        </p>
+      )}
       <div className="detail-tabs" role="tablist" aria-label="Vue de l’actif">
         <button
           role="tab"
@@ -150,7 +194,16 @@ export function AssetDetail({
             HMM
           </button>
         )}
+        <button
+          role="tab"
+          aria-selected={tab === "volatility"}
+          onClick={() => setTab("volatility")}
+        >
+          <Icon name="analysis" size={16} />
+          Frontières d’efficience
+        </button>
       </div>
+      {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
       {supportsAnalysis &&
         tab === "reversion" &&
         (loading ? (
@@ -166,7 +219,7 @@ export function AssetDetail({
         ) : (
           <div className="chart-placeholder">Aucune observation.</div>
         ))}
-      {(!supportsAnalysis || tab === "chart") && (
+      {tab === "chart" && (
         <section className="chart-panel">
           <div className="quote-row">
             <div>

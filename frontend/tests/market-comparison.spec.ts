@@ -75,6 +75,7 @@ test("regression precedes HMM and bond yields cannot masquerade as returns", asy
     "Vue du marché",
     "Régression",
     "HMM",
+    "Frontières d’efficience",
   ]);
   await page.goto("/assets/bond-fr");
   await expect(

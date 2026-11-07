@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { FeeControl } from "./FeeControl";
 import { HistoryChart } from "../../components/HistoryChart";
 import { date, number, percent } from "../../lib/format";
 import type { Asset, Point } from "../../lib/types";
@@ -22,7 +23,8 @@ export function ReversionPanel({
   });
   const [end, setEnd] = useState(points.at(-1)!.time);
   const [scale, setScale] = useState<RegressionScale>("log");
-  const [threshold, setThreshold] = useState(2);
+  const [threshold, setThreshold] = useState(1.5);
+  const [fee, setFee] = useState(0.1);
   const result = useMemo(() => {
     if (!start || !end || start >= end)
       return { error: "Le début doit précéder la fin de la période." };
@@ -40,8 +42,9 @@ export function ReversionPanel({
   }, [points, start, end, scale, threshold]);
   const fit = result.fit;
   const comparison = useMemo(
-    () => (fit ? compareRegressionStrategy(fit.rows) : null),
-    [fit],
+    () =>
+      fit ? compareRegressionStrategy(fit.rows, fee / 100, fee / 100) : null,
+    [fit, fee],
   );
   const last = fit?.rows.at(-1);
   const overlays = useMemo(
@@ -93,13 +96,6 @@ export function ReversionPanel({
       className="analysis-panel reversion-panel"
       aria-label="Retour à la tendance"
     >
-      <div className="reversion-heading">
-        <h2>Retour à la tendance</h2>
-        <p>
-          Repérez les écarts du prix à sa trajectoire sur la période de votre
-          choix.
-        </p>
-      </div>
       <div className="reversion-controls">
         <label>
           Début de période
@@ -140,10 +136,12 @@ export function ReversionPanel({
             onChange={(e) => setThreshold(Number(e.target.value))}
           >
             <option value={0}>Sous / au-dessus de la tendance</option>
-            <option value={0.5}>± 0,5 écart-type</option>
-            <option value={1}>± 1 écart-type</option>
-            <option value={1.5}>± 1,5 écart-type</option>
-            <option value={2}>± 2 écarts-types</option>
+            {[0.5, 1, 1.2, 1.4, 1.5, 1.6, 1.8, 2].map((value) => (
+              <option key={value} value={value}>
+                ± {number(value, 1)} écart{value > 1 ? "s" : ""}-type
+                {value > 1 ? "s" : ""}
+              </option>
+            ))}
           </select>
         </label>
       </div>
@@ -226,37 +224,49 @@ export function ReversionPanel({
                   {number(threshold, 1)} σ · capital initial de 100.
                 </p>
               </div>
-              <div className="reversion-summary">
-                {(
-                  [
-                    ["Bandes de régression", comparison.strategy],
-                    ["Achat-conservation", comparison.benchmark],
-                  ] as const
-                ).map(([label, metrics]) => (
-                  <div key={label}>
-                    <span>{label}</span>
-                    <strong
-                      className={
-                        metrics.totalReturn >= 0 ? "positive" : "negative"
-                      }
-                    >
-                      {percent(metrics.totalReturn, true)}
+              <div className="regression-comparison-summary">
+                <div className="reversion-summary">
+                  {(
+                    [
+                      ["Bandes de régression", comparison.strategy],
+                      ["Achat-conservation", comparison.benchmark],
+                    ] as const
+                  ).map(([label, metrics]) => (
+                    <div key={label}>
+                      <span>{label}</span>
+                      <strong
+                        className={
+                          metrics.totalReturn >= 0 ? "positive" : "negative"
+                        }
+                      >
+                        {percent(metrics.totalReturn, true)}
+                      </strong>
+                      <small>
+                        Baisse maximale : {percent(metrics.maxDrawdown)}
+                      </small>
+                    </div>
+                  ))}
+                  <div>
+                    <span>Opérations sur les bandes</span>
+                    <strong>
+                      {comparison.purchases} achats · {comparison.sales} ventes
                     </strong>
-                    <small>Capital final : {number(metrics.capital)}</small>
                     <small>
-                      Baisse maximale : {percent(metrics.maxDrawdown)}
+                      Position finale :{" "}
+                      {comparison.invested ? "investi" : "liquidités"}
                     </small>
                   </div>
-                ))}
-                <div>
-                  <span>Opérations sur les bandes</span>
-                  <strong>
-                    {comparison.purchases} achats · {comparison.sales} ventes
-                  </strong>
-                  <small>
-                    Position finale :{" "}
-                    {comparison.invested ? "investi" : "liquidités"}
-                  </small>
+                  <div>
+                    <span>Temps d’exposition</span>
+                    <strong>{percent(comparison.exposure)}</strong>
+                    <small>Durée investie sur la période</small>
+                  </div>
+                </div>
+                <div
+                  className="regression-summary-fee"
+                  aria-label="Frais de simulation"
+                >
+                  <FeeControl label="Frais" value={fee} onChange={setFee} />
                 </div>
               </div>
               <div className="reversion-legend">
@@ -272,19 +282,6 @@ export function ReversionPanel({
                     "Capital des bandes de régression et de l’achat-conservation, base 100",
                 }}
               />
-              <p className="reversion-notes">
-                Simulation rétrospective : les bandes sont ajustées sur toute la
-                période, avec connaissance des prix futurs. Départ en liquidités
-                pour la stratégie ; achat dès la première observation pour
-                l’achat-conservation. Au premier prix observé inférieur ou égal
-                à la borne basse, tout le capital est investi ; au premier prix
-                supérieur ou égal à la borne haute, tout est vendu. Les
-                opérations utilisent le prix observé, même si la borne est
-                dépassée. Entre ces deux seuils, la position est conservée. Les
-                liquidités ne rapportent rien ; une position encore ouverte est
-                valorisée au dernier prix. Hors frais, fiscalité et dividendes
-                ajoutés.
-              </p>
             </section>
           )}
           <div className="reversion-notes" role="status">
@@ -339,6 +336,15 @@ export function ReversionPanel({
               utilise donc des informations futures : il ne mesure pas une
               performance hors échantillon. Un R² élevé ne démontre ni un retour
               à la moyenne ni une rentabilité.
+            </p>
+            <p>
+              Simulation rétrospective avec départ en liquidités pour les bandes
+              ; achat-conservation dès la première observation. Frais identiques
+              à l’achat et à la vente, appliqués à chaque opération, achat
+              initial inclus pour l’achat-conservation. Positions ouvertes
+              valorisées au dernier cours sans vente forcée. Exposition mesurée
+              en durée calendaire entre observations, selon la position détenue
+              après le signal. Liquidités non rémunérées ; hors fiscalité.
             </p>
             <p>
               Méthode :{" "}

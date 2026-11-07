@@ -2,7 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import date
 from threading import Event, Thread
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 
 from investor.analysis.schemas import AnalysisRequest
 from investor.analysis.service import analyze
@@ -10,7 +10,10 @@ from investor.db import connect
 from investor.import_runner import consume_imports
 from investor.market_api import router as market_router
 from investor.market_catalog import REMOVED_CRYPTO
+from investor.market_schemas import DividendStatusRequest
+from investor.performance import PerformanceRequest
 from investor.portfolio import PortfolioRequest, portfolio
+from investor.regression import RegressionRequest, regression_deviations
 
 
 @asynccontextmanager
@@ -48,7 +51,7 @@ def health():
 def assets():
     with connect() as db:
         return [
-            dict(row)
+            {**dict(row), "is_dividend": bool(row["is_dividend"])}
             for row in db.execute(
                 """
           WITH ranking AS (
@@ -103,6 +106,25 @@ def dividends(asset_id: str):
         }
 
 
+@app.patch("/api/assets/{asset_id}/dividend-status")
+def dividend_status(asset_id: str, request: DividendStatusRequest):
+    with connect() as db:
+        asset = db.execute(
+            "SELECT category FROM assets WHERE id=?", (asset_id,)
+        ).fetchone()
+        if not asset:
+            raise HTTPException(404, "Actif introuvable")
+        if asset["category"] != "stock":
+            raise HTTPException(
+                422, "Le marquage dividende concerne les actions uniquement"
+            )
+        db.execute(
+            "UPDATE assets SET is_dividend=? WHERE id=?",
+            (int(request.is_dividend), asset_id),
+        )
+    return {"id": asset_id, "is_dividend": request.is_dividend}
+
+
 @app.get("/api/assets/{asset_id}/history")
 def history(asset_id: str, start: date | None = None, end: date | None = None):
     if start and end and start > end:
@@ -144,3 +166,36 @@ def asset_comparison(
 @app.post("/api/portfolio/analytics")
 def portfolio_analytics(request: PortfolioRequest):
     return portfolio(request)
+
+
+@app.post("/api/portfolio/regression")
+def portfolio_regression(request: RegressionRequest):
+    return regression_deviations(request)
+
+
+@app.get("/api/assets/{asset_id}/volatility")
+def get_asset_volatility(asset_id: str, years: int = Query(default=3, ge=1, le=20)):
+    from investor.volatility import asset_volatility
+
+    return asset_volatility(asset_id, years)
+
+
+@app.post("/api/portfolio/volatility")
+def get_portfolio_volatility(request: PortfolioRequest):
+    from investor.volatility import portfolio_volatility
+
+    return portfolio_volatility(request)
+
+
+@app.post("/api/portfolio/performance")
+def get_portfolio_performance(request: PerformanceRequest):
+    from investor.performance import portfolio_performance
+
+    return portfolio_performance(request)
+
+
+@app.post("/api/portfolio/optimize")
+def optimize_portfolio(request: PerformanceRequest):
+    from investor.performance import portfolio_performance
+
+    return portfolio_performance(request, optimize=True)

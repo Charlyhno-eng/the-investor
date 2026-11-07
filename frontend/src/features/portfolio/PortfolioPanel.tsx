@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { VolatilityPanel } from "../volatility/VolatilityPanel";
+import { PerformancePanel } from "./PerformancePanel";
 import { Link } from "react-router";
 import { post } from "../../lib/api";
 import { money } from "../../lib/currency";
@@ -71,6 +73,38 @@ export function PortfolioPanel({
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [deviations, setDeviations] = useState<
+    {
+      id: string;
+      z: number | null;
+      start?: string;
+      end?: string;
+      reason?: string;
+    }[]
+  >([]);
+  const [deviationError, setDeviationError] = useState("");
+  const assetIds = JSON.stringify(assets.map((a) => a.id));
+  const historyRevision = JSON.stringify(
+    assets.map((a) => [a.last_date, a.last_value, a.points]),
+  );
+  useEffect(() => {
+    if (tab !== "positions") return;
+    const controller = new AbortController();
+    setDeviationError("");
+    setDeviations([]);
+    post<{ positions: typeof deviations }>(
+      "/portfolio/regression",
+      { asset_ids: JSON.parse(assetIds) },
+      controller.signal,
+    )
+      .then((data) => {
+        if (!controller.signal.aborted) setDeviations(data.positions);
+      })
+      .catch((e: Error) => {
+        if (!controller.signal.aborted) setDeviationError(e.message);
+      });
+    return () => controller.abort();
+  }, [assetIds, historyRevision, tab]);
   const holdings = JSON.stringify(
     assets
       .filter((a) => (quantities[a.id] ?? 0) > 0)
@@ -151,7 +185,9 @@ export function PortfolioPanel({
         {[
           ["positions", "Positions", "layers"],
           ["allocation", "Répartition par actif", "allocation"],
+          ["performance", "Performance", "stock"],
           ["correlation", "Corrélations", "analysis"],
+          ["volatility", "Frontières d’efficience", "analysis"],
         ].map(([key, title, icon]) => (
           <button
             key={key}
@@ -181,6 +217,10 @@ export function PortfolioPanel({
       {!assets.length && (
         <p>Ajoutez une étoile or à vos actifs détenus pour commencer.</p>
       )}
+      {tab === "volatility" && (
+        <VolatilityPanel holdings={JSON.parse(holdings)} assets={assets} />
+      )}
+      {tab === "performance" && <PerformancePanel holdings={holdings} />}
       {tab === "positions" && (
         <section className="portfolio-content" aria-label="Positions détenues">
           <div className="portfolio-section-heading">
@@ -190,6 +230,11 @@ export function PortfolioPanel({
             </div>
             <span className="fine-print">Enregistrées sur ce navigateur</span>
           </div>
+          {deviationError && (
+            <p className="error" role="alert">
+              Écarts à la régression indisponibles : {deviationError}
+            </p>
+          )}
           <div className="table-scroll">
             <table className="positions-table">
               <thead>
@@ -198,6 +243,21 @@ export function PortfolioPanel({
                   <th>Quantité détenue</th>
                   <th>Valeur en €</th>
                   <th>Date du cours</th>
+                  <th>
+                    Écart à la régression{" "}
+                    <Tooltip
+                      floating
+                      label="Écart à la régression sur cinq ans"
+                    >
+                      Écart du dernier prix à la régression logarithmique des
+                      cinq dernières années, divisé par l’écart-type des résidus
+                      (n − 2). Vert : sous la tendance ; jaune : proche de la
+                      tendance ; rouge : au-dessus. Repères ± 1,5 σ. Si l’actif
+                      est récent, seul son historique disponible est utilisé ;
+                      les dates figurent au survol. Ce repère décrit le prix,
+                      sans garantir un signal d’achat ou de vente.
+                    </Tooltip>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -205,6 +265,8 @@ export function PortfolioPanel({
                   const position = result?.positions.find(
                     (p) => p.id === asset.id,
                   );
+                  const deviation = deviations.find((p) => p.id === asset.id);
+                  const z = deviation?.z;
                   return (
                     <tr
                       key={asset.id}
@@ -243,6 +305,30 @@ export function PortfolioPanel({
                       </td>
                       <td>{position ? money(position.value) : "—"}</td>
                       <td>{position ? date(position.date) : "—"}</td>
+                      <td>
+                        <span
+                          className="regression-deviation"
+                          data-z={z ?? undefined}
+                          title={
+                            deviation?.reason ??
+                            (deviation?.start && deviation.end
+                              ? `Régression du ${date(deviation.start)} au ${date(deviation.end)}`
+                              : "Chargement de la régression…")
+                          }
+                          style={
+                            z == null
+                              ? undefined
+                              : {
+                                  color: `hsl(${60 - Math.max(-1, Math.min(1, z / 1.5)) * 60} 65% 65%)`,
+                                  background: `hsl(${60 - Math.max(-1, Math.min(1, z / 1.5)) * 60} 60% 30% / 0.2)`,
+                                }
+                          }
+                        >
+                          {z == null
+                            ? "—"
+                            : `${z > 0 ? "+" : ""}${number(z, 2)} σ`}
+                        </span>
+                      </td>
                     </tr>
                   );
                 })}
@@ -379,7 +465,7 @@ export function PortfolioPanel({
           )}
         </>
       )}
-      {!!result?.excluded.length && (
+      {tab !== "volatility" && !!result?.excluded.length && (
         <div className="portfolio-exclusions">
           <p>Positions non valorisées :</p>
           {result.excluded.map((entry) => (

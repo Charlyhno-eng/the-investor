@@ -114,7 +114,7 @@ def main():
     sources = [
         "backend/investor/analysis/adaptive.py",
         "backend/investor/analysis/model.py",
-        "backend/investor/analysis/regimes.py",
+        "backend/investor/analysis/research_legacy.py",
         "backend/investor/analysis/metrics.py",
         "scripts/backtest_hmm_adaptive.py",
     ]

@@ -101,6 +101,19 @@ export async function mockApi(
       await route.fulfill({
         json: { currency: "USD", coverage: null, events: [] },
       });
+    } else if (path === "/api/portfolio/regression") {
+      const body = route.request().postDataJSON();
+      await route.fulfill({
+        json: {
+          positions: body.asset_ids.map((id: string, i: number) => ({
+            id,
+            z: i % 2 === 0 ? -1.8 : 1.9,
+            start: "2020-01-01",
+            end: "2022-03-10",
+            observations: 800,
+          })),
+        },
+      });
     } else if (path === "/api/portfolio/analytics") {
       const body = route.request().postDataJSON();
       const currency = "EUR";

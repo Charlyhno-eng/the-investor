@@ -34,6 +34,7 @@ export function AssetLibrary({
   onRetry: () => void;
 }) {
   const [query, setQuery] = useState("");
+  const [dividendOnly, setDividendOnly] = useState(false);
   const list = useRef<HTMLElement>(null);
   const search = useRef<HTMLInputElement>(null);
   useEffect(() => setQuery(""), [category]);
@@ -59,6 +60,7 @@ export function AssetLibrary({
         : category === "watchlist"
           ? favorites[a.id] === "silver"
           : a.category === category) &&
+      (category !== "stock" || !dividendOnly || !!a.is_dividend) &&
       `${a.name} ${a.id} ${a.country_code ?? ""}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -78,12 +80,14 @@ export function AssetLibrary({
         categories.findIndex((c) => c.id === a.category) -
         categories.findIndex((c) => c.id === b.category),
     );
-  const total = assets.filter((a) =>
-    category === "portfolio"
-      ? favorites[a.id] === "gold"
-      : category === "watchlist"
-        ? favorites[a.id] === "silver"
-        : a.category === category,
+  const total = assets.filter(
+    (a) =>
+      (category !== "stock" || !dividendOnly || !!a.is_dividend) &&
+      (category === "portfolio"
+        ? favorites[a.id] === "gold"
+        : category === "watchlist"
+          ? favorites[a.id] === "silver"
+          : a.category === category),
   ).length;
   return (
     <aside className="asset-library">
@@ -125,6 +129,15 @@ export function AssetLibrary({
         <span>ACTIF</span>
         <span>{category === "bond" ? "MOY. 12 M ↓" : "DERNIER"}</span>
       </div>
+      {category === "stock" && (
+        <button
+          className="secondary-button dividend-library-filter"
+          aria-pressed={dividendOnly}
+          onClick={() => setDividendOnly((value) => !value)}
+        >
+          Dividendes uniquement
+        </button>
+      )}
       {category === "bond" && (
         <div className="ranking-note">
           Rendement moyen décroissant{" "}
@@ -162,7 +175,18 @@ export function AssetLibrary({
                       : a.name.slice(0, 2))}
                 </span>
                 <span className="list-name">
-                  <strong>{a.name}</strong>
+                  <strong>
+                    {a.name}
+                    {a.category === "stock" && !!a.is_dividend && (
+                      <span
+                        className="dividend-list-badge"
+                        title="Action à dividende"
+                        aria-label="Action à dividende"
+                      >
+                        D
+                      </span>
+                    )}
+                  </strong>
                   <small>
                     {a.id.startsWith("yf-")
                       ? a.id.slice(3).toUpperCase()
@@ -210,18 +234,22 @@ export function AssetLibrary({
           <div className="library-empty">
             <Icon name={category === "stock" ? "stock" : "search"} size={28} />
             <strong>
-              {query ? "Aucun résultat" : "Votre sélection commence ici"}
+              {query || (category === "stock" && dividendOnly)
+                ? "Aucun résultat"
+                : "Votre sélection commence ici"}
             </strong>
             <p>
-              {query
-                ? "Essayez un autre nom ou symbole."
-                : isLibrary(category)
-                  ? category === "portfolio"
-                    ? "Une étoile or indique un actif détenu."
-                    : "Une étoile argent place un actif dans votre watchlist."
-                  : category === "stock"
-                    ? "Ajoutez les actions que vous souhaitez suivre."
-                    : "Lancez le worker pour importer les historiques."}
+              {category === "stock" && dividendOnly
+                ? "Activez l’indicateur Dividende sur les actions de votre choix."
+                : query
+                  ? "Essayez un autre nom ou symbole."
+                  : isLibrary(category)
+                    ? category === "portfolio"
+                      ? "Une étoile or indique un actif détenu."
+                      : "Une étoile argent place un actif dans votre watchlist."
+                    : category === "stock"
+                      ? "Ajoutez les actions que vous souhaitez suivre."
+                      : "Lancez le worker pour importer les historiques."}
             </p>
             {category === "stock" && !query && (
               <button className="secondary-button" onClick={onAdd}>
@@ -232,10 +260,6 @@ export function AssetLibrary({
           </div>
         )}
       </nav>
-      <div className="library-bottom">
-        <span className="status-dot" />
-        Stockage local<span>SQLite</span>
-      </div>
     </aside>
   );
 }

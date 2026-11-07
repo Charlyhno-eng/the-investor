@@ -1,5 +1,7 @@
 # Réglages orientés vers une exposition réduite
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 > Étude historique : la méthode actuelle est décrite dans [la revue FrenchQuant](hmm-video.md).
 
 Étude de la version précédente. Ces réglages sont remplacés par [la politique réduisant les allers-retours](hmm-turnover.md).

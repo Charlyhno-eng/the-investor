@@ -26,9 +26,11 @@ type Props = {
   overlays?: { title: string; color: string; points: Point[] }[];
   pointColors?: string[];
   logarithmic?: boolean;
+  lines?: { title: string; color: string; points: Point[] }[];
 };
+const emptyPoints: Point[] = [];
 export function HistoryChart({
-  points = [],
+  points = emptyPoints,
   range = 0,
   comparison,
   comparisonLabels,
@@ -37,7 +39,14 @@ export function HistoryChart({
   overlays,
   pointColors,
   logarithmic = false,
+  lines,
 }: Props) {
+  const [lineHover, setLineHover] = useState<{
+    time: string;
+    x: number;
+    y: number;
+    values: { title: string; color: string; value: number }[];
+  } | null>(null);
   const [trendHover, setTrendHover] = useState<{
     time: string;
     price: number;
@@ -56,6 +65,7 @@ export function HistoryChart({
     if (!container.current) return;
     setHovered(null);
     setTrendHover(null);
+    setLineHover(null);
     const chart = createChart(container.current, {
       autoSize: true,
       layout: {
@@ -80,7 +90,54 @@ export function HistoryChart({
         horzLine: { color: "#657188", labelBackgroundColor: "#252d3b" },
       },
     });
-    if (comparison) {
+    if (lines) {
+      const series = lines.map((line) => {
+        const item = chart.addSeries(LineSeries, {
+          color: line.color,
+          lineWidth: 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        item.setData(line.points.map((p) => ({ ...p, time: p.time as Time })));
+        return { item, line };
+      });
+      const show = (param: MouseEventParams<Time>) => {
+        if (!param.time || !param.point || !container.current) {
+          setLineHover(null);
+          return;
+        }
+        const values = series.flatMap(({ item, line }) => {
+          const data = param.seriesData.get(item);
+          return data && "value" in data
+            ? [{ title: line.title, color: line.color, value: data.value }]
+            : [];
+        });
+        setLineHover(
+          values.length
+            ? {
+                time: String(param.time),
+                x: Math.max(
+                  8,
+                  Math.min(
+                    param.point.x + 16,
+                    container.current.clientWidth - 235,
+                  ),
+                ),
+                y: Math.max(
+                  8,
+                  Math.min(
+                    param.point.y + 16,
+                    container.current.clientHeight - 140,
+                  ),
+                ),
+                values,
+              }
+            : null,
+        );
+      };
+      chart.subscribeCrosshairMove(show);
+      chart.subscribeClick(show);
+    } else if (comparison) {
       const benchmark = chart.addSeries(LineSeries, {
         color: "#65738e",
         lineWidth: 2,
@@ -214,7 +271,7 @@ export function HistoryChart({
       chart.subscribeCrosshairMove(showDividend);
       chart.subscribeClick(showDividend);
     }
-    const data = comparison ?? points;
+    const data = lines?.[0]?.points ?? comparison ?? points;
     if (range && data.length > 1) {
       const last = data[data.length - 1].time;
       const from = new Date(`${last}T00:00:00Z`);
@@ -237,6 +294,7 @@ export function HistoryChart({
     overlays,
     pointColors,
     logarithmic,
+    lines,
   ]);
   return (
     <div className={`history-chart ${compact ? "compact" : ""}`}>
@@ -245,14 +303,30 @@ export function HistoryChart({
         className="chart-canvas"
         role="img"
         aria-label={
-          overlays
-            ? "Prix, tendance ajustée et zones de retour à la tendance"
-            : comparison
-              ? (comparisonLabels?.accessible ??
-                "Capital de la stratégie et du marché, base 100")
-              : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher."
+          lines
+            ? "Performance du portefeuille et du S&P 500, base 100 en euros"
+            : overlays
+              ? "Prix, tendance ajustée et zones de retour à la tendance"
+              : comparison
+                ? (comparisonLabels?.accessible ??
+                  "Capital de la stratégie et du marché, base 100")
+                : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher."
         }
       />
+      {lineHover && (
+        <div
+          className="chart-lines-tooltip"
+          role="tooltip"
+          style={{ left: lineHover.x, top: lineHover.y }}
+        >
+          <span>{date(lineHover.time)} · Base 100</span>
+          {lineHover.values.map((v) => (
+            <span key={v.title} style={{ color: v.color }}>
+              {v.title} <strong>{number(v.value, 2)}</strong>
+            </span>
+          ))}
+        </div>
+      )}
       {overlays && trendHover && (
         <div
           className="chart-trend-tooltip"

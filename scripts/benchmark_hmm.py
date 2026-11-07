@@ -99,6 +99,9 @@ def main():
                             "trades": len(result["trades"]),
                             "exposure": result["exposure"],
                             "states": result["states"],
+                            "model_selection": result["model_selection"],
+                            "diagnostics": result["diagnostics"],
+                            "policy": result["policy"],
                             "warnings": result["warnings"],
                         }
                     )

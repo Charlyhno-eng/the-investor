@@ -13,7 +13,7 @@ from backtest_hmm_literature import aggregate, diagnostics, digest
 from backtest_regimes import windows
 from hmm_regime_candidates import execute
 from investor.analysis.model import forward_filter
-from investor.analysis.regimes import _fit
+from investor.analysis.research_legacy import _fit
 from investor.analysis.schemas import AnalysisRequest
 from threadpoolctl import threadpool_limits
 
@@ -90,7 +90,7 @@ def main():
         "scripts/hmm_regime_candidates.py",
         "scripts/backtest_regimes.py",
         "backend/investor/analysis/model.py",
-        "backend/investor/analysis/regimes.py",
+        "backend/investor/analysis/research_legacy.py",
         "backend/investor/analysis/metrics.py",
     ]
     plan = {

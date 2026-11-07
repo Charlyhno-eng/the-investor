@@ -1,5 +1,7 @@
 # Réduction des allers-retours HMM
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 > Étude historique : la méthode actuelle est décrite dans [la revue FrenchQuant](hmm-video.md).
 
 Comparaison locale du 6 novembre 2026, sur BTC, ETH, Apple, Microsoft et or. Même modèle et mêmes coûts : 10 pb de frais et 5 pb de glissement par ordre. Dernières 2 016 observations quotidiennes, historique complet mensuel. Entraînement sur 60 %, comparaison de 12 réglages (entrée 65/75/85 %, sortie 25/35 %, confirmation 2/3) sur les 20 % suivants, évaluation sur les derniers 20 %. Le score de validation est le rendement annualisé borné à [−100 %, 200 %], moins 0,3 fois l’exposition et 0,5 fois le drawdown. Les données ont déjà servi à d’autres diagnostics ; ces essais ne constituent pas une preuve indépendante de généralisation.

@@ -1,5 +1,7 @@
 # Revue du HMM et passage à deux états
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 > Étude historique : la méthode actuelle est décrite dans [la revue FrenchQuant](hmm-video.md).
 
 ## Dépôt examiné

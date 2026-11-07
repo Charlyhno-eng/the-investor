@@ -1,5 +1,7 @@
 # HMM : rotation, protection et audit de rentabilité
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 > Version historique : le verrou définitif est remplacé par [un stop par position avec réentrée](hmm-reentry.md), selon la clarification de l’utilisateur.
 
 Étude locale du 6 novembre 2026. Aucun commit, push, publication ou envoi de données. Les résultats volumineux sont dans `data/backtests/hmm-risk/`, ignoré par Git.

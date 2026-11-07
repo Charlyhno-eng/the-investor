@@ -89,6 +89,27 @@ export function App() {
     }
   }
   const refresh = useCallback(() => setRevision((v) => v + 1), []);
+  const imported = useCallback((assetId: string) => {
+    setRemovedAssets((current) => {
+      const next = current.filter((id) => id !== assetId);
+      try {
+        localStorage.setItem("investor-removed-assets", JSON.stringify(next));
+      } catch {
+        setFavoriteError(
+          "L’action est restaurée pour cette session, mais son enregistrement local a échoué.",
+        );
+      }
+      return next;
+    });
+    setRevision((v) => v + 1);
+  }, []);
+  function updateDividend(assetId: string, enabled: boolean) {
+    setAssets((current) =>
+      current.map((asset) =>
+        asset.id === assetId ? { ...asset, is_dividend: enabled } : asset,
+      ),
+    );
+  }
   const close = useCallback(() => setAdding(false), []);
   useEffect(() => {
     const controller = new AbortController();
@@ -197,6 +218,9 @@ export function App() {
               favorite={favorites[selected.id]}
               onToggleFavorite={() => toggleFavorite(selected.id)}
               onRemove={() => removeAsset(selected.id)}
+              onDividendChange={(enabled) =>
+                updateDividend(selected.id, enabled)
+              }
             />
           ) : category === "portfolio" ? (
             <PortfolioPanel
@@ -229,7 +253,13 @@ export function App() {
           )}
         </main>
       </div>
-      {adding && <ImportDialog close={close} refresh={refresh} />}
+      {adding && (
+        <ImportDialog
+          close={close}
+          onImported={imported}
+          removedAssets={removedAssets}
+        />
+      )}
     </div>
   );
 }

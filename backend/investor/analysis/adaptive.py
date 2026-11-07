@@ -12,7 +12,7 @@ from threadpoolctl import threadpool_limits
 
 from investor.analysis.metrics import equity, metrics
 from investor.analysis.model import forward_filter
-from investor.analysis.regimes import _fit
+from investor.analysis.research_legacy import _fit
 
 SPAN, REFIT, LOOKBACK = 30, 63, 1260
 NAMES = ("Défavorable", "Transition", "Favorable")

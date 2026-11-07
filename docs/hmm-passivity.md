@@ -1,5 +1,7 @@
 # Pourquoi le HMM ressemble à l’achat-conservation
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 6 novembre 2026. **Le défaut est confirmé, mais aucune version surperformante dans l’extrême majorité des cas n’a été obtenue.** La nouvelle variante de tendance reste une expérience locale ; elle n’a pas remplacé le moteur de simulation. Les modifications actives portent sur le diagnostic, la comparaison nette et la visibilité des régimes et positions.
 
 ## Reproduction du cas Air Liquide

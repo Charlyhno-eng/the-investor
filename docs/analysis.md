@@ -4,7 +4,7 @@
 
 Le HMM est réservé aux actions et cryptomonnaies. Matières premières et obligations restent consultables dans la vue marché ; leur analyse HMM est masquée dans l’interface et refusée par l’API, avant lecture des observations ou du cache.
 
-Le calcul lit uniquement SQLite. L’utilisateur choisit deux fenêtres fermées, ordonnées et sans chevauchement. Une éventuelle zone entre entraînement et test sert seulement à mettre à jour le filtre, sans réentraîner le modèle ni ouvrir de position. Les 20 premières variations établissent le contexte, sans remplissage des observations manquantes. Minimum : 100 variations valides après cette mise en place pour entraîner, 20 variations pour tester ; maximum 40 000 observations au total.
+Le calcul lit uniquement SQLite. L’utilisateur choisit deux fenêtres fermées, ordonnées et sans chevauchement. Une éventuelle zone entre entraînement et test sert seulement à mettre à jour le filtre, sans réentraîner le modèle ni ouvrir de position. Aucun contexte glissant ni remplissage des observations manquantes. Minimum : 100 variations pour entraîner, 20 variations pour tester ; maximum 40 000 observations au total.
 
 Les dates réellement observées figurent dans le résultat. Une variation datée au début de la fenêtre 2 est calculée depuis la clôture précédente disponible : cette clôture est la base 100 commune du benchmark et de la stratégie. Les jours sans observation ne sont pas interpolés. Les séries très lacunaires peuvent rendre l’annualisation peu représentative.
 
@@ -12,33 +12,13 @@ Actions : clôtures ajustées Yahoo Finance, via `yfinance`, pour tenir compte d
 
 Obligations : les séries actuelles sont des **taux de référence**, parfois négatifs. L’analyse HMM est désactivée sur cette catégorie comme sur les matières premières. Le classement utilise la moyenne des taux annualisés disponibles sur les douze mois terminant à la dernière observation souveraine du catalogue. Ce n’est pas la performance totale réalisée sur un an. Le dernier taux apparaît au-dessus du graphique ; le coupon contractuel d’une émission précise n’est pas disponible dans ces séries. [Distinction entre prix, taux et rendement](https://www.treasurydirect.gov/marketable-securities/understanding-pricing/).
 
-## Modèle
+## Modèle et exécution
 
-La [revue de recherche et les comparaisons nettes](hmm-literature.md) confirment que le moteur actif reste presque toujours investi sur de nombreux actifs et ne satisfait pas l’objectif de surperformance. Les cinq variantes étudiées séparément restent expérimentales ; aucune n’a été activée dans l’application.
+Le [moteur actif](hmm-live.md) utilise exactement deux états sur les rendements logarithmiques seuls. L’état dont la moyenne entraînée est supérieure est appelé « haussier », l’autre « autre ». Leurs moyennes peuvent être toutes deux positives ou négatives. Trois initialisations sont comparées par vraisemblance d’entraînement ; aucun choix de modèle ne dépend des résultats du test. L’ancienne validation de un à trois états et le seuil de prévision sur cinq observations sont conservés comme archives de recherche.
 
-L’[étude suivante sur la passivité](hmm-passivity.md) ajoute 298 backtests d’un HMM à trois états sur tendance normalisée, avec recalibration causale. Cette variante est également rejetée financièrement et reste hors API. Les diagnostics et la chronologie de l’interface ont changé, sans modification des décisions du moteur actif.
+Paramètres figés sur le test, filtrage causal en espace logarithmique, sans lissage. Les ordres sont exécutés à la clôture suivant le signal ; le signal précédant le test peut être exécuté à sa première clôture. Investi lorsque l’état haussier est dominant, en liquidités sinon. Les moyennes apprises décrivent des distributions, sans imposer un rendement positif ou négatif à chaque état.
 
-HMM gaussien directionnel à deux ou trois états, covariance complète, ajustement EM par `hmmlearn.hmm.GaussianHMM`. Les observations candidates sont le rendement logarithmique seul, ou le rendement avec sa moyenne et le logarithme de sa volatilité sur les 20 dernières variations. Ces variables sont strictement causales ; les 19 premières lignes n’ont pas de contexte et sont exclues. Aucun indicateur MACD ni règle technique externe.
-
-La période 1 est divisée chronologiquement en 80 % d’ajustement et 20 % de validation. Pour chaque famille d’observations et nombre d’états, trois initialisations déterministes (17, 41, 83), au plus 1 000 itérations et tolérance 0,01 ; la graine est choisie par vraisemblance d’ajustement. Des covariances régularisées et un minimum d’occupation des états évitent les composantes dégénérées. Le score de validation est la log-densité prédictive du **prochain rendement**, même cible pour les deux familles ; les vraisemblances conjointes de dimensions différentes ne sont pas comparées. Ni gains de stratégie ni nombre de transactions ne participent à ce choix.
-
-La structure retenue est réajustée sur toute la période 1 et reste figée en période 2. Moyenne et écart-type de normalisation sont appris uniquement sur les données d’ajustement correspondantes. La convergence est vérifiée et son absence signalée. Les états sont classés par rendement moyen entraîné, non par volatilité ; leur numéro brut et leur rentabilité en test ne déterminent pas leur sens. `model_selection` expose observations retenues, scores internes et nombre d’états.
-
-Un filtre forward calcule `P(état_t | observations_1…t)`. Aucun Viterbi sur toute la fenêtre de test ni lissage forward-backward. Les probabilités dépendent des hypothèses gaussiennes et markoviennes ; le chevauchement du contexte glissant limite leur interprétation comme probabilités calibrées.
-
-Références : [documentation officielle hmmlearn](https://hmmlearn.readthedocs.io/en/stable/api.html), [Dynamax : sélection par vraisemblance de validation](https://probml.github.io/dynamax/notebooks/hmm/gaussian_hmm.html).
-
-## Stratégie et exécution
-
-Stratégie long/liquidités, capital initial 100, sans levier ni vente à découvert. Le modèle évalue la valeur de continuation de chaque position à partir de ses rendements moyens, de sa matrice de transition et des frais. Les probabilités filtrées pondèrent cet avantage : achat si le gain prévu dépasse le coût du changement, vente si l’avantage de sortir dépasse ce coût, maintien autrement. Cette approximation fournit une zone d’inaction liée aux frais, sans quota d’ordres ni durée minimale de détention. [Formule et limites](hmm-directional.md).
-
-Un signal du modèle à la clôture t s’exécute à la clôture t+1, après son rendement. L’entrée commence donc à percevoir les rendements à t+2 ; le calcul du premier rendement prévu tient compte de ces deux transitions. La dernière observation liquide toute position et ne permet aucun nouvel achat.
-
-**Le stop de 10 % est retiré.** Aucune sortie ne dépend du drawdown, d’un prix de stop, d’une confirmation de hausse externe ou d’un verrou de réentrée. Un modèle encore favorable peut conserver une position pendant une perte importante. L’application ne lit plus les OHLC pour cette simulation et ne renvoie plus `risk_control` ; les moteurs historiques restent disponibles uniquement pour reproduire les comparaisons locales explicites.
-
-Le seul réglage reste `fee_bps`, commun aux achats et ventes. Défauts par catégorie : crypto **1 pb = 0,01 %**, action **50 pb = 0,5 %**. Une valeur explicite, y compris zéro, est conservée ; l’API applique ces mêmes défauts si le champ est omis ou nul. Chaque ordre applique `capital *= 1 − fee_bps / 10000`. L’achat-conservation supporte aussi ses frais d’entrée et de sortie. Changer les frais peut changer les décisions, sans réentraîner ni modifier les régimes.
-
-Les liquidités ne sont pas rémunérées. Les anciens réglages de seuils/glissement/confirmations sont refusés (422). Fiscalité, glissement, impact de marché, frais fixes, arrondis de quantité et profondeur ne sont pas simulés.
+Long/liquidités, capital initial 100, sans levier. Les frais sont déduits des ordres, sans bloquer les changements de régime. Même taux à chaque achat et vente, liquidation finale comprise ; benchmark avec une entrée et une sortie. Défauts : crypto 1 pb, action 50 pb, valeur explicite zéro respectée. Liquidités non rémunérées, hors fiscalité, glissement, impact et arrondis. Les autres paramètres sont refusés par l’API. Aucun stop, quota de transactions ou durée minimale de détention.
 
 ## Indicateurs
 
@@ -63,26 +43,13 @@ Les conventions s’appuient sur les définitions publiques du [projet Quantopia
 
 ## Performance et reproductibilité
 
-NumPy/SciPy pour les calculs vectorisés, bibliothèques numériques compilées pour EM ; rendements calculés en O(N), filtre en O(N × 2²), exécuté par le noyau forward compilé de `hmmlearn` (sans lissage). Le calcul utilise `scaling`, avec repli logarithmique si les probabilités deviennent trop petites. Ce noyau interne est couvert par des tests de comparaison aux probabilités de préfixes calculées par l’API publique ; sa compatibilité doit être vérifiée lors d’une mise à jour de hmmlearn. Les pools BLAS sont limités à un thread par analyse pour éviter leur surallocation. Une seule analyse simultanée par processus API ; un second calcul reçoit HTTP 429 et peut être relancé. Pas de réentraînement lors du survol ou du zoom.
+Le modèle utilise NumPy/SciPy et hmmlearn pour l’ajustement, une récursion forward logarithmique indépendante des noyaux privés pour le filtrage. Trois initialisations, au plus 500 itérations par ajustement, BLAS limité à un thread. Une analyse simultanée par processus ; un second calcul reçoit HTTP 429. Cache mémoire borné à huit entraînements, indexé par les seules données d’entraînement. Frais et données de test ne réajustent pas le modèle.
 
-L’entraînement dispose aussi d’un cache mémoire LRU borné à huit modèles par processus, indexé par les seules variables d’entraînement. Changer les frais ou les observations de test réutilise le modèle ; changer une variable d’entraînement provoque un nouvel ajustement. Les trois initialisations et les 1 000 itérations maximales sont conservées. Ce cache disparaît au redémarrage.
+Le cache SQLite des résultats inclut la version du moteur, les données, les métadonnées de l’actif et les paramètres. La correction change la version et invalide les anciennes simulations sans supprimer les cours. Les empreintes du moteur et des données sont conservées avec [l’audit actif](hmm-live.md).
 
-Avant le lancement, l’interface prévient du délai du premier calcul. Pendant la requête, elle affiche une attente indéterminée et le temps écoulé, puis un message adapté après 30 secondes. Les modifications valides sont mises en attente et les calculs sont exécutés successivement ; aucune progression chiffrée fictive n’est affichée. Une erreur permet de relancer le calcul.
+L’interface distingue régime dominant et position après clôture, applicable au rendement suivant. Les diagnostics exposent l’excès net face à la conservation, les expositions presque permanentes et le nombre de signaux d’entrée et de sortie. Ils n’imposent aucun ordre. Pendant un calcul, la courbe précédente reste affichée ; les changements valides sont exécutés successivement.
 
-Le résultat expose aussi la position réellement détenue après chaque clôture (`positions`, 0 ou 1), distincte du régime le plus probable (`regimes`). Sous les courbes de capital, deux bandes séparent le régime dominant et la position après clôture (« Investi » / « Liquidités »). La couleur des régimes distingue le signe du rendement moyen appris, sans assimiler une moyenne négative à une prévision certaine de baisse. Les segments donnent leurs dates au survol. La position après clôture s’applique au rendement suivant ; elle intègre le délai d’exécution et la liquidation finale. La matrice du HMM reste consultable dans les détails.
-
-`diagnostics` indique notamment si une vente de régime est mathématiquement accessible : la règle est linéaire dans les probabilités, donc si aucun avantage d’état pur ne passe sous le seuil `−cost`, aucune combinaison de probabilités ne peut vendre. Le nombre d’observations en état négatif dominant et celles détenues sans signal de sortie distinguent classification et politique d’exécution. Ces observations ne sont pas des prévisions de pertes. Une exposition ≥95 % est signalée comme proche de la conservation ; ce seuil ne modifie aucun ordre. L’interface montre aussi la différence des rendements nets en **points**, et précise si la liquidation finale est la seule vente possible. Une nouvelle version de clé de cache ajoute ces diagnostics aux simulations recalculées, sans changer les capitaux ni les transactions.
-
-L’étude du dépôt de référence, les différences de calcul et une comparaison sur les données locales figurent dans [l’audit du modèle binaire](hmm-review.md).
-
-Le résultat complet est conservé dans `analysis_runs`. Sa clé SHA-256 inclut les paramètres, la version de l’algorithme, les métadonnées de l’actif et les valeurs utilisées. Une correction d’historique ou un changement de paramètre invalide donc ce cache. Les seeds et paramètres sont conservés ; de petites différences restent possibles entre versions de bibliothèques ou architectures matérielles. La documentation décrit une API locale à un processus ; plusieurs processus multiplieraient la concurrence autorisée.
-
-La simulation ne promet pas de battre le marché. Modifier les paramètres après avoir consulté la fenêtre 2 revient à sélectionner sur ce test : utiliser ensuite une nouvelle fenêtre intacte ou une validation walk-forward avant toute conclusion de robustesse.
-
-
-Le champ de frais est ouvert par défaut. La sélection des périodes reste disponible et la courbe comparative stratégie / achat-conservation conserve la base 100 et les frais. Les champs numériques acceptent une saisie temporairement vide ; une valeur valide actualise automatiquement le résultat après un premier lancement.
-
-La [revue directionnelle](hmm-directional.md) décrit la politique actuelle. La [revue de réentrée](hmm-reentry.md), la [revue de risque](hmm-risk-review.md) et la [revue vidéo](hmm-video.md) concernent les versions précédentes. Les études de [rotation](hmm-turnover.md) et de [modèle directionnel](hmm-review.md) concernent les versions précédentes.
+Les simulations ne garantissent pas la surperformance. Ajuster le modèle après consultation du test crée un biais de sélection ; toute nouvelle validation économique demande une fenêtre intacte ou une évaluation chronologique supplémentaire.
 
 ## Régression et retour à la tendance
 

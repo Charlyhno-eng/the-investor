@@ -2,36 +2,51 @@
 
 import numpy as np
 
+HORIZON = 5
+
 
 def switching_values(model, log_means, fee_bps):
-    """Average-reward Bellman difference for held versus flat portfolios.
+    """Five-return forecast after next-close execution, versus round-trip fees.
 
-    d(s) = clip(r(s) + P d(s), -c, c). Continuation values account for
-    learned state persistence rather than a target holding time or trade quota.
-    With a next-close execution lag, reward starts two transitions after today's
-    filtered observation. No reward is credited on the signal/execution bars.
+    At close t the first return earned after execution at close t+1 is r[t+2].
+    This fixed horizon is a forecast convention, never a forced holding period.
+    There is no infinite-horizon continuation value that can lock a position.
     """
-    cost = -np.log1p(-fee_bps / 10000)
+    if not 0 <= fee_bps <= 500:
+        raise ValueError(
+            "Les frais doivent être compris entre 0 et 500 points de base."
+        )
     transition = model.transmat_
-    reward = transition @ transition @ log_means
-    difference = np.zeros(len(log_means))
-    for _ in range(10000):
-        updated = np.clip(reward + transition @ difference, -cost, cost)
-        if np.max(np.abs(updated - difference)) < 1e-12:
-            return reward + transition @ updated, float(cost)
-        # Averaging avoids a two-cycle for a periodic transition matrix.
-        difference = (difference + updated) / 2
-    raise ValueError("La politique de coûts HMM n’a pas convergé.")
+    forecast = transition @ log_means
+    advantage = np.zeros(len(log_means))
+    for _ in range(HORIZON):
+        forecast = transition @ forecast
+        advantage += forecast
+    return advantage, float(-2 * np.log1p(-fee_bps / 10000))
 
 
 def simulate_switching(
-    changes, probabilities, dates, request, advantage, cost, bullish
+    changes,
+    probabilities,
+    dates,
+    request,
+    advantage,
+    cost,
+    bullish,
+    *,
+    initial_probability=None,
 ):
     """Signals at close t execute at close t+1, fees symmetric, no stop."""
     fee = request.fee_bps / 10000
     net = np.zeros(len(changes))
     position, pending, pending_probability = 0, None, None
     trades, positions = [], []
+    if (
+        initial_probability is not None
+        and float(initial_probability @ advantage) > cost
+    ):
+        pending = 1
+        pending_probability = float(initial_probability[bullish].sum())
     for i, change in enumerate(changes):
         net[i] = np.expm1(change) if position else 0.0
         target = 0 if i == len(changes) - 1 else pending

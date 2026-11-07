@@ -8,8 +8,9 @@ from pathlib import Path
 
 import numpy as np
 from investor.analysis.metrics import equity, metrics
-from investor.analysis.model import features, fit_model, forward_filter
+from investor.analysis.model import forward_filter
 from investor.analysis.reentry import model_signals, simulate_reentry
+from investor.analysis.research_legacy import features, fit_model
 from investor.analysis.schemas import AnalysisRequest
 from investor.analysis.service import calculate
 from investor.market_catalog import REMOVED_CRYPTO

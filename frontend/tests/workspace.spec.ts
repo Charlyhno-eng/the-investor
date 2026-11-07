@@ -174,7 +174,7 @@ test("HMM serializes rapid edits and displays the latest result", async ({
   ).toBeVisible();
 });
 
-test("HMM exposes near-conservation behavior and separates regimes from positions", async ({
+test("HMM keeps exposure information without regime and position gauges", async ({
   page,
 }) => {
   const days = ["2022-01-01", "2022-01-02", "2022-01-03", "2022-01-04"];
@@ -204,24 +204,15 @@ test("HMM exposes near-conservation behavior and separates regimes from position
   await page.getByRole("tab", { name: "HMM", exact: true }).click();
   await page.getByRole("button", { name: "Lancer la simulation" }).click();
   const assessment = page.getByLabel("Évaluation face à la conservation");
-  await expect(assessment).toContainText("+0,69 points");
+  await expect(assessment).not.toContainText(
+    "Écart net face à la conservation",
+  );
   await expect(assessment).toContainText("Exposition presque permanente");
   await expect(assessment).toContainText("Aucune sortie de régime possible");
   const timeline = page.getByRole("region", {
     name: "Régimes détectés et positions",
   });
-  await expect(timeline).toBeVisible();
-  await expect(
-    timeline
-      .getByRole("img", { name: "Régime dominant", exact: true })
-      .locator("span"),
-  ).toHaveCount(2);
-  await expect(
-    timeline
-      .getByRole("img", { name: "Position après clôture", exact: true })
-      .locator("span")
-      .first(),
-  ).toHaveAttribute("title", /Investi · 3 observations/);
+  await expect(timeline).toHaveCount(0);
   await expect
     .poll(() =>
       page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -268,3 +259,78 @@ for (const [id, fee, bps] of [
       .toBe(true);
   });
 }
+
+test("HMM explains when validation does not support multiple regimes", async ({
+  page,
+}) => {
+  await mockApi(page, {
+    states: [
+      {
+        name: "Sans régimes",
+        mean_change: 0.0001,
+        persistence: 1,
+        volatility: 0.012,
+      },
+    ],
+    transition_matrix: [[1]],
+    model_selection: {
+      method: "expanding_window_predictive_likelihood_one_standard_error",
+      selected_states: 1,
+      regimes_supported: false,
+      validation_points: 200,
+      validation_scores: { "1": 2.1, "2": 2.09, "3": 2.08 },
+      baseline_score: 2.1,
+    },
+  });
+  await page.goto("/assets/yf-test");
+  await page.getByRole("tab", { name: "HMM", exact: true }).click();
+  await page.getByRole("button", { name: "Lancer la simulation" }).click();
+  await expect(
+    page.getByLabel("Évaluation face à la conservation"),
+  ).toContainText("La validation ne justifie pas plusieurs régimes");
+  await page.locator(".model-details summary").click();
+  await expect(
+    page.getByRole("heading", { name: "Distributions apprises" }),
+  ).toBeVisible();
+  await expect(page.locator(".model-details")).toContainText(
+    "200 observations",
+  );
+  await expect(page.locator(".model-details")).toContainText("Sans régimes");
+});
+
+test("HMM identifies an impossible entry and rejects financial underperformance", async ({
+  page,
+}) => {
+  await mockApi(page, {
+    strategy_metrics: { total_return: 0 },
+    benchmark_metrics: { total_return: 0.6019 },
+    exposure: 0,
+    diagnostics: {
+      entry_reachable: false,
+      entry_signal_observations: 0,
+      minimum_state_forecast: 0.001,
+      maximum_state_forecast: 0.005,
+      round_trip_threshold: 0.010025,
+      exit_reachable: false,
+      negative_states: 1,
+      negative_dominant_observations: 27,
+      negative_dominant_while_held: 0,
+      negative_dominant_without_exit_while_held: 0,
+      exit_signal_observations: 0,
+      net_excess_return: -0.6019,
+      nearly_always_invested: false,
+      nearly_always_cash: true,
+    },
+  });
+  await page.goto("/assets/yf-test");
+  await page.getByRole("tab", { name: "HMM", exact: true }).click();
+  await page.getByRole("button", { name: "Lancer la simulation" }).click();
+  const assessment = page.getByLabel("Évaluation face à la conservation");
+  await expect(assessment).toContainText("Aucun achat possible");
+  await expect(assessment).not.toContainText(
+    "Sous-performance face à l’achat-conservation",
+  );
+  await expect(assessment).not.toContainText(
+    "Aucune sortie de régime possible",
+  );
+});

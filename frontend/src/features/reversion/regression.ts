@@ -97,27 +97,42 @@ export function compareRegressionStrategy(
     ReturnType<typeof fitRegression>["rows"][number],
     "time" | "value" | "lower" | "upper" | "z"
   >[],
+  buyFee = 0,
+  sellFee = 0,
 ) {
+  if (
+    ![buyFee, sellFee].every(
+      (fee) => Number.isFinite(fee) && fee >= 0 && fee < 1,
+    )
+  )
+    throw new Error("Les frais doivent être compris entre 0 et 100 % exclus.");
   let cash = 100;
   let units = 0;
   let purchases = 0;
   let sales = 0;
-  const equity = rows.map((row) => {
+  let exposedTime = 0;
+  const totalTime =
+    rows.length > 1
+      ? Date.parse(rows.at(-1)!.time) - Date.parse(rows[0].time)
+      : 0;
+  const equity = rows.map((row, i) => {
     if (row.z !== null) {
       if (units === 0 && row.value <= row.lower) {
-        units = cash / row.value;
+        units = cash / (row.value * (1 + buyFee));
         cash = 0;
         purchases++;
       } else if (units > 0 && row.value >= row.upper) {
-        cash = units * row.value;
+        cash = units * row.value * (1 - sellFee);
         units = 0;
         sales++;
       }
     }
+    if (units > 0 && i + 1 < rows.length)
+      exposedTime += Date.parse(rows[i + 1].time) - Date.parse(row.time);
     return {
       time: row.time,
       strategy: cash + units * row.value,
-      benchmark: (100 * row.value) / rows[0].value,
+      benchmark: (100 * row.value) / (rows[0].value * (1 + buyFee)),
     };
   });
   const metrics = (key: "strategy" | "benchmark") => {
@@ -137,5 +152,6 @@ export function compareRegressionStrategy(
     purchases,
     sales,
     invested: units > 0,
+    exposure: totalTime > 0 ? exposedTime / totalTime : 0,
   };
 }

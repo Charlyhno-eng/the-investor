@@ -1,5 +1,7 @@
 # HMM directionnel, frais et benchmarks locaux
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 **Revue ultérieure :** l’[audit de passivité et la recherche de variantes](hmm-literature.md) montrent que 11 modèles sur 22 ne peuvent pas déclencher de sortie par leur politique actuelle. Cette version ne satisfait pas la surperformance demandée ; les variantes lissées et les filtres de volatilité ont été testés séparément, sans remplacement du moteur actif.
 
 Mise à jour du 6 novembre 2026. À la demande de l’utilisateur : retrait du stop de drawdown à 10 %, des règles de réentrée associées et des messages de protection. Le HMM décide seul des changements long/liquidités, avec prise en compte des frais. Aucun objectif de nombre d’ordres.

@@ -1,5 +1,7 @@
 # HMM de FrenchQuant : méthode et résultats
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 > Version historique : voir la [correction de rotation et de protection](hmm-risk-review.md) pour la politique actuelle.
 
 Source : [Modèles de Markov cachés : Application en Trading Algorithmique](https://www.youtube.com/watch?v=Eix0xaQmgYk), FrenchQuant, 15 min 08. Analyse du 6 novembre 2026 à partir des sous-titres automatiques français récupérés sur YouTube. Le code à l’écran n’a pas pu être vérifié : cette adaptation reprend la méthode orale, sans prétendre reproduire exactement son notebook.

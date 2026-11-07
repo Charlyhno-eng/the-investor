@@ -9,8 +9,7 @@ from functools import lru_cache
 
 import numpy as np
 from investor.analysis.model import forward_filter
-from investor.analysis.regimes import _fit
-from investor.analysis.switching import switching_values
+from investor.analysis.research_legacy import _fit, switching_values
 from threadpoolctl import threadpool_limits
 
 SPAN = 30

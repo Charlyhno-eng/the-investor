@@ -1,5 +1,7 @@
 # Recherche HMM : détection, exposition et performance nette
 
+> Archive : ce document concerne les versions ou recherches antérieures à la reconstruction du 6 novembre 2026. Le [moteur actif est décrit ici](hmm-rebuilt.md).
+
 Suite de cette étude : [diagnostic de passivité et 298 nouveaux backtests](hmm-passivity.md). Le sixième candidat n’est pas activé ; les modifications de l’application ajoutent uniquement des diagnostics et la visibilité des régimes et positions.
 
 6 novembre 2026. **L’objectif de surperformance dans l’extrême majorité des cas n’est pas atteint. Aucun candidat n’a été installé dans l’application.** Le moteur actif reste celui décrit dans [la revue précédente](hmm-directional.md), qui ne doit pas être présenté comme validé financièrement.

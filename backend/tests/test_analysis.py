@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from investor import db
 from investor.analysis.metrics import metrics
-from investor.analysis.model import features
+from investor.analysis.research_legacy import features
 from investor.analysis.schemas import AnalysisRequest
 from investor.analysis.service import calculate
 from investor.analysis.strategy import POLICIES, simulate
@@ -151,14 +151,14 @@ def test_analysis_cache_and_data_revision(local, sample, monkeypatch):
         [("sample", r["date"], r["value"]) for r in rows],
         "test",
     )
-    original = service.fit_regimes
+    original = service.fit_cached
     calls = []
 
     def spy(training):
         calls.append(len(training))
         return original(training)
 
-    monkeypatch.setattr(service, "fit_regimes", spy)
+    monkeypatch.setattr(service, "fit_cached", spy)
     path = "/api/assets/sample/analysis"
     payload = request.model_dump(mode="json")
     first = local.post(path, json=payload)
@@ -223,7 +223,7 @@ def test_unsupported_categories_rejected_before_cache_and_fit(
     def unexpected_fit(*args):
         pytest.fail("Unsupported assets must be rejected before model fitting")
 
-    monkeypatch.setattr(service, "fit_regimes", unexpected_fit)
+    monkeypatch.setattr(service, "fit_cached", unexpected_fit)
 
     # A cache hit would be returned if the eligibility check were moved below hashing.
     class LegacyHash:
@@ -255,21 +255,21 @@ def test_scaled_filter_matches_prefix_posteriors():
 
 
 def test_training_cache_reuses_fit_for_simulation_and_test_changes(sample, monkeypatch):
-    from investor.analysis import regimes
+    from investor.analysis import basic
 
-    regimes._fit_cached.cache_clear()
-    original = regimes._fit
+    basic._fit_cached.cache_clear()
+    original = basic.fit
     calls = []
 
-    def fit(training, count):
-        calls.append((len(training), count))
-        return original(training, count)
+    def fit(training):
+        calls.append(len(training))
+        return original(training)
 
-    monkeypatch.setattr(regimes, "_fit", fit)
+    monkeypatch.setattr(basic, "fit", fit)
     asset, rows, request = sample
     first = calculate(asset, rows, request)
     fitted = len(calls)
-    assert fitted >= 3  # Two internal validation models and the final refit.
+    assert fitted == 1  # Fixed two states; one cached fit across simulation edits.
     changed = request.model_copy(update={"fee_bps": 100})
     second = calculate(asset, rows, changed)
     assert len(calls) == fitted
@@ -282,8 +282,8 @@ def test_training_cache_reuses_fit_for_simulation_and_test_changes(sample, monke
     revised[200]["value"] *= 1.01
     calculate(asset, revised, request)
     assert len(calls) > fitted
-    assert regimes._fit_cached.cache_info().maxsize == 8
-    regimes._fit_cached.cache_clear()
+    assert basic._fit_cached.cache_info().maxsize == 8
+    basic._fit_cached.cache_clear()
 
 
 def test_forward_filter_extreme_observations_and_zero_transitions():
@@ -331,7 +331,7 @@ def test_regimes_are_ordered_by_training_return(sample):
     count = len(result["states"])
     means = [s["mean_change"] for s in result["states"]]
     assert means == sorted(means)
-    assert count in (2, 3)
+    assert count in (1, 2, 3)
     assert np.array(result["transition_matrix"]).shape == (count, count)
     for row in result["regimes"]:
         assert len(row["probabilities"]) == count
@@ -359,28 +359,21 @@ def test_full_covariance_filter_matches_causal_prefixes():
     np.testing.assert_allclose(forward_filter(m, x), expected, atol=1e-12)
 
 
-def test_negative_predictive_return_does_not_buy_even_in_calm_regime(
-    sample, monkeypatch
-):
+def test_other_dominant_state_does_not_buy_even_in_calm_regime(sample, monkeypatch):
     from types import SimpleNamespace
 
     from investor.analysis import service
 
     fake = SimpleNamespace(
-        means_=np.array([[-0.01, -0.01, -4], [0.1, 0.1, -2]]),
+        means_=np.array([[-0.01], [0.1]]),
         covars_=np.array([[[0.0001]], [[0.01]]]),
         transmat_=np.array([[0.99, 0.01], [0.1, 0.9]]),
+        monitor_=SimpleNamespace(converged=True),
     )
     monkeypatch.setattr(
         service,
-        "fit_regimes",
-        lambda x: (
-            fake,
-            np.zeros(3),
-            np.ones(3),
-            True,
-            {"observable_columns": [0, 1, 2]},
-        ),
+        "fit_cached",
+        lambda x: (fake, 0.0, 1.0, 17),
     )
     monkeypatch.setattr(
         service, "forward_filter", lambda m, x: np.tile([1.0, 0.0], (len(x), 1))
@@ -443,29 +436,34 @@ def test_higher_fees_preserve_hmm_and_no_stop_is_configured(sample):
     high = calculate(asset, rows, request.model_copy(update={"fee_bps": 100}))
     assert high["regimes"] == zero["regimes"]
     assert high["states"] == zero["states"]
+    assert high["positions"] == zero["positions"]
+    assert high["trades"] == zero["trades"]
+    assert len(high["states"]) == 2
+    assert high["model_selection"]["method"] == "fixed_two_states_training_likelihood"
+    assert high["diagnostics"]["entry_reachable"] is True
     assert "risk_control" not in high
     assert high["policy"]["position_stop"] is None
     assert zero["policy"]["position_stop"] is None
 
 
-def test_unreachable_exit_is_reported_even_when_adverse_regime_is_detected(
+def test_negative_regime_sells_even_when_drift_is_below_roundtrip_fees(
     sample, monkeypatch
 ):
     from types import SimpleNamespace
 
     from investor.analysis import service
 
-    # Parameters of the structural failure seen on Air Liquide: every pure
-    # state's continuation stays above -cost, despite a negative state mean.
+    # A weak negative drift must not block a regime-driven sell because of fees.
     model = SimpleNamespace(
         means_=np.array([[-0.00081365], [0.00086961]]),
         covars_=np.array([[[0.0004]], [[0.0001]]]),
         transmat_=np.array([[0.913911, 0.086089], [0.015879, 0.984121]]),
+        monitor_=SimpleNamespace(converged=True),
     )
     monkeypatch.setattr(
         service,
-        "fit_regimes",
-        lambda x: (model, np.zeros(1), np.ones(1), True, {"observable_columns": [0]}),
+        "fit_cached",
+        lambda x: (model, 0.0, 1.0, 17),
     )
 
     def beliefs(model, x):
@@ -474,14 +472,13 @@ def test_unreachable_exit_is_reported_even_when_adverse_regime_is_detected(
         return p
 
     monkeypatch.setattr(service, "forward_filter", beliefs)
-    result = calculate(*sample)
+    asset, rows, request = sample
+    result = calculate(asset, rows, request.model_copy(update={"fee_bps": 10}))
     diagnostic = result["diagnostics"]
-    assert diagnostic["exit_reachable"] is False
-    assert diagnostic["negative_dominant_observations"] == 100
-    assert diagnostic["negative_dominant_without_exit_while_held"] == 100
-    assert (
-        len(result["trades"]) == 2
-        and result["trades"][-1]["reason"] == "final_liquidation"
-    )
-    assert any("Aucune sortie de régime" in note for note in result["warnings"])
-    assert result["diagnostics"]["nearly_always_invested"] is True
+    assert diagnostic["entry_reachable"] is True
+    assert diagnostic["exit_reachable"] is True
+    assert diagnostic["negative_dominant_observations"] == 99
+    assert diagnostic["negative_dominant_without_exit_while_held"] == 0
+    assert len(result["trades"]) == 2 and result["trades"][-1]["reason"] == "regime"
+    assert not any("Aucune sortie de régime" in note for note in result["warnings"])
+    assert result["diagnostics"]["nearly_always_invested"] is False

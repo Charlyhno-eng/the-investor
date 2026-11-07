@@ -3,19 +3,18 @@
 import hashlib
 import json
 import threading
+from itertools import pairwise
 
 import numpy as np
 from fastapi import HTTPException
 
-from investor.analysis.diagnostics import switching_diagnostics
+from investor.analysis.basic import fit_cached, simulate
 from investor.analysis.metrics import equity, metrics
 from investor.analysis.model import forward_filter
-from investor.analysis.regimes import fit_regimes, observations
-from investor.analysis.switching import simulate_switching, switching_values
 from investor.db import connect
 
 SLOTS = threading.BoundedSemaphore(1)  # Bound CPU/memory and BLAS thread configuration.
-VERSION = "hmmlearn-directional-return-validation-switching-diagnostics-v3"
+VERSION = "hmm-two-state-dominant-filtered-live-v3"
 
 
 def analyze(asset_id, request):
@@ -96,11 +95,14 @@ def calculate(asset, rows, request, *, policy=None):
         raise ValueError(
             "Les rendements logarithmiques exigent des prix strictement positifs."
         )
-    changes, x = observations(values)
-    dates = np.array([r["date"] for r in rows[1:]])
-    valid = np.isfinite(x).all(axis=1)
+    changes = np.diff(np.log(values))
+    x = changes[:, None]
+    row_dates = [str(r["date"]) for r in rows]
+    if any(a >= b for a, b in pairwise(row_dates)):
+        raise ValueError("Les dates doivent être uniques et strictement croissantes.")
+    dates = np.array(row_dates[1:])
     train = (
-        valid
+        (np.array(row_dates[:-1]) >= request.train_start.isoformat())
         & (dates > request.train_start.isoformat())
         & (dates <= request.train_end.isoformat())
     )
@@ -109,63 +111,94 @@ def calculate(asset, rows, request, *, policy=None):
     )
     if train.sum() < 100 or test.sum() < 20:
         raise ValueError(
-            "Sélectionnez au moins 100 variations d’entraînement après les 20 observations de contexte, et 20 variations de test."
+            "Sélectionnez au moins 100 variations d’entraînement et 20 variations de test."
         )
     if np.std(changes[train]) < 1e-10:
         raise ValueError("La période d’entraînement est constante.")
-    model, mean, scale, converged, selection = fit_regimes(x[train])
-    selected = x[valid][:, selection["observable_columns"]]
-    probabilities = forward_filter(model, (selected - mean) / scale)
-    # Valid context begins before the test. This index keeps the filter's past
-    # observations (including any gap between training and testing) intact.
-    test_prob = probabilities[test[valid]]
-    log_means = model.means_[:, 0] * scale[0] + mean[0]
-    volatility = np.sqrt(model.covars_[:, 0, 0]) * scale[0]
+    model, mean, scale, seed = fit_cached(changes[train])
+    selection = {
+        "method": "fixed_two_states_training_likelihood",
+        "selected_states": 2,
+        "regimes_supported": True,
+        "validation_points": 0,
+        "validation_scores": {},
+        "baseline_score": None,
+        "seed": seed,
+    }
+    converged = model.monitor_.converged
+    probabilities = forward_filter(model, (x - mean) / scale)
+    # Filter across any gap without fitting on it or opening positions there.
+    test_prob = probabilities[test]
+    log_means = model.means_[:, 0] * scale + mean
+    volatility = np.sqrt(model.covars_[:, 0, 0]) * scale
     order = np.argsort(log_means)
-    names = ["Baisse" if log_means[order[0]] < 0 else "Hausse modérée"]
-    if len(order) == 3:
-        names.append("Transition")
-    names.append("Hausse" if log_means[order[-1]] > 0 else "Baisse modérée")
+    names = ["Autre · moyenne inférieure", "Haussier · moyenne supérieure"]
     labels = {int(state): name for state, name in zip(order, names)}
     test_dates = dates[test].tolist()
-    advantage, cost = switching_values(model, log_means, request.fee_bps)
-    net, benchmark, trades, positions = simulate_switching(
-        changes[test], test_prob, test_dates, request, advantage, cost, log_means > 0
+    test_indices = np.flatnonzero(test)
+    first_index = int(test_indices[0])
+    if first_index == 0:
+        raise ValueError("Une observation précédant le test est requise.")
+    bullish = int(np.argmax(log_means))
+    beliefs = probabilities[first_index - 1 : test_indices[-1] + 1]
+    net, benchmark, orders, positions = simulate(
+        changes[test], beliefs, bullish, request.fee_bps
     )
+    trades = [
+        {
+            "time": test_dates[t["index"]],
+            "side": t["side"],
+            "probability": float(beliefs[t["index"], bullish])
+            if t["index"] < len(test_dates) - 1
+            else None,
+            "reason": "final_liquidation"
+            if t["index"] == len(test_dates) - 1
+            else "regime",
+        }
+        for t in orders
+    ]
     annualization = 365 if asset["category"] == "crypto" else 252
-    first_index = int(np.flatnonzero(test)[0])
     all_dates = [rows[first_index]["date"]] + test_dates
     notes = [
-        "HMM directionnel sur rendement logarithmique, avec contexte optionnel de moyenne et volatilité des 20 dernières variations. Le contexte est une observation du modèle, sans filtre technique supplémentaire.",
-        "Deux ou trois états, avec ou sans contexte, choisis selon la densité prédictive du prochain rendement sur les derniers 20 % de l’entraînement, puis ajustement sur tout l’entraînement. Aucun gain de test ne sélectionne le modèle.",
-        "Probabilités filtrées avec le passé uniquement. Paramètres figés après l’entraînement ; les régimes sont classés par rendement moyen estimé, et non par volatilité.",
-        "Décisions quotidiennes long/liquidités par valeur de continuation du HMM, frais identiques à chaque achat et vente. Aucun stop de drawdown, quota de transactions ou délai de détention imposé.",
-        "Signal en clôture, ordre à la clôture suivante. Frais inclus, hors glissement et impôts ; liquidités non rémunérées. La politique utilise une approximation des états cachés par leurs probabilités filtrées.",
-        "Le contexte glissant crée une dépendance entre observations : les probabilités sont des scores de modèle, sans garantie de calibration. Ces régimes ne garantissent pas une prévision des rendements.",
+        "HMM à exactement deux états : une seule observation, le rendement logarithmique terminé. Trois initialisations comparées par vraisemblance d’entraînement uniquement.",
+        "Paramètres figés après l’entraînement. Probabilités filtrées causalement, sans lissage ; les données entre entraînement et test mettent à jour le filtre sans réajuster les paramètres.",
+        "Investi lorsque l’état à moyenne entraînée supérieure est dominant, en liquidités sinon. Les frais sont prélevés sur les ordres ; ils ne bloquent ni les achats ni les ventes.",
+        "Signal en clôture, exécution à la clôture suivante. Le dernier signal précédant le test peut être exécuté à sa première clôture. Frais identiques à chaque achat et vente, liquidation finale comprise ; liquidités non rémunérées, hors glissement et impôts.",
+        "Les états décrivent des distributions de rendement, pas des phases de hausse ou de baisse certaines. Une meilleure densité prédictive ne démontre pas un avantage de trading.",
     ]
+    if log_means[bullish] <= 0:
+        notes.append(
+            "L’état dit haussier a la moyenne la plus élevée, mais cette moyenne d’entraînement n’est pas positive."
+        )
     if not converged:
         notes.append(
             "L’ajustement retenu n’a pas atteint le seuil de convergence ; interpréter les régimes avec prudence."
         )
     if not trades:
         notes.append(
-            "Aucune transaction : le modèle ne prévoit pas un avantage suffisant après frais."
+            "Aucune transaction : l’état haussier n’a pas dominé aux clôtures exécutables de cette période."
         )
     strategy_metrics = metrics(net, benchmark, annualization, 0)
     benchmark_metrics = metrics(benchmark, benchmark, annualization, 0)
-    diagnostics = switching_diagnostics(
-        test_prob,
-        log_means,
-        advantage,
-        cost,
-        positions,
-        strategy_metrics["total_return"],
-        benchmark_metrics["total_return"],
-    )
-    if not diagnostics["exit_reachable"]:
-        notes.append(
-            "Aucune sortie de régime n’est possible avec les paramètres appris et cette règle de continuation : même une probabilité de 100 % dans l’un des états ne franchit pas le seuil de vente. Seule la liquidation finale peut vendre. Ce résultat ne valide pas une stratégie de changements de régime."
-        )
+    held = np.r_[0, np.asarray(positions[:-1])]
+    negative = log_means[np.argmax(beliefs[:-1], axis=1)] < 0
+    exit_signals = np.argmax(beliefs[:-1], axis=1) != bullish
+    diagnostics = {
+        "entry_reachable": True,
+        "exit_reachable": True,
+        "entry_signal_observations": int((~exit_signals).sum()),
+        "exit_signal_observations": int(exit_signals.sum()),
+        "negative_states": int((log_means < 0).sum()),
+        "negative_dominant_observations": int(negative.sum()),
+        "negative_dominant_while_held": int((negative & (held == 1)).sum()),
+        "negative_dominant_without_exit_while_held": int(
+            (negative & ~exit_signals & (held == 1)).sum()
+        ),
+        "net_excess_return": strategy_metrics["total_return"]
+        - benchmark_metrics["total_return"],
+        "nearly_always_invested": bool(held.mean() >= 0.95),
+        "nearly_always_cash": bool(held.mean() <= 0.05),
+    }
     if diagnostics["nearly_always_invested"]:
         notes.append(
             "Exposition supérieure ou égale à 95 % : cette simulation reste proche de l’achat-conservation. Ce seuil est un diagnostic ; il ne force aucune transaction."
@@ -191,10 +224,13 @@ def calculate(asset, rows, request, *, policy=None):
         ],
         "transition_matrix": model.transmat_[order][:, order].tolist(),
         "model_selection": selection,
+        "model_version": VERSION,
         "diagnostics": diagnostics,
         "policy": {
             "review": "daily",
-            "signal": "hmm_cost_switching",
+            "signal": "hmm_dominant_higher_mean_state",
+            "entry_threshold": 0.5,
+            "exit_threshold": 0.5,
             "transaction_target": None,
             "position_stop": None,
         },
