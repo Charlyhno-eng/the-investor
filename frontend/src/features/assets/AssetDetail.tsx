@@ -1,3 +1,4 @@
+import { sectorInfo, currencyCountry } from "../../lib/sectors";
 import { useEffect, useState } from "react";
 import { VolatilityPanel } from "../volatility/VolatilityPanel";
 import { HistoryChart } from "../../components/HistoryChart";
@@ -17,13 +18,11 @@ export function AssetDetail({
   favorite,
   onToggleFavorite,
   onRemove,
-  onDividendChange,
 }: {
   asset: Asset;
   favorite?: Favorite;
   onToggleFavorite: () => void;
   onRemove: () => void;
-  onDividendChange: (enabled: boolean) => void;
 }) {
   const [points, setPoints] = useState<Point[]>([]),
     [error, setError] = useState(""),
@@ -51,29 +50,9 @@ export function AssetDetail({
   const dividends = useDividends(asset);
   const [compareMarket, setCompareMarket] = useState(false);
   const [reinvest, setReinvest] = useState(false);
-  const [savingDividend, setSavingDividend] = useState(false);
-  const [dividendError, setDividendError] = useState("");
-  async function toggleDividend() {
-    setSavingDividend(true);
-    setDividendError("");
-    try {
-      const result = await api<{ is_dividend: boolean }>(
-        `/assets/${encodeURIComponent(asset.id)}/dividend-status`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ is_dividend: !asset.is_dividend }),
-        },
-      );
-      onDividendChange(result.is_dividend);
-    } catch (e) {
-      setDividendError((e as Error).message);
-    } finally {
-      setSavingDividend(false);
-    }
-  }
-  const supportsAnalysis =
-    asset.category === "stock" || asset.category === "crypto";
+  const supportsAnalysis = ["stock", "crypto", "etf", "currency"].includes(
+    asset.category,
+  );
   const category = categories.find((c) => c.id === asset.category)!;
   const cutoff = new Date(`${asset.last_date}T00:00:00Z`);
   cutoff.setUTCFullYear(cutoff.getUTCFullYear() - range);
@@ -133,6 +112,12 @@ export function AssetDetail({
                   {stockCountry(asset)}
                 </>
               )}
+              {asset.category === "currency" && (
+                <>
+                  <i />
+                  {currencyCountry(asset.id)}
+                </>
+              )}
               <i />{" "}
               {asset.metric === "yield"
                 ? `Référence souveraine ${asset.benchmark_years ?? 10} ans`
@@ -142,29 +127,19 @@ export function AssetDetail({
             </span>
           </div>
         </div>
-        <div className="asset-heading-actions">
-          {asset.category === "stock" && (
-            <button
-              className="secondary-button dividend-toggle"
-              aria-label="Action à dividende"
-              aria-pressed={!!asset.is_dividend}
-              disabled={savingDividend}
-              onClick={toggleDividend}
-              title="Inclure cette action dans votre sélection dividendes"
-            >
-              <span className="dividend-dot" aria-hidden="true">
-                D
-              </span>
-              Dividende{asset.is_dividend ? " activé" : ""}
-            </button>
-          )}
-        </div>
+        {asset.category === "stock" && asset.sector && (
+          <span
+            className="sector-badge"
+            style={{
+              color: sectorInfo(asset.sector).color,
+              borderColor: sectorInfo(asset.sector).color,
+              background: `${sectorInfo(asset.sector).color}18`,
+            }}
+          >
+            {sectorInfo(asset.sector).name}
+          </span>
+        )}
       </div>
-      {dividendError && (
-        <p className="error" role="alert">
-          {dividendError}
-        </p>
-      )}
       <div className="detail-tabs" role="tablist" aria-label="Vue de l’actif">
         <button
           role="tab"

@@ -85,7 +85,7 @@ export function PerformancePanel({ holdings }: { holdings: string }) {
     >
       <div className="portfolio-section-heading">
         <div>
-          <h2>Performance face au S&P 500</h2>
+          <h2>Comparaison et optimisation du portefeuille</h2>
           <p>
             Comparez votre allocation actuelle au marché et simulez une nouvelle
             répartition.
@@ -209,7 +209,15 @@ function PerformanceView({
             .filter((s) => ready.metrics[s.key])
             .map((s) => ({
               title: s.title,
-              color: s.color,
+              color:
+                ready.metrics.optimized && s.key !== "optimized"
+                  ? `${s.color}55`
+                  : s.color,
+              lineWidth: (ready.metrics.optimized
+                ? s.key === "optimized"
+                  ? 4
+                  : 1
+                : 2) as 1 | 2 | 4,
               points: ready.equity.map((p) => ({
                 time: p.time,
                 value: p[s.key]!,

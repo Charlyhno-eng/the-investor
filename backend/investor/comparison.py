@@ -57,7 +57,11 @@ def compare(
             raise HTTPException(
                 422, "Une série de taux ne mesure pas une performance totale."
             )
-        currency = asset["unit"] if asset["category"] == "stock" else "USD"
+        currency = (
+            asset["unit"]
+            if asset["category"] in ("stock", "etf", "currency")
+            else "USD"
+        )
         multiplier = 0.01 if currency == "GBp" else 1
         if currency == "GBp":
             currency = "GBP"
@@ -70,7 +74,7 @@ def compare(
         lower = start.isoformat() if start else "0001-01-01"
         upper = end.isoformat() if end else "9999-12-31"
         table = "observations"
-        if asset["category"] == "stock" and not reinvest:
+        if asset["category"] in ("stock", "etf") and not reinvest:
             if ensure_prices(connection, asset):
                 return {"status": "pending"}
             table = "price_observations"
@@ -195,7 +199,7 @@ def ensure_prices(connection, asset):
             503, "Prix hors dividendes indisponibles. Réessayez dans quelques minutes."
         )
     connection.execute(
-        "INSERT INTO import_jobs(symbol,category) SELECT ?,'stock' WHERE NOT EXISTS (SELECT 1 FROM import_jobs WHERE symbol=? AND status IN ('queued','running'))",
-        (symbol, symbol),
+        "INSERT INTO import_jobs(symbol,category) SELECT ?,? WHERE NOT EXISTS (SELECT 1 FROM import_jobs WHERE symbol=? AND status IN ('queued','running'))",
+        (symbol, asset["category"], symbol),
     )
     return True

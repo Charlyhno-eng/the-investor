@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 import yfinance as yf
 
 from investor import db
-from investor.market_catalog import CRYPTO
+from investor.market_catalog import CRYPTO, CURRENCIES, ETF
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +24,12 @@ def import_symbol(symbol: str, category: str) -> str:
         period="max", interval="1d", auto_adjust=False, actions=True, timeout=30
     )
     metadata = ticker.get_history_metadata()
-    expected = "CRYPTOCURRENCY" if category == "crypto" else "EQUITY"
+    expected = {
+        "crypto": "CRYPTOCURRENCY",
+        "stock": "EQUITY",
+        "etf": "ETF",
+        "currency": "CURRENCY",
+    }[category]
     if metadata.get("instrumentType") != expected:
         raise ValueError(
             "Symbole introuvable ou catégorie incompatible (actions cotées uniquement)."
@@ -46,6 +51,8 @@ def import_symbol(symbol: str, category: str) -> str:
         raise ValueError("Historique vide après validation.")
     name = (
         CRYPTO.get(symbol)
+        or ETF.get(symbol)
+        or CURRENCIES.get(symbol)
         or metadata.get("longName")
         or metadata.get("shortName")
         or symbol
@@ -132,7 +139,12 @@ def import_symbol(symbol: str, category: str) -> str:
 def update_country(ticker, asset_id: str):
     """Company domicile from its profile; never infer it from the listing venue."""
     try:
-        country = ticker.get_info().get("country")
+        info = ticker.get_info()
+        country = info.get("country")
+        with db.connect() as connection:
+            connection.execute(
+                "UPDATE assets SET sector=? WHERE id=?", (info.get("sector"), asset_id)
+            )
         if isinstance(country, str) and country.strip():
             with db.connect() as connection:
                 connection.execute(

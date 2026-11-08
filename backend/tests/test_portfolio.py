@@ -256,3 +256,27 @@ def test_missing_display_currency_rate_is_queued_and_empty_portfolio_needs_no_ra
     ).json()
     assert result["currency"] == "EUR"
     assert result["total"] == 0
+
+
+def test_sp500_reference_is_in_correlation_without_becoming_a_position(local):
+    seed("a")
+    with db.connect() as connection:
+        connection.execute(
+            "INSERT OR REPLACE INTO reference_imports VALUES ('^SP500TR',strftime('%Y-%m-%dT%H:%M:%SZ','now'))"
+        )
+        connection.execute(
+            "INSERT INTO reference_observations SELECT '^SP500TR',date,value FROM observations WHERE asset_id='a'"
+        )
+    result = local.post(
+        "/api/portfolio/analytics",
+        json={
+            "holdings": [{"asset_id": "a", "quantity": 2}],
+            "include_benchmark": True,
+        },
+    ).json()
+    assert result["status"] == "ready"
+    assert [p["id"] for p in result["positions"]] == ["a"]
+    assert [a["id"] for a in result["correlation"]["assets"]] == ["^SP500TR", "a"]
+    assert result["correlation"]["matrix"][1][1] == pytest.approx(1)
+    assert result["correlation"]["matrix"][0][1] == pytest.approx(1)
+    assert result["total_usd"] == 200

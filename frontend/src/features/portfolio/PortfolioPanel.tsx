@@ -1,10 +1,12 @@
+import { RegressionDeviation } from "./RegressionDeviation";
+import { sectorInfo } from "../../lib/sectors";
 import { useEffect, useState } from "react";
 import { VolatilityPanel } from "../volatility/VolatilityPanel";
 import { PerformancePanel } from "./PerformancePanel";
 import { Link } from "react-router";
 import { post } from "../../lib/api";
 import { money } from "../../lib/currency";
-import { date, number } from "../../lib/format";
+import { categories, date, number } from "../../lib/format";
 import type { Asset } from "../../lib/types";
 import { NumberInput } from "../analysis/NumberInput";
 import { Tooltip } from "../../components/Tooltip";
@@ -68,6 +70,7 @@ export function PortfolioPanel({
   onQuantity: (id: string, quantity: number) => void;
 }) {
   const [tab, setTab] = useState("positions");
+  const [allocationView, setAllocationView] = useState("assets");
   const [years, setYears] = useState(3);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
@@ -120,7 +123,7 @@ export function PortfolioPanel({
       try {
         const data = await post<Result | { status: "pending" }>(
           "/portfolio/analytics",
-          { holdings: JSON.parse(holdings), years },
+          { holdings: JSON.parse(holdings), years, include_benchmark: true },
           controller.signal,
         );
         if (controller.signal.aborted) return;
@@ -147,6 +150,41 @@ export function PortfolioPanel({
       clearTimeout(timer);
     };
   }, [holdings, years, revision]);
+  const sectorPositions = Object.values(
+    (result?.positions ?? []).reduce<
+      Record<
+        string,
+        {
+          id: string;
+          name: string;
+          color: string;
+          value: number;
+          weight: number;
+        }
+      >
+    >((groups, position) => {
+      const asset = assets.find((a) => a.id === position.id);
+      const info =
+        asset?.category === "stock"
+          ? sectorInfo(asset.sector)
+          : {
+              name:
+                categories.find((c) => c.id === asset?.category)?.name ??
+                "Autres actifs",
+              color: "#8490a2",
+            };
+      const group = (groups[info.name] ??= {
+        id: info.name,
+        name: info.name,
+        color: info.color,
+        value: 0,
+        weight: 0,
+      });
+      group.value += position.value;
+      group.weight += position.weight;
+      return groups;
+    }, {}),
+  );
   const correlation = result?.correlation;
   return (
     <section
@@ -184,8 +222,8 @@ export function PortfolioPanel({
       >
         {[
           ["positions", "Positions", "layers"],
-          ["allocation", "Répartition par actif", "allocation"],
-          ["performance", "Performance", "stock"],
+          ["allocation", "Répartition", "allocation"],
+          ["performance", "Comparaison & optimisation", "stock"],
           ["correlation", "Corrélations", "analysis"],
           ["volatility", "Frontières d’efficience", "analysis"],
         ].map(([key, title, icon]) => (
@@ -266,7 +304,6 @@ export function PortfolioPanel({
                     (p) => p.id === asset.id,
                   );
                   const deviation = deviations.find((p) => p.id === asset.id);
-                  const z = deviation?.z;
                   return (
                     <tr
                       key={asset.id}
@@ -306,28 +343,7 @@ export function PortfolioPanel({
                       <td>{position ? money(position.value) : "—"}</td>
                       <td>{position ? date(position.date) : "—"}</td>
                       <td>
-                        <span
-                          className="regression-deviation"
-                          data-z={z ?? undefined}
-                          title={
-                            deviation?.reason ??
-                            (deviation?.start && deviation.end
-                              ? `Régression du ${date(deviation.start)} au ${date(deviation.end)}`
-                              : "Chargement de la régression…")
-                          }
-                          style={
-                            z == null
-                              ? undefined
-                              : {
-                                  color: `hsl(${60 - Math.max(-1, Math.min(1, z / 1.5)) * 60} 65% 65%)`,
-                                  background: `hsl(${60 - Math.max(-1, Math.min(1, z / 1.5)) * 60} 60% 30% / 0.2)`,
-                                }
-                          }
-                        >
-                          {z == null
-                            ? "—"
-                            : `${z > 0 ? "+" : ""}${number(z, 2)} σ`}
-                        </span>
+                        <RegressionDeviation deviation={deviation} />
                       </td>
                     </tr>
                   );
@@ -342,16 +358,32 @@ export function PortfolioPanel({
           <section className="portfolio-content">
             <div className="portfolio-section-heading">
               <div>
-                <h2>Répartition par actif</h2>
-                <p>
-                  Survolez une part ou sélectionnez un actif pour explorer sa
-                  contribution.
-                </p>
+                <h2>
+                  Répartition par{" "}
+                  {allocationView === "assets" ? "actif" : "secteur"}
+                </h2>
+                <p>Explorez le poids de vos actifs ou de leurs secteurs.</p>
               </div>
             </div>
+            <label className="allocation-view-control">
+              Afficher par{" "}
+              <select
+                aria-label="Répartition par"
+                value={allocationView}
+                onChange={(e) => setAllocationView(e.target.value)}
+              >
+                <option value="assets">Actif</option>
+                <option value="sectors">Secteur</option>
+              </select>
+            </label>
             {result?.positions.length ? (
               <AllocationChart
-                positions={result.positions}
+                positions={
+                  allocationView === "assets"
+                    ? result.positions
+                    : sectorPositions
+                }
+                label={allocationView === "assets" ? "ACTIF" : "SECTEUR"}
                 total={result.total}
               />
             ) : (
@@ -405,19 +437,24 @@ export function PortfolioPanel({
           </div>
           {correlation && correlation.assets.length > 0 ? (
             <>
-              <div className="correlation-scale">
-                <span>−1 · Opposés</span>
-                <i />
-                <span>+1 · Similaires</span>
+              <div className="correlation-meta">
+                <span>
+                  {correlation.observations} rendements{" "}
+                  {correlation.frequency === "monthly"
+                    ? "entre mois communs"
+                    : "sur dates communes"}{" "}
+                  · {correlation.start ?? "—"} → {correlation.end ?? "—"}
+                </span>
+                <div className="correlation-scale">
+                  <span>−1 · Opposés</span>
+                  <i />
+                  <span>+1 · Similaires</span>
+                </div>
               </div>
               <div className="table-scroll correlation-scroll">
                 <table className="correlation-table">
-                  <caption>
-                    {correlation.observations} rendements{" "}
-                    {correlation.frequency === "monthly"
-                      ? "entre mois communs"
-                      : "sur dates communes"}{" "}
-                    · {correlation.start ?? "—"} → {correlation.end ?? "—"}
+                  <caption className="sr-only">
+                    Corrélations des actifs et du S&P 500
                   </caption>
                   <thead>
                     <tr>

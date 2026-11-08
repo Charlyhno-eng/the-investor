@@ -22,5 +22,7 @@ export const categories = [
     short: "Matières",
     icon: "commodity",
   },
+  { id: "etf", name: "ETF", short: "ETF", icon: "stock" },
+  { id: "currency", name: "Devises", short: "Devises", icon: "bond" },
   { id: "bond", name: "Obligations", short: "Obligations", icon: "bond" },
 ] as const;

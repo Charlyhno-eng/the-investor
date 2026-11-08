@@ -20,6 +20,7 @@ class Holding(BaseModel):
 class PortfolioRequest(BaseModel):
     holdings: list[Holding] = Field(max_length=200)
     years: int = Field(default=3, ge=1, le=20)
+    include_benchmark: bool = False
     currency: Literal["EUR"] = "EUR"
 
 
@@ -46,16 +47,22 @@ def portfolio(request: PortfolioRequest):
                     }
                 )
                 continue
-            currency = asset["unit"] if asset["category"] == "stock" else "USD"
+            currency = (
+                asset["unit"]
+                if asset["category"] in ("stock", "etf", "currency")
+                else "USD"
+            )
             if currency == "GBp":
                 currency = "GBP"
             if currency != "USD":
                 symbols.add(f"{currency}USD=X")
-            if asset["category"] == "stock":
+            if asset["category"] in ("stock", "etf"):
                 pending = ensure_prices(connection, asset) or pending
             assets.append((asset, holding.quantity, currency))
         if assets and request.currency != "USD":
             symbols.add(f"{request.currency}USD=X")
+        if assets and request.include_benchmark:
+            symbols.add("^SP500TR")
         pending = ensure_references(connection, sorted(symbols)) or pending
         if pending:
             return {"status": "pending"}
@@ -107,7 +114,9 @@ def portfolio(request: PortfolioRequest):
                 )
                 continue
             table = (
-                "price_observations" if asset["category"] == "stock" else "observations"
+                "price_observations"
+                if asset["category"] in ("stock", "etf")
+                else "observations"
             )
             row = connection.execute(
                 f"SELECT date,value FROM {table} WHERE asset_id=? ORDER BY date DESC LIMIT 1",
@@ -178,6 +187,22 @@ def portfolio(request: PortfolioRequest):
         total = sum(p["value"] for p in positions)
         for p in positions:
             p["weight"] = p["value"] / total if total > 0 else 0
+        if histories and request.include_benchmark:
+            benchmark = {
+                r["date"]: r["value"]
+                for r in connection.execute(
+                    "SELECT date,value FROM reference_observations WHERE symbol='^SP500TR' AND date>=? AND value>0 ORDER BY date",
+                    (cutoff,),
+                )
+                if math.isfinite(r["value"])
+            }
+            histories.insert(
+                0,
+                (
+                    {"id": "^SP500TR", "name": "S&P 500", "frequency": "daily"},
+                    benchmark,
+                ),
+            )
         monthly = any(a["frequency"] == "monthly" for a, _ in histories)
         if monthly:
             # Last actually observed price in each completed month; no forward fill.

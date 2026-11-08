@@ -25,8 +25,14 @@ type Props = {
   dividends?: DividendEvent[];
   overlays?: { title: string; color: string; points: Point[] }[];
   pointColors?: string[];
+  regimeDots?: { time: string; value: number; color: string }[];
   logarithmic?: boolean;
-  lines?: { title: string; color: string; points: Point[] }[];
+  lines?: {
+    title: string;
+    color: string;
+    lineWidth?: 1 | 2 | 3 | 4;
+    points: Point[];
+  }[];
 };
 const emptyPoints: Point[] = [];
 export function HistoryChart({
@@ -38,6 +44,7 @@ export function HistoryChart({
   dividends,
   overlays,
   pointColors,
+  regimeDots,
   logarithmic = false,
   lines,
 }: Props) {
@@ -94,7 +101,7 @@ export function HistoryChart({
       const series = lines.map((line) => {
         const item = chart.addSeries(LineSeries, {
           color: line.color,
-          lineWidth: 2,
+          lineWidth: line.lineWidth ?? 2,
           priceLineVisible: false,
           lastValueVisible: false,
         });
@@ -158,16 +165,20 @@ export function HistoryChart({
         comparison.map((p) => ({ time: p.time as Time, value: p.strategy })),
       );
     } else {
-      const series = chart.addSeries(overlays ? LineSeries : AreaSeries, {
-        color: "#8390a7",
-        lineColor: "#edb786",
-        topColor: "#edb78620",
-        bottomColor: "#edb78600",
-        lineWidth: 2,
-        priceLineColor: "#edb78644",
-        priceLineStyle: 2,
-        priceFormat: { type: "price", precision: 2, minMove: 0.01 },
-      });
+      const series = chart.addSeries(
+        overlays || regimeDots ? LineSeries : AreaSeries,
+        {
+          color: "#8390a7",
+          lineColor: "#edb786",
+          topColor: "#edb78620",
+          bottomColor: "#edb78600",
+          lineWidth: 2,
+          priceLineVisible: !regimeDots,
+          priceLineColor: "#edb78644",
+          priceLineStyle: 2,
+          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+        },
+      );
       series.setData(
         points.map((p, i) => ({
           time: p.time as Time,
@@ -271,6 +282,24 @@ export function HistoryChart({
       chart.subscribeCrosshairMove(showDividend);
       chart.subscribeClick(showDividend);
     }
+    if (regimeDots) {
+      for (const color of new Set(regimeDots.map((p) => p.color))) {
+        const dots = chart.addSeries(LineSeries, {
+          color,
+          lineVisible: false,
+          pointMarkersVisible: true,
+          pointMarkersRadius: regimeDots.length > 600 ? 1.5 : 2,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        dots.setData(
+          regimeDots
+            .filter((p) => p.color === color)
+            .map((p) => ({ time: p.time as Time, value: p.value })),
+        );
+      }
+    }
     const data = lines?.[0]?.points ?? comparison ?? points;
     if (range && data.length > 1) {
       const last = data[data.length - 1].time;
@@ -293,6 +322,7 @@ export function HistoryChart({
     dividends,
     overlays,
     pointColors,
+    regimeDots,
     logarithmic,
     lines,
   ]);

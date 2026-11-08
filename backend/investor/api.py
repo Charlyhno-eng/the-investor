@@ -4,13 +4,12 @@ from threading import Event, Thread
 
 from fastapi import FastAPI, HTTPException, Query
 
-from investor.analysis.schemas import AnalysisRequest
-from investor.analysis.service import analyze
+from investor.analysis.detection import RegimeRequest
+from investor.asset_metadata import enrich_asset, visible_asset
 from investor.db import connect
 from investor.import_runner import consume_imports
 from investor.market_api import router as market_router
 from investor.market_catalog import REMOVED_CRYPTO
-from investor.market_schemas import DividendStatusRequest
 from investor.performance import PerformanceRequest
 from investor.portfolio import PortfolioRequest, portfolio
 from investor.regression import RegressionRequest, regression_deviations
@@ -37,11 +36,6 @@ app = FastAPI(title="The Investor", version="0.1.0", lifespan=lifespan)
 app.include_router(market_router)
 
 
-@app.post("/api/assets/{asset_id}/analysis")
-def asset_analysis(asset_id: str, request: AnalysisRequest):
-    return analyze(asset_id, request)
-
-
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -51,7 +45,7 @@ def health():
 def assets():
     with connect() as db:
         return [
-            {**dict(row), "is_dividend": bool(row["is_dividend"])}
+            enrich_asset(db, row)
             for row in db.execute(
                 """
           WITH ranking AS (
@@ -76,6 +70,7 @@ def assets():
           """,
                 REMOVED_CRYPTO,
             )
+            if visible_asset(row)
         ]
 
 
@@ -104,25 +99,6 @@ def dividends(asset_id: str):
             "coverage": dict(coverage) if coverage else None,
             "events": events,
         }
-
-
-@app.patch("/api/assets/{asset_id}/dividend-status")
-def dividend_status(asset_id: str, request: DividendStatusRequest):
-    with connect() as db:
-        asset = db.execute(
-            "SELECT category FROM assets WHERE id=?", (asset_id,)
-        ).fetchone()
-        if not asset:
-            raise HTTPException(404, "Actif introuvable")
-        if asset["category"] != "stock":
-            raise HTTPException(
-                422, "Le marquage dividende concerne les actions uniquement"
-            )
-        db.execute(
-            "UPDATE assets SET is_dividend=? WHERE id=?",
-            (int(request.is_dividend), asset_id),
-        )
-    return {"id": asset_id, "is_dividend": request.is_dividend}
 
 
 @app.get("/api/assets/{asset_id}/history")
@@ -199,3 +175,17 @@ def optimize_portfolio(request: PerformanceRequest):
     from investor.performance import portfolio_performance
 
     return portfolio_performance(request, optimize=True)
+
+
+@app.get("/api/assets/{asset_id}/regime")
+def market_regime(asset_id: str):
+    from investor.analysis.detection import detect
+
+    return detect(asset_id)
+
+
+@app.post("/api/assets/{asset_id}/regime")
+def test_market_regime(asset_id: str, request: RegimeRequest):
+    from investor.analysis.detection import detect
+
+    return detect(asset_id, request)

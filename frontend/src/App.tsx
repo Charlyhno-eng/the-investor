@@ -1,3 +1,4 @@
+import { WatchlistPanel } from "./features/portfolio/WatchlistPanel";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { Icon } from "./components/Icon";
@@ -103,13 +104,6 @@ export function App() {
     });
     setRevision((v) => v + 1);
   }, []);
-  function updateDividend(assetId: string, enabled: boolean) {
-    setAssets((current) =>
-      current.map((asset) =>
-        asset.id === assetId ? { ...asset, is_dividend: enabled } : asset,
-      ),
-    );
-  }
   const close = useCallback(() => setAdding(false), []);
   useEffect(() => {
     const controller = new AbortController();
@@ -171,6 +165,7 @@ export function App() {
           {(["portfolio", "watchlist"] as const).map((view) => (
             <button
               key={view}
+              aria-label={view === "portfolio" ? "Portfolio" : "Watchlist"}
               className={category === view ? "active" : ""}
               onClick={() => choose(view)}
               aria-pressed={category === view}
@@ -178,12 +173,22 @@ export function App() {
             >
               <Icon name={view === "portfolio" ? "layers" : "star"} size={21} />
               <span>{view === "portfolio" ? "Portfolio" : "Watchlist"}</span>
+              <span className="rail-count">
+                {
+                  visibleAssets.filter(
+                    (a) =>
+                      favorites[a.id] ===
+                      (view === "portfolio" ? "gold" : "silver"),
+                  ).length
+                }
+              </span>
             </button>
           ))}
           <div className="rail-divider" role="separator" />
           {categories.map((c) => (
             <button
               key={c.id}
+              aria-label={c.name}
               className={category === c.id ? "active" : ""}
               onClick={() => choose(c.id)}
               aria-pressed={category === c.id}
@@ -191,6 +196,9 @@ export function App() {
             >
               <Icon name={c.icon} size={21} />
               <span>{c.short}</span>
+              <span className="rail-count">
+                {visibleAssets.filter((a) => a.category === c.id).length}
+              </span>
             </button>
           ))}
         </nav>
@@ -218,9 +226,10 @@ export function App() {
               favorite={favorites[selected.id]}
               onToggleFavorite={() => toggleFavorite(selected.id)}
               onRemove={() => removeAsset(selected.id)}
-              onDividendChange={(enabled) =>
-                updateDividend(selected.id, enabled)
-              }
+            />
+          ) : category === "watchlist" ? (
+            <WatchlistPanel
+              assets={visibleAssets.filter((a) => favorites[a.id] === "silver")}
             />
           ) : category === "portfolio" ? (
             <PortfolioPanel

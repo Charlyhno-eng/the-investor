@@ -86,7 +86,12 @@ export function fitRegression(
     sigma,
     degenerate,
     r2: yy > 1e-20 ? Math.max(0, Math.min(1, 1 - sse / yy)) : null,
-    annualTrend: scale === "log" ? Math.expm1(slope) : slope / points[0].value,
+    annualTrend:
+      scale === "log"
+        ? Math.expm1(slope)
+        : predicted[0] > 0
+          ? slope / predicted[0]
+          : NaN,
     reversal: firstSlope * secondSlope < 0,
   };
 }

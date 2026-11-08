@@ -99,11 +99,13 @@ test("portfolio comparison, explicit optimization, hover names and unchanged hol
     return r.fulfill({ json: model(true) });
   });
   await page.goto("/markets/portfolio");
-  await page.getByRole("tab", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
   const panel = page.getByRole("region", { name: "Performance du Portfolio" });
   await expect(
     panel.locator(".portfolio-section-heading h2").first(),
-  ).toHaveText("Performance face au S&P 500");
+  ).toHaveText("Comparaison et optimisation du portefeuille");
   await expect(panel.locator(".performance-series-summary > div")).toHaveCount(
     2,
   );
@@ -195,7 +197,9 @@ test("pending data and failed optimization allow retry while retaining compariso
       : r.fulfill({ json: model(true) }),
   );
   await page.goto("/markets/portfolio");
-  await page.getByRole("tab", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
   const panel = page.locator(".portfolio-performance");
   await expect(panel.getByRole("status")).toContainText("Chargement");
   pending = false;
@@ -228,7 +232,9 @@ test("insufficient history and changes of quantities invalidate the simulation",
     }),
   );
   await page.goto("/markets/portfolio");
-  await page.getByRole("tab", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
   await expect(
     page.locator(".portfolio-performance").getByRole("status"),
   ).toContainText("Pas assez");
@@ -237,7 +243,9 @@ test("insufficient history and changes of quantities invalidate the simulation",
   ).toHaveCount(0);
   await page.getByRole("tab", { name: "Positions", exact: true }).click();
   await page.getByLabel("Quantité Action test", { exact: true }).fill("3");
-  await page.getByRole("tab", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
   await expect(page.locator(".performance-series-summary > div")).toHaveCount(
     2,
   );
@@ -272,10 +280,12 @@ test("all optimization modes, risk metrics and extended history remain explicit"
   const tabs = await page
     .locator('.portfolio-panel > .detail-tabs [role="tab"]')
     .allTextContents();
-  expect(tabs.indexOf("Performance")).toBeLessThan(
+  expect(tabs.indexOf("Comparaison & optimisation")).toBeLessThan(
     tabs.indexOf("Corrélations"),
   );
-  await page.getByRole("tab", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
   const panel = page.locator(".portfolio-performance");
   await expect(panel.getByLabel("Historique", { exact: true })).toHaveValue(
     "extended",

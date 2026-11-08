@@ -215,7 +215,10 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False):
 
 def load_histories(connection, assets):
     """Shared observed EUR histories, with no interpolation or future FX."""
-    currencies = [a["unit"] if a["category"] == "stock" else "USD" for a in assets]
+    currencies = [
+        a["unit"] if a["category"] in ("stock", "etf", "currency") else "USD"
+        for a in assets
+    ]
     currencies = ["GBP" if c == "GBp" else c for c in currencies]
     symbols = {INDEX, "EURUSD=X"} | {f"{c}USD=X" for c in currencies if c != "USD"}
     if ensure_references(connection, sorted(symbols)):

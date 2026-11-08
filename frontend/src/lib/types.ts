@@ -1,4 +1,5 @@
-export type Category = "commodity" | "bond" | "stock" | "crypto";
+export type Category =
+  "commodity" | "bond" | "stock" | "crypto" | "etf" | "currency";
 export type Asset = {
   id: string;
   name: string;
@@ -14,6 +15,7 @@ export type Asset = {
   last_value: number;
   country_code: string | null;
   country?: string | null;
+  sector?: string | null;
   is_dividend?: boolean;
   benchmark_years: number | null;
   year_average_yield: number | null;

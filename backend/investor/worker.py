@@ -6,6 +6,7 @@ import time
 from investor import db
 from investor.ingest import fred, world_bank
 from investor.market import CRYPTO, import_symbol, process_one
+from investor.market_catalog import CURRENCIES, ETF
 
 log = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ def main():
                     ]
                 symbols = {s: "crypto" for s in CRYPTO}
                 symbols.update(dict(imported))
+                symbols.update({s: "etf" for s in ETF})
+                symbols.update({s: "currency" for s in CURRENCIES})
                 scheduled = [world_bank, fred] + [
                     lambda s=s, c=c: import_symbol(s, c) for s, c in symbols.items()
                 ]

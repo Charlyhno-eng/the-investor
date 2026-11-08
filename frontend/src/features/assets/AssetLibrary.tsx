@@ -1,3 +1,4 @@
+import { sectorInfo, currencyCountry } from "../../lib/sectors";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { stockCountry } from "../../lib/countries";
@@ -68,12 +69,13 @@ export function AssetLibrary({
   if (category === "bond")
     filtered.sort(
       (a, b) =>
-        (b.year_average_yield ?? -Infinity) -
-          (a.year_average_yield ?? -Infinity) || a.name.localeCompare(b.name),
+        (b.last_value ?? -Infinity) - (a.last_value ?? -Infinity) ||
+        a.name.localeCompare(b.name),
     );
-  filtered.sort(
-    (a, b) => favoriteRank(favorites[b.id]) - favoriteRank(favorites[a.id]),
-  );
+  if (category !== "bond")
+    filtered.sort(
+      (a, b) => favoriteRank(favorites[b.id]) - favoriteRank(favorites[a.id]),
+    );
   if (isLibrary(category))
     filtered.sort(
       (a, b) =>
@@ -127,7 +129,7 @@ export function AssetLibrary({
       </label>
       <div className="list-heading">
         <span>ACTIF</span>
-        <span>{category === "bond" ? "MOY. 12 M ↓" : "DERNIER"}</span>
+        <span>{category === "bond" ? "TAUX ACTUEL" : "DERNIER"}</span>
       </div>
       {category === "stock" && (
         <button
@@ -140,13 +142,10 @@ export function AssetLibrary({
       )}
       {category === "bond" && (
         <div className="ranking-note">
-          Rendement moyen décroissant{" "}
-          <Tooltip label="Classement sur douze mois">
-            Moyenne des taux annualisés disponibles sur les douze mois se
-            terminant à la dernière observation souveraine du catalogue. Ce taux
-            n’est ni un coupon ni la performance réalisée sur un an. Les pays
-            sans observation récente sont placés en fin de liste ; devises et
-            risques diffèrent.
+          Dernier rendement annualisé décroissant{" "}
+          <Tooltip label="Classement des taux">
+            Dernier taux disponible, identique à la fiche de chaque obligation.
+            Les dates, devises et maturités peuvent différer.
           </Tooltip>
         </div>
       )}
@@ -162,13 +161,29 @@ export function AssetLibrary({
               <Link
                 title={
                   a.category === "bond"
-                    ? `${a.name} · moyenne sur ${a.year_yield_samples} observation(s) · dernière donnée ${date(a.last_date)}`
+                    ? `${a.name} · dernier taux disponible au ${date(a.last_date)}`
                     : a.name
                 }
                 to={`/assets/${a.id}${isLibrary(category) ? `?library=${category}` : ""}`}
                 aria-current={selected === a.id ? "page" : undefined}
               >
-                <span className={`list-symbol ${a.category}`}>
+                <span
+                  className={`list-symbol ${a.category}`}
+                  style={
+                    a.category === "stock" && a.sector
+                      ? {
+                          borderColor: sectorInfo(a.sector).color,
+                          background: `${sectorInfo(a.sector).color}22`,
+                          color: sectorInfo(a.sector).color,
+                        }
+                      : undefined
+                  }
+                  title={
+                    a.category === "stock" && a.sector
+                      ? sectorInfo(a.sector).name
+                      : undefined
+                  }
+                >
                   {a.country_code ??
                     (a.id.startsWith("yf-")
                       ? a.id.slice(3).split("-")[0].slice(0, 3).toUpperCase()
@@ -180,7 +195,7 @@ export function AssetLibrary({
                     {a.category === "stock" && !!a.is_dividend && (
                       <span
                         className="dividend-list-badge"
-                        title="Action à dividende"
+                        title="Dividendes : moyenne supérieure à 4 % sur les trois dernières années civiles complètes disponibles (versements bruts rapportés aux cours précédant les détachements)"
                         aria-label="Action à dividende"
                       >
                         D
@@ -194,13 +209,12 @@ export function AssetLibrary({
                         ? "Souverain · %"
                         : a.unit}
                     {a.category === "stock" && ` · ${stockCountry(a)}`}
+                    {a.category === "currency" && ` · ${currencyCountry(a.id)}`}
                   </small>
                 </span>
                 <span className="list-value">
                   {a.category === "bond"
-                    ? a.year_average_yield == null
-                      ? "—"
-                      : `${number(a.year_average_yield)} %`
+                    ? `${number(a.last_value)} %`
                     : number(a.last_value, a.last_value < 1 ? 3 : 2)}
                 </span>
               </Link>
@@ -240,7 +254,7 @@ export function AssetLibrary({
             </strong>
             <p>
               {category === "stock" && dividendOnly
-                ? "Activez l’indicateur Dividende sur les actions de votre choix."
+                ? "Le rendement moyen des dividendes doit dépasser 4 % par an."
                 : query
                   ? "Essayez un autre nom ou symbole."
                   : isLibrary(category)

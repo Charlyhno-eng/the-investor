@@ -17,6 +17,7 @@ from openpyxl import load_workbook
 from investor.countries import COUNTRIES, series_for
 from investor.db import DATA_DIR, save
 from investor.market import seed_crypto
+from investor.market_catalog import COMMODITIES
 
 log = logging.getLogger("ingest")
 WORLD_BANK = "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx"
@@ -68,6 +69,8 @@ def parse_world_bank(payload):
                 continue
             name = str(names[col]).strip()
             asset_id = "wb-" + re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+            if asset_id not in COMMODITIES:
+                continue
             values = []
             for row in rows[first:]:
                 match = re.fullmatch(r"(\d{4})M(\d{2})", str(row[0]))
@@ -117,9 +120,60 @@ def parse_fred(payload, symbol):
     return points
 
 
+TESOURO_URL = "https://www.tesourotransparente.gov.br/ckan/dataset/df56aa42-484a-4a59-8184-7676580c81e3/resource/796d2059-14e9-44e3-80c9-2d9e30b405c1/download/precotaxatesourodireto.csv"
+
+
+def parse_brazil(payload):
+    rows = csv.DictReader(io.StringIO(payload.decode("utf-8-sig")), delimiter=";")
+    candidates = {}
+    for row in rows:
+        if row["Tipo Titulo"] != "Tesouro Prefixado":
+            continue
+        day = datetime.strptime(row["Data Base"], "%d/%m/%Y").date()
+        maturity = datetime.strptime(row["Data Vencimento"], "%d/%m/%Y").date()
+        value = number(row["Taxa Compra Manha"].replace(",", "."))
+        distance = abs((maturity - day).days / 365.25 - 10)
+        if (
+            value is not None
+            and maturity > day
+            and (day not in candidates or distance < candidates[day][0])
+        ):
+            candidates[day] = (distance, value)
+    if not candidates:
+        raise ValueError("Aucun taux nominal brésilien disponible.")
+    return [
+        ("br-tesouro-prefixado", day.isoformat(), value)
+        for day, (_, value) in sorted(candidates.items())
+    ]
+
+
+def brazil():
+    points = parse_brazil(download(TESOURO_URL, "csv"))
+    save(
+        [
+            (
+                "br-tesouro-prefixado",
+                "Brésil · Tesouro Prefixado",
+                "bond",
+                "yield",
+                "%",
+                "daily",
+                "tesouro-direto",
+                TESOURO_URL,
+            )
+        ],
+        points,
+        "tesouro-direto",
+        country_code="BR",
+    )
+
+
 def fred():
     failures = []
     for code, country in COUNTRIES.items():
+        if code == "BR":
+            brazil()
+            continue
         symbol = series_for(code)
         try:
             payload = download(

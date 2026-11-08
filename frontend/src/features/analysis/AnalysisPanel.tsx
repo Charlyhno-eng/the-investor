@@ -1,34 +1,27 @@
-import { useEffect, useRef, useState } from "react";
-import { Icon } from "../../components/Icon";
-import { Tooltip } from "../../components/Tooltip";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { post } from "../../lib/api";
-import type {
-  Analysis,
-  Asset,
-  Parameters,
-  Periods,
-  Point,
-} from "../../lib/types";
+import { date, percent } from "../../lib/format";
+import type { Asset, Periods, Point } from "../../lib/types";
+import { HistoryChart } from "../../components/HistoryChart";
+import { Tooltip } from "../../components/Tooltip";
 import { PeriodSelector } from "./PeriodSelector";
-import { AnalysisResults } from "./AnalysisResults";
-import { NumberInput } from "./NumberInput";
-import { AnalysisProgress } from "./AnalysisProgress";
-function initial(points: Point[], asset: Asset): Parameters {
-  // Recent 8 years on daily data; use the complete available monthly history.
-  const start =
-    asset.frequency === "monthly" ? 0 : Math.max(0, points.length - 252 * 8);
-  const cut = Math.min(
-    points.length - 2,
-    start + Math.floor((points.length - start) * 0.7),
-  );
-  return {
-    train_start: points[start].time,
-    train_end: points[cut].time,
-    test_start: points[cut + 1].time,
-    test_end: points.at(-1)!.time,
-    fee_bps: asset.category === "crypto" ? 1 : 50,
-  };
-}
+const colors = ["#ff5252", "#ffb52e", "#3399ff", "#18d6b0"];
+type Detection = {
+  current: string;
+  date: string;
+  observations: number;
+  train_observations: number;
+  actual_train: string[];
+  actual_test: string[];
+  points: (Point & { state: number; confidence: number })[];
+  states: {
+    name: string;
+    probability: number;
+    next_probability: number;
+    mean: number;
+    volatility: number;
+  }[];
+};
 export function AnalysisPanel({
   asset,
   points,
@@ -36,166 +29,182 @@ export function AnalysisPanel({
   asset: Asset;
   points: Point[];
 }) {
-  const [parameters, setParameters] = useState(() => initial(points, asset));
-  const [result, setResult] = useState<Analysis | null>(null);
+  const [periods, setPeriods] = useState<Periods>(() => {
+    const recent = points.slice(-2000);
+    const split = Math.max(
+      1,
+      Math.min(recent.length - 2, Math.floor(recent.length * 0.7)),
+    );
+    return {
+      train_start: recent[0].time,
+      train_end: recent[split - 1].time,
+      test_start: recent[split].time,
+      test_end: recent.at(-1)!.time,
+    };
+  });
+  const [result, setResult] = useState<Detection | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [started, setStarted] = useState(false);
-  const [revision, setRevision] = useState(0);
-  const active = useRef<Promise<void> | null>(null);
-  const output = useRef<HTMLDivElement>(null);
-  const manualScroll = useRef(false);
-  const valid =
-    parameters.train_start < parameters.train_end &&
-    parameters.train_end < parameters.test_start &&
-    parameters.test_start < parameters.test_end;
-  function update(value: Parameters | Periods) {
-    setParameters((p) => ({ ...p, ...value }));
-    setError("");
-  }
-  function scrollToChart() {
-    const target =
-      output.current?.querySelector(".performance-chart") ?? output.current;
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-  function run() {
-    manualScroll.current = true;
-    setStarted(true);
-    setRevision((v) => v + 1);
-    requestAnimationFrame(scrollToChart);
-  }
+  const controller = useRef<AbortController | null>(null);
+  const resultsSection = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!started || !valid) {
-      setLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    const timer = setTimeout(
-      () => {
-        const previous = active.current;
-        const task = (async () => {
-          // Serialize calculations: changing an input must not overlap model fits.
-          await previous;
-          if (cancelled) return;
-          try {
-            const response = await post<Analysis>(
-              `/assets/${encodeURIComponent(asset.id)}/analysis`,
-              parameters,
-            );
-            if (!cancelled) {
-              setResult(response);
-              setError("");
-              if (manualScroll.current) {
-                manualScroll.current = false;
-                requestAnimationFrame(scrollToChart);
-              }
-            }
-          } catch (e) {
-            if (!cancelled) setError((e as Error).message);
-          } finally {
-            if (!cancelled) setLoading(false);
-          }
-        })();
-        active.current = task;
-      },
-      manualScroll.current ? 0 : 450,
+    if (!result) return;
+    const frame = requestAnimationFrame(() =>
+      resultsSection.current?.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+        block: "start",
+      }),
     );
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [parameters, started, revision, valid, asset.id, points]);
+    return () => cancelAnimationFrame(frame);
+  }, [result]);
+  const orderedStates = useMemo(
+    () =>
+      result?.states
+        .map((state, index) => ({ ...state, index }))
+        .sort((a, b) => {
+          const direction = (mean: number) => (mean > 0 ? 0 : mean < 0 ? 1 : 2);
+          return (
+            direction(a.mean) - direction(b.mean) ||
+            a.volatility - b.volatility ||
+            a.index - b.index
+          );
+        }) ?? [],
+    [result],
+  );
+  useEffect(() => () => controller.current?.abort(), []);
+  const valid =
+    periods.train_start < periods.train_end &&
+    periods.train_end < periods.test_start &&
+    periods.test_start < periods.test_end;
+  const dots = useMemo(
+    () => result?.points.map((p) => ({ ...p, color: colors[p.state] })),
+    [result],
+  );
+  async function run() {
+    controller.current?.abort();
+    const request = new AbortController();
+    controller.current = request;
+    setLoading(true);
+    setError("");
+    setResult(null);
+    try {
+      const data = await post<Detection>(
+        `/assets/${encodeURIComponent(asset.id)}/regime`,
+        periods,
+        request.signal,
+      );
+      if (!request.signal.aborted) setResult(data);
+    } catch (e) {
+      if (!request.signal.aborted) setError((e as Error).message);
+    } finally {
+      if (!request.signal.aborted) setLoading(false);
+    }
+  }
   return (
-    <section className="analysis-panel" aria-label="Analyse HMM">
-      <fieldset className="analysis-controls">
-        <legend className="sr-only">Périodes et paramètres de l’analyse</legend>
-        <PeriodSelector
-          points={points}
-          periods={parameters}
-          onChange={update}
-        />
-        {!valid && (
-          <p className="error" role="alert">
-            La période 1 doit précéder la période 2, sans chevauchement.
-          </p>
-        )}
-        <div className="analysis-settings-row">
-          {asset.metric !== "yield" && (
-            <details className="parameters" open>
-              <summary>
-                <Icon name="settings" size={16} />
-                Paramètres de la stratégie
-                <Icon name="chevron" size={14} />
-              </summary>
-              <div className="parameter-grid">
-                <label>
-                  <span className="field-label">
-                    Frais à l’achat et à la vente
-                    <Tooltip label="Frais à l’achat et à la vente">
-                      <span>
-                        Pourcentage prélevé à chaque achat et vente. 0,1 %
-                        correspond à 1 € pour un ordre de 1 000 €.
-                      </span>
-                    </Tooltip>
-                  </span>
-                  <div className="number-field">
-                    <NumberInput
-                      min={0}
-                      max={5}
-                      step={0.01}
-                      value={Number((parameters.fee_bps / 100).toFixed(4))}
-                      onChange={(value) =>
-                        update({
-                          ...parameters,
-                          fee_bps: Number((value * 100).toFixed(4)),
-                        })
-                      }
-                    />
-                    <span>%</span>
-                  </div>
-                </label>
-              </div>
-            </details>
-          )}
-          <div className="run-bar analysis-run-bar">
-            <button
-              className="primary-button"
-              disabled={loading || !valid}
-              onClick={run}
-            >
-              {loading ? (
-                <span className="spinner" />
-              ) : (
-                <Icon name="play" size={15} />
-              )}{" "}
-              {loading
-                ? "Analyse en cours…"
-                : asset.metric === "yield"
-                  ? "Analyser les régimes"
-                  : "Lancer la simulation"}
-            </button>
-          </div>
-        </div>
-      </fieldset>
-      {error && (
+    <section
+      className="regime-panel"
+      aria-label="Détection des régimes de marché"
+    >
+      <PeriodSelector
+        points={points}
+        periods={periods}
+        onChange={(value) => {
+          controller.current?.abort();
+          setLoading(false);
+          setResult(null);
+          setError("");
+          setPeriods(value);
+        }}
+      />
+      <div className="regime-actions">
+        <button
+          className="primary-button"
+          onClick={run}
+          disabled={loading || !valid}
+        >
+          {loading ? "Estimation des régimes…" : "Entraîner et tester"}
+        </button>
+        <Tooltip label="Méthode du HMM">
+          Quatre états gaussiens appris uniquement sur l’entraînement, classés
+          par rendement moyen croissant. Sur le test, les paramètres restent
+          figés et chaque point indique le régime filtré après la clôture, sans
+          données futures. La prévision suivante utilise la matrice de
+          transition. Minimum : 252 prix d’entraînement et 2 prix de test.
+        </Tooltip>
+      </div>
+      {(loading || result || error) && <hr className="regime-separator" />}
+      {!valid && (
         <p className="error" role="alert">
+          L’entraînement doit précéder le test, sans chevauchement.
+        </p>
+      )}
+      {error && (
+        <p role="alert" className="error">
           {error}
         </p>
       )}
-      <div ref={output} className="analysis-output" aria-busy={loading}>
-        {loading && (
-          <>
-            <p role="status">
-              {result
-                ? "Actualisation de la simulation… La courbe précédente reste affichée."
-                : "Calcul de la simulation…"}
+      {loading && (
+        <p className="sr-only" role="status">
+          Entraînement du modèle en cours.
+        </p>
+      )}
+      {result && (
+        <div className="regime-results" ref={resultsSection}>
+          <div className="regime-chart-heading">
+            <span>
+              Test · {date(result.actual_test[0])} →{" "}
+              {date(result.actual_test[1])}
+            </span>
+            <span>
+              {result.current} ·{" "}
+              {percent(Math.max(...result.states.map((s) => s.probability)))}
+            </span>
+          </div>
+          <div className="regime-legend">
+            {orderedStates.map((state) => (
+              <span key={state.name}>
+                <i style={{ background: colors[state.index] }} />
+                {state.name}
+              </span>
+            ))}
+          </div>
+          <HistoryChart points={result.points} regimeDots={dots} />
+          <details className="model-details">
+            <summary>Probabilités et paramètres</summary>
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Régime</th>
+                    <th>Dernière clôture</th>
+                    <th>Observation suivante</th>
+                    <th>Rendement moyen</th>
+                    <th>Volatilité</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orderedStates.map((s) => (
+                    <tr key={s.name}>
+                      <th style={{ color: colors[s.index] }}>{s.name}</th>
+                      <td>{percent(s.probability)}</td>
+                      <td>{percent(s.next_probability)}</td>
+                      <td>{percent(s.mean)}</td>
+                      <td>{percent(s.volatility)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="fine-print">
+              Rendement et volatilité par observation ·{" "}
+              {result.train_observations} rendements d’entraînement ·{" "}
+              {result.observations} points de test.
             </p>
-            <AnalysisProgress />
-          </>
-        )}
-        {result && <AnalysisResults result={result} />}
-      </div>
+          </details>
+        </div>
+      )}
     </section>
   );
 }

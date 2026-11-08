@@ -1,3 +1,4 @@
+import { Tooltip } from "../../components/Tooltip";
 import { useMemo, useState } from "react";
 import { FeeControl } from "./FeeControl";
 import { HistoryChart } from "../../components/HistoryChart";
@@ -193,13 +194,20 @@ export function ReversionPanel({
               <small>Dispersion propre à cet actif</small>
             </div>
             <div>
-              <span>Qualité de l’ajustement · R²</span>
-              <strong>{fit.r2 === null ? "—" : number(fit.r2, 3)}</strong>
-              <small>
-                {fit.rows.length} observations · tendance annuelle{" "}
+              <span>Pente annualisée de la tendance</span>
+              <strong>
                 {Number.isFinite(fit.annualTrend)
-                  ? percent(fit.annualTrend, true)
+                  ? `${percent(fit.annualTrend, true)} / an`
                   : "—"}
+              </strong>
+              <small>
+                {fit.rows.length} observations · R²{" "}
+                {fit.r2 === null ? "—" : number(fit.r2, 3)}
+                <Tooltip label="Pente annualisée">
+                  En logarithmique : exp(pente) − 1. En linéaire : variation
+                  annuelle divisée par le prix initial de la droite ajustée.
+                  Mesure descriptive de la période sélectionnée, hors prévision.
+                </Tooltip>
               </small>
             </div>
           </div>

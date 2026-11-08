@@ -2,7 +2,13 @@ import { useState } from "react";
 import { money } from "../../lib/currency";
 import { number, percent } from "../../lib/format";
 
-type Slice = { id: string; name: string; value: number; weight: number };
+type Slice = {
+  id: string;
+  name: string;
+  value: number;
+  weight: number;
+  color?: string;
+};
 const palette = [
   "#edb786",
   "#7bb8ea",
@@ -18,9 +24,11 @@ const palette = [
 export function AllocationChart({
   positions,
   total,
+  label = "ACTIF",
 }: {
   positions: Slice[];
   total: number;
+  label?: string;
 }) {
   const [hovered, setHovered] = useState<string | null>(null);
   const [focused, setFocused] = useState<string | null>(null);
@@ -57,7 +65,7 @@ export function AllocationChart({
                 cy="180"
                 r="136"
                 fill="none"
-                stroke={palette[i % palette.length]}
+                stroke={p.color ?? palette[i % palette.length]}
                 strokeWidth={active === p.id ? 58 : 48}
                 pathLength={100}
                 strokeDasharray={`${p.weight * 100} ${100 - p.weight * 100}`}
@@ -97,7 +105,7 @@ export function AllocationChart({
       </div>
       <div className="allocation-legend">
         <div className="allocation-legend-heading">
-          <span>ACTIF</span>
+          <span>{label}</span>
           <span>POIDS / VALEUR</span>
         </div>
         {slices.map((p, i) => (
@@ -110,7 +118,7 @@ export function AllocationChart({
             onBlur={() => setFocused(null)}
             onClick={() => setSelection(p.id)}
           >
-            <i style={{ background: palette[i % palette.length] }} />
+            <i style={{ background: p.color ?? palette[i % palette.length] }} />
             <span>{p.name}</span>
             <span>
               <strong>{percent(p.weight)}</strong>

@@ -56,6 +56,7 @@ def connect():
         ("benchmark_years", "INTEGER"),
         ("country", "TEXT"),
         ("is_dividend", "INTEGER NOT NULL DEFAULT 0"),
+        ("sector", "TEXT"),
     ]:
         if column not in columns:
             db.execute(f"ALTER TABLE assets ADD COLUMN {column} {kind}")
