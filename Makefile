@@ -21,8 +21,4 @@ build:
 .PHONY: test-web test-all
 test-web:
 	cd frontend && npm test
-test-all: test test-web audit-hmm
-
-.PHONY: audit-hmm
-audit-hmm:
-	uv run python scripts/audit_hmm_stocks.py --output /tmp/hmm-stock-audit.json --assert-majority
+test-all: test test-web

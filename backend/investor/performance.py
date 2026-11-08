@@ -1,8 +1,8 @@
 """Observed portfolio comparison and constrained, retrospective allocation.
 
 Both allocations use constant weights on observed dates, optionally reserving
-cash before inception. Objectives: Sharpe, variance, compounded performance
-and exact compounded maximum drawdown. No forecast is generated.
+cash before inception. Objectives: Sharpe, variance, compounded performance,
+exact compounded maximum drawdown and diversification ratio. No forecast is generated.
 """
 
 import itertools
@@ -20,8 +20,24 @@ from investor.volatility import buckets, load_histories
 
 
 class PerformanceRequest(PortfolioRequest):
-    mode: Literal["balanced", "volatility", "performance", "drawdown"] = "balanced"
+    mode: Literal[
+        "balanced", "volatility", "performance", "drawdown", "diversification"
+    ] = "balanced"
     history: Literal["common", "extended"] = "common"
+
+
+def factor_regression(returns, factor_returns, periods):
+    """OLS intercept (annual decimal return) and slope (dimensionless).
+
+    Both series are synchronous EUR simple returns. The reference rate is
+    explicitly zero, as for the other risk-adjusted metrics in this panel.
+    """
+    if float(np.var(factor_returns, ddof=1)) <= 1e-16:
+        return None, None
+    design = np.column_stack((np.ones(len(factor_returns)), factor_returns))
+    intercept, slope = np.linalg.lstsq(design, returns, rcond=None)[0]
+    alpha = float(intercept * periods)
+    return 0.0 if abs(alpha) < 1e-12 else alpha, float(slope)
 
 
 def optimize_weights(returns, current, mode="balanced"):
@@ -65,6 +81,36 @@ def optimize_weights(returns, current, mode="balanced"):
 
     if mode == "volatility":
         weights = minimum_variance()
+    elif mode == "diversification":
+        # Maximize (w @ individual_volatilities) / sqrt(w @ covariance @ w).
+        # Homogeneity turns the ratio into a convex quadratic problem in y,
+        # with sigma @ y = 1 and the original cap encoded before normalization.
+        volatilities = np.sqrt(np.maximum(np.diag(scaled), 0))
+        if float(volatilities.max()) <= 1e-12:
+            weights = initial_weights.copy()
+        else:
+            seed = initial_weights
+            if volatilities @ seed <= 1e-12:
+                seed = np.full(count, 1 / count)
+            allocation = solve(
+                lambda y: float(y @ scaled @ y),
+                lambda y: 2 * scaled @ y,
+                initial=seed / (volatilities @ seed),
+                constraints=[
+                    {
+                        "type": "eq",
+                        "fun": lambda y: float(volatilities @ y - 1),
+                        "jac": lambda y: volatilities,
+                    },
+                    {
+                        "type": "ineq",
+                        "fun": lambda y: cap * y.sum() - y,
+                        "jac": lambda y: cap * np.ones((count, count)) - np.eye(count),
+                    },
+                ],
+                bounds=[(0, None)] * count,
+            )
+            weights = allocation / allocation.sum()
     elif mode == "performance":
         # Maximizing log wealth is a concave maximization on the simplex.
         scale = max(float(np.max(np.abs(means))), 1e-4)
@@ -284,6 +330,7 @@ def comparison_data(
     strategies = {"portfolio": returns[:, :-1] @ current, "benchmark": returns[:, -1]}
     if recommended is not None:
         strategies["optimized"] = returns[:, :-1] @ recommended
+    benchmark_returns = returns[:, -1]
     curves, metrics = {}, {}
     for key, changes in strategies.items():
         curve = np.r_[100.0, 100 * np.cumprod(1 + changes)]
@@ -292,10 +339,24 @@ def comparison_data(
                 422, "Les valeurs de cette série dépassent les limites du calcul."
             )
         curves[key] = curve
+        elapsed_years = (
+            date.fromisoformat(common[-1]) - date.fromisoformat(common[0])
+        ).days / 365.25
+        cagr = float((curve[-1] / 100) ** (1 / elapsed_years) - 1)
+        downside = float(np.sqrt(np.mean(np.minimum(changes, 0) ** 2)))
+        drawdown = float(np.min(curve / np.maximum.accumulate(curve) - 1))
+        alpha, beta = factor_regression(changes, benchmark_returns, periods)
         metrics[key] = {
+            "beta": beta,
+            "alpha": alpha,
             "total_return": float(curve[-1] / 100 - 1),
+            "cagr": cagr,
             "volatility": float(np.std(changes, ddof=1) * np.sqrt(periods)),
-            "max_drawdown": float(np.min(curve / np.maximum.accumulate(curve) - 1)),
+            "max_drawdown": drawdown,
+            "sortino": float(changes.mean() / downside * np.sqrt(periods))
+            if downside > 1e-12
+            else None,
+            "calmar": float(cagr / abs(drawdown)) if drawdown < -1e-12 else None,
             "sharpe": float(changes.mean() / changes.std(ddof=1) * np.sqrt(periods))
             if changes.std(ddof=1) > 1e-12
             else None,

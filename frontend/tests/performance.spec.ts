@@ -22,13 +22,23 @@ function model(
     })),
     metrics: {
       portfolio: {
+        alpha: 0.02,
+        beta: 1.2,
         total_return: 0.12,
+        cagr: 0.1,
+        sortino: 0.8,
+        calmar: 0.4,
         volatility: 0.2,
         max_drawdown: -0.25,
         sharpe: 0.6,
       },
       benchmark: {
+        alpha: 0,
+        beta: 1,
         total_return: 0.09,
+        cagr: 0.08,
+        sortino: 0.8,
+        calmar: 0.53,
         volatility: 0.16,
         max_drawdown: -0.15,
         sharpe: 0.56,
@@ -36,7 +46,12 @@ function model(
       ...(optimized
         ? {
             optimized: {
+              alpha: 0.04,
+              beta: 0.8,
               total_return: 0.14,
+              cagr: 0.12,
+              sortino: null,
+              calmar: 1.2,
               volatility: 0.1,
               max_drawdown: -0.1,
               sharpe: 1.4,
@@ -110,6 +125,9 @@ test("portfolio comparison, explicit optimization, hover names and unchanged hol
     2,
   );
   expect(optimizations).toHaveLength(0);
+  await expect(panel.locator(".performance-caption")).toContainText(
+    "Dividendes réinvestis",
+  );
   await expect(panel.locator(".performance-weights")).toHaveCount(0);
   const chart = panel.getByRole("img", { name: /base 100 en euros/ });
   await expect(chart.locator("canvas").first()).toBeVisible();
@@ -137,9 +155,7 @@ test("portfolio comparison, explicit optimization, hover names and unchanged hol
   );
   await expect(panel.locator(".performance-weights tbody tr")).toHaveCount(2);
   await expect(panel.locator(".performance-weights")).toContainText("60 %");
-  await expect(panel.locator(".performance-simulation-note")).toContainText(
-    "rétrospective",
-  );
+  await expect(panel.locator(".performance-simulation-note")).toHaveCount(0);
   expect(optimizations).toHaveLength(1);
   expect(optimizations[0]).toEqual(comparisons[0]);
   await chart.scrollIntoViewIfNeeded();
@@ -290,23 +306,45 @@ test("all optimization modes, risk metrics and extended history remain explicit"
   await expect(panel.getByLabel("Historique", { exact: true })).toHaveValue(
     "extended",
   );
-  await expect(panel.locator(".performance-history-note")).toContainText(
-    "liquidités",
+  await expect(panel.locator(".performance-history-note")).toHaveCount(0);
+  const metrics = panel.locator(".performance-metrics");
+  await expect(metrics.locator("tbody tr")).toHaveCount(6);
+  await panel.getByText("Indicateurs de performance", { exact: true }).click();
+  await expect(metrics).not.toBeVisible();
+  await panel.getByText("Indicateurs de performance", { exact: true }).click();
+  await expect(metrics).toBeVisible();
+  const rowBounds = await metrics.locator("tbody tr").first().boundingBox();
+  expect(rowBounds!.height).toBeLessThan(55);
+  const cell = (label: string, column: number) =>
+    metrics
+      .getByRole("row", { name: new RegExp(`^${label}`) })
+      .locator("td")
+      .nth(column);
+  await expect(
+    metrics.getByRole("row", { name: /^Alpha annualisé/ }),
+  ).toHaveCount(0);
+  await expect(metrics.getByRole("row", { name: /^Bêta/ })).toHaveCount(0);
+  await expect(cell("CAGR", 1)).toHaveAttribute("data-comparison", "better");
+  await expect(cell("Volatilité annualisée", 1)).toHaveAttribute(
+    "data-comparison",
+    "worse",
   );
-  await expect(panel.locator(".performance-series-summary")).toContainText(
-    "Drawdown maximal -25 %",
+  await expect(cell("Drawdown maximal", 1)).toHaveAttribute(
+    "data-comparison",
+    "worse",
   );
-  await expect(panel.locator(".performance-series-summary")).toContainText(
-    "Sharpe 0,6",
+  await expect(cell("Drawdown maximal", 1)).toContainText("25 %");
+  await expect(cell("Ratio de Sortino", 1)).toHaveAttribute(
+    "data-comparison",
+    "equal",
   );
-  await expect(panel.locator(".performance-series-summary")).toContainText(
-    "Sharpe 0,56",
-  );
+  await expect(cell("CAGR", 2)).toContainText("—");
   for (const [label, mode] of [
     ["Équilibre", "balanced"],
     ["Volatilité minimale", "volatility"],
     ["Performance maximale", "performance"],
     ["Drawdown minimal", "drawdown"],
+    ["Diversification maximale", "diversification"],
   ]) {
     await panel.getByRole("radio", { name: new RegExp(label) }).check();
     await panel
@@ -316,6 +354,27 @@ test("all optimization modes, risk metrics and extended history remain explicit"
       panel.locator(".performance-series-summary > div"),
     ).toHaveCount(3);
     await expect.poll(() => solves.at(-1)).toBe(mode);
+    await expect(cell("CAGR", 2)).toHaveAttribute("data-comparison", "better");
+    await expect(cell("Volatilité annualisée", 2)).toHaveAttribute(
+      "data-comparison",
+      "better",
+    );
+    await expect(cell("Drawdown maximal", 2)).toHaveAttribute(
+      "data-comparison",
+      "better",
+    );
+    await expect(cell("Ratio de Sharpe", 2)).toHaveAttribute(
+      "data-comparison",
+      "better",
+    );
+    await expect(cell("Ratio de Calmar", 2)).toHaveAttribute(
+      "data-comparison",
+      "better",
+    );
+    await expect(cell("Ratio de Sortino", 2)).toHaveAttribute(
+      "data-comparison",
+      "unavailable",
+    );
   }
   await panel.screenshot({
     path: testInfo.outputPath("performance-modes.png"),
@@ -333,4 +392,64 @@ test("all optimization modes, risk metrics and extended history remain explicit"
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+});
+
+test("allocation icons cover increases, reductions, exit and unchanged weights", async ({
+  page,
+}, testInfo) => {
+  await setup(page);
+  await page.route("**/api/portfolio/performance", (r) =>
+    r.fulfill({ json: model() }),
+  );
+  const optimized = model(true);
+  optimized.positions = [0.17, 0.2, 0.13, 0.1, 0, 0.15].map((weight, i) => ({
+    ...optimized.positions[0],
+    id: `signal-${i}`,
+    name: `Position ${i + 1}`,
+    weight: 0.15,
+    recommended_weight: weight,
+  }));
+  await page.route("**/api/portfolio/optimize", (r) =>
+    r.fulfill({ json: optimized }),
+  );
+  await page.goto("/markets/portfolio");
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Optimiser les poids", exact: true })
+    .click();
+  const weights = page.locator(".performance-weights");
+  const labels = [
+    "Renforcer la position",
+    "Renforcer fortement la position",
+    "Alléger la position",
+    "Alléger fortement la position",
+    "Sortir de la position",
+    "Conserver la position",
+  ];
+  for (const [i, label] of labels.entries()) {
+    const row = weights.locator("tbody tr").nth(i);
+    await expect(
+      row.getByRole("img", { name: label, exact: true }),
+    ).toBeVisible();
+    await expect(row.locator(".allocation-signal")).toHaveClass(
+      new RegExp(i < 2 ? "increase" : i < 5 ? "decrease" : "hold"),
+    );
+  }
+  const cards = page.locator(".optimization-modes label");
+  for (const card of await cards.all())
+    expect((await card.boundingBox())!.height).toBe(42);
+  expect(
+    (await page
+      .getByRole("button", { name: "Optimisation calculée", exact: true })
+      .boundingBox())!.height,
+  ).toBe(42);
+  const actions = (await page.locator(".optimization-actions").boundingBox())!;
+  expect(
+    (await weights.boundingBox())!.y - actions.y - actions.height,
+  ).toBeGreaterThanOrEqual(24);
+  await page
+    .locator(".performance-optimization")
+    .screenshot({ path: testInfo.outputPath("allocation-signals.png") });
 });

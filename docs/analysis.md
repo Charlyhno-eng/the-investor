@@ -1,59 +1,8 @@
-# Conventions du laboratoire quantitatif
-
-## Données et périodes
-
-Le HMM est réservé aux actions et cryptomonnaies. Matières premières et obligations restent consultables dans la vue marché ; leur analyse HMM est masquée dans l’interface et refusée par l’API, avant lecture des observations ou du cache.
-
-Le calcul lit uniquement SQLite. L’utilisateur choisit deux fenêtres fermées, ordonnées et sans chevauchement. Une éventuelle zone entre entraînement et test sert seulement à mettre à jour le filtre, sans réentraîner le modèle ni ouvrir de position. Aucun contexte glissant ni remplissage des observations manquantes. Minimum : 100 variations pour entraîner, 20 variations pour tester ; maximum 40 000 observations au total.
-
-Les dates réellement observées figurent dans le résultat. Une variation datée au début de la fenêtre 2 est calculée depuis la clôture précédente disponible : cette clôture est la base 100 commune du benchmark et de la stratégie. Les jours sans observation ne sont pas interpolés. Les séries très lacunaires peuvent rendre l’annualisation peu représentative.
-
-Actions : clôtures ajustées Yahoo Finance, via `yfinance`, pour tenir compte des splits et distributions selon les ajustements du fournisseur. Crypto : clôtures quotidiennes en USD, sans rendement de staking. Commodities : prix de référence/indices mensuels Banque mondiale, consultables uniquement dans la vue marché. Les valeurs négatives ou nulles rendent le calcul logarithmique indisponible sur la période choisie.
-
-Obligations : les séries actuelles sont des **taux de référence**, parfois négatifs. L’analyse HMM est désactivée sur cette catégorie comme sur les matières premières. Le classement utilise la moyenne des taux annualisés disponibles sur les douze mois terminant à la dernière observation souveraine du catalogue. Ce n’est pas la performance totale réalisée sur un an. Le dernier taux apparaît au-dessus du graphique ; le coupon contractuel d’une émission précise n’est pas disponible dans ces séries. [Distinction entre prix, taux et rendement](https://www.treasurydirect.gov/marketable-securities/understanding-pricing/).
-
-## Modèle et exécution
-
-Le [moteur actif](hmm-live.md) utilise exactement deux états sur les rendements logarithmiques seuls. L’état dont la moyenne entraînée est supérieure est appelé « haussier », l’autre « autre ». Leurs moyennes peuvent être toutes deux positives ou négatives. Trois initialisations sont comparées par vraisemblance d’entraînement ; aucun choix de modèle ne dépend des résultats du test. L’ancienne validation de un à trois états et le seuil de prévision sur cinq observations sont conservés comme archives de recherche.
-
-Paramètres figés sur le test, filtrage causal en espace logarithmique, sans lissage. Les ordres sont exécutés à la clôture suivant le signal ; le signal précédant le test peut être exécuté à sa première clôture. Investi lorsque l’état haussier est dominant, en liquidités sinon. Les moyennes apprises décrivent des distributions, sans imposer un rendement positif ou négatif à chaque état.
-
-Long/liquidités, capital initial 100, sans levier. Les frais sont déduits des ordres, sans bloquer les changements de régime. Même taux à chaque achat et vente, liquidation finale comprise ; benchmark avec une entrée et une sortie. Défauts : crypto 1 pb, action 50 pb, valeur explicite zéro respectée. Liquidités non rémunérées, hors fiscalité, glissement, impact et arrondis. Les autres paramètres sont refusés par l’API. Aucun stop, quota de transactions ou durée minimale de détention.
-
-## Indicateurs
-
-Les indicateurs portent sur les rendements simples **nets** et sur la même fenêtre 2 pour la stratégie et le benchmark. `A` = 252 observations annuelles pour les actions, 365 pour les cryptos, 12 pour les séries mensuelles ; `rf = (1 + taux annuel)^(1/A) − 1` ; `e = rendement − rf`.
-
-| Indicateur | Convention |
-| --- | --- |
-| Rendement total | Capital final / initial − 1 |
-| Rendement annualisé | `(capital final / initial)^(A / N) − 1` |
-| Sharpe | `moyenne(e) / écart-type(rendements, ddof=1) × √A` |
-| Sortino | `moyenne(e) / √moyenne(min(e, 0)²) × √A` |
-| Calmar | Rendement annualisé / drawdown maximal de toute la fenêtre de test |
-| Volatilité annualisée | `écart-type(rendements, ddof=1) × √A` |
-| Drawdown maximal | Plus forte baisse relative à un sommet précédent, capital initial compris ; affiché en perte positive |
-| VaR 95 % historique | `max(0, −quantile_5%(rendements))` ; horizon **une observation**, jour ou mois selon la série |
-| Bêta | `covariance(e_stratégie, e_marché) / variance(e_marché)` |
-| Alpha annualisé | `A × moyenne(e_stratégie − bêta × e_marché)` ; annualisation arithmétique de l’intercept |
-
-Le benchmark pour alpha/bêta est **le même actif en achat-conservation**, pas le S&P 500. Les valeurs à dénominateur nul et les valeurs non finies sont `null`, affichées « — ». Les seuils indiqués dans les infobulles sont des repères usuels, sans garantie ni test de significativité ; les métriques dépendantes de l’actif n’ont pas de seuil universel.
-
-Les conventions s’appuient sur les définitions publiques du [projet Quantopian empyrical](https://github.com/quantopian/empyrical/blob/master/empyrical/stats.py). L’alpha et la VaR suivent les conventions explicites ci-dessus, et peuvent différer de bibliothèques utilisant une autre annualisation ou un autre signe.
-
-## Performance et reproductibilité
-
-Le modèle utilise NumPy/SciPy et hmmlearn pour l’ajustement, une récursion forward logarithmique indépendante des noyaux privés pour le filtrage. Trois initialisations, au plus 500 itérations par ajustement, BLAS limité à un thread. Une analyse simultanée par processus ; un second calcul reçoit HTTP 429. Cache mémoire borné à huit entraînements, indexé par les seules données d’entraînement. Frais et données de test ne réajustent pas le modèle.
-
-Le cache SQLite des résultats inclut la version du moteur, les données, les métadonnées de l’actif et les paramètres. La correction change la version et invalide les anciennes simulations sans supprimer les cours. Les empreintes du moteur et des données sont conservées avec [l’audit actif](hmm-live.md).
-
-L’interface distingue régime dominant et position après clôture, applicable au rendement suivant. Les diagnostics exposent l’excès net face à la conservation, les expositions presque permanentes et le nombre de signaux d’entrée et de sortie. Ils n’imposent aucun ordre. Pendant un calcul, la courbe précédente reste affichée ; les changements valides sont exécutés successivement.
-
-Les simulations ne garantissent pas la surperformance. Ajuster le modèle après consultation du test crée un biais de sélection ; toute nouvelle validation économique demande une fenêtre intacte ou une évaluation chronologique supplémentaire.
+# Analyse des actifs
 
 ## Régression et retour à la tendance
 
-L’onglet **Régression**, avant HMM pour les actions et cryptomonnaies, ajuste les prix locaux sur une période choisie (cinq dernières années par défaut, minimum 30 observations). Le calcul s’effectue dans le navigateur. Les moindres carrés ajustent une constante et une pente au temps calendaire, avec le même poids pour chaque observation. Le logarithme du prix est utilisé par défaut pour représenter une croissance composée ; le mode prix linéaire reste disponible.
+L’onglet **Régression**, pour les actions, cryptomonnaies, ETF et devises, ajuste les prix locaux sur une période choisie (cinq dernières années par défaut, minimum 30 observations). Le calcul s’effectue dans le navigateur. Les moindres carrés ajustent une constante et une pente au temps calendaire, avec le même poids pour chaque observation. Le logarithme du prix est utilisé par défaut pour représenter une croissance composée ; le mode prix linéaire reste disponible.
 
 Les prix sous la tendance sont des zones d’entrée potentielles, ceux au-dessus des zones de vente potentielles. Un seuil réglable de 0 à 2 écarts-types des résidus (2 par défaut) laisse éventuellement une zone neutre. La dispersion est calculée avec `sqrt(SSE / (n − 2))` dans l’échelle choisie ; le score normalisé et les seuils s’adaptent donc à chaque actif. Les bandes sont descriptives, sans probabilité de couverture annoncée. Une dispersion quasi nulle désactive la classification. Prix non positifs ou non finis et périodes trop courtes sont refusés.
 

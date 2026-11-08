@@ -19,7 +19,7 @@ test("quantities persist and drive allocation and correlations", async ({
   await expect(
     page.getByLabel("Quantité Action test", { exact: true }),
   ).toHaveValue("2.5");
-  await page.getByRole("tab", { name: "Répartition par actif" }).click();
+  await page.getByRole("tab", { name: "Répartition", exact: true }).click();
   await expect(page.locator(".portfolio-total")).toContainText(/280,00\s*€/);
   const slice = page.locator(".allocation-slice").first();
   await expect(slice).toHaveAttribute("aria-label", /Action test/);
@@ -31,7 +31,7 @@ test("quantities persist and drive allocation and correlations", async ({
   });
   await page.getByRole("tab", { name: "Corrélations", exact: true }).click();
   await expect(page.locator(".correlation-table")).toContainText("-0,5");
-  await expect(page.locator(".correlation-table")).toContainText(
+  await expect(page.locator(".correlation-meta")).toContainText(
     "300 rendements",
   );
   await expect

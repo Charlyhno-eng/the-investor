@@ -1,3 +1,8 @@
+import {
+  useStrategies,
+  StrategyLibrary,
+  StrategyWorkspace,
+} from "./features/portfolio/Strategies";
 import { WatchlistPanel } from "./features/portfolio/WatchlistPanel";
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
@@ -20,6 +25,7 @@ import {
   type Quantities,
 } from "./features/portfolio/PortfolioPanel";
 export function App() {
+  const strategies = useStrategies();
   const { id, categoryId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -27,7 +33,7 @@ export function App() {
   const [assets, setAssets] = useState<Asset[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
-  const [category, setCategory] = useState<Category | Library>(
+  const [category, setCategory] = useState<Category | Library | "strategy">(
       isLibrary(library) ? library : id ? "stock" : "portfolio",
     ),
     [adding, setAdding] = useState(false),
@@ -135,11 +141,15 @@ export function App() {
       );
   }, [selected?.id, library]);
   useEffect(() => {
-    if (isLibrary(categoryId) || categories.some((c) => c.id === categoryId))
-      setCategory(categoryId as Category | Library);
+    if (
+      categoryId === "strategy" ||
+      isLibrary(categoryId) ||
+      categories.some((c) => c.id === categoryId)
+    )
+      setCategory(categoryId as Category | Library | "strategy");
     else if (!id) setCategory("portfolio");
   }, [categoryId, id]);
-  function choose(value: Category | Library) {
+  function choose(value: Category | Library | "strategy") {
     setCategory(value);
     navigate(`/markets/${value}`);
   }
@@ -185,6 +195,18 @@ export function App() {
             </button>
           ))}
           <div className="rail-divider" role="separator" />
+          <button
+            aria-label="Stratégie"
+            title="Stratégie"
+            className={category === "strategy" ? "active" : ""}
+            aria-pressed={category === "strategy"}
+            onClick={() => choose("strategy")}
+          >
+            <Icon name="analysis" size={21} />
+            <span>Stratégie</span>
+            <span className="rail-count">{strategies.strategies.length}</span>
+          </button>
+          <div className="rail-divider" role="separator" />
           {categories.map((c) => (
             <button
               key={c.id}
@@ -202,24 +224,40 @@ export function App() {
             </button>
           ))}
         </nav>
-        <AssetLibrary
-          favorites={favorites}
-          onToggleFavorite={toggleFavorite}
-          assets={visibleAssets}
-          category={category}
-          selected={id}
-          loading={loading}
-          error={error}
-          onAdd={() => setAdding(true)}
-          onRetry={refresh}
-        />
+        {category === "strategy" ? (
+          <StrategyLibrary store={strategies} />
+        ) : (
+          <AssetLibrary
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
+            assets={visibleAssets}
+            category={category}
+            selected={id}
+            loading={loading}
+            error={error}
+            onAdd={() => setAdding(true)}
+            onRetry={refresh}
+          />
+        )}
         <main className="main-workspace">
           {favoriteError && (
             <p role="alert" className="error">
               {favoriteError}
             </p>
           )}
-          {selected ? (
+          {category === "strategy" && !selected ? (
+            <StrategyWorkspace
+              store={strategies}
+              eligibleAssetIds={visibleAssets
+                .filter(
+                  (a) =>
+                    favorites[a.id] === "silver" || favorites[a.id] === "gold",
+                )
+                .map((a) => a.id)}
+              assets={visibleAssets}
+              onImport={() => setAdding(true)}
+            />
+          ) : selected ? (
             <AssetDetail
               key={selected.id}
               asset={selected}

@@ -8,11 +8,9 @@ import { categories, date, number, percent } from "../../lib/format";
 import type { Asset, Point } from "../../lib/types";
 import { Tooltip } from "../../components/Tooltip";
 import { useDividends } from "./useDividends";
-import { AnalysisPanel } from "../analysis/AnalysisPanel";
 import { stockCountry } from "../../lib/countries";
 import { MarketComparison } from "./MarketComparison";
 import { ReversionPanel } from "../reversion/ReversionPanel";
-import { MadPanel } from "../mad/MadPanel";
 import { favoriteLabel, type Favorite } from "../../lib/favorites";
 export function AssetDetail({
   asset,
@@ -29,9 +27,7 @@ export function AssetDetail({
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
-    [tab, setTab] = useState<
-      "chart" | "analysis" | "reversion" | "volatility" | "mad"
-    >("chart");
+    [tab, setTab] = useState<"chart" | "reversion" | "volatility">("chart");
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -51,7 +47,7 @@ export function AssetDetail({
   const dividends = useDividends(asset);
   const [compareMarket, setCompareMarket] = useState(false);
   const [reinvest, setReinvest] = useState(false);
-  const supportsAnalysis = ["stock", "crypto", "etf", "currency"].includes(
+  const supportsRegression = ["stock", "crypto", "etf", "currency"].includes(
     asset.category,
   );
   const category = categories.find((c) => c.id === asset.category)!;
@@ -150,7 +146,7 @@ export function AssetDetail({
           <Icon name="stock" size={16} />
           Vue du marché
         </button>
-        {supportsAnalysis && (
+        {supportsRegression && (
           <button
             role="tab"
             aria-selected={tab === "reversion"}
@@ -158,26 +154,6 @@ export function AssetDetail({
           >
             <Icon name="stock" size={16} />
             Régression
-          </button>
-        )}
-        {supportsAnalysis && (
-          <button
-            role="tab"
-            aria-selected={tab === "analysis"}
-            onClick={() => setTab("analysis")}
-          >
-            <Icon name="analysis" size={16} />
-            HMM
-          </button>
-        )}
-        {["stock", "crypto"].includes(asset.category) && (
-          <button
-            role="tab"
-            aria-selected={tab === "mad"}
-            onClick={() => setTab("mad")}
-          >
-            <Icon name="analysis" size={16} />
-            MAD 21/200
           </button>
         )}
         <button
@@ -190,22 +166,7 @@ export function AssetDetail({
         </button>
       </div>
       {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
-      {["stock", "crypto"].includes(asset.category) &&
-        tab === "mad" &&
-        (loading ? (
-          <div className="chart-placeholder" role="status">
-            Chargement de l’historique
-          </div>
-        ) : error ? (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        ) : points.length ? (
-          <MadPanel key={asset.id} asset={asset} points={points} />
-        ) : (
-          <div className="chart-placeholder">Aucune observation.</div>
-        ))}
-      {supportsAnalysis &&
+      {supportsRegression &&
         tab === "reversion" &&
         (loading ? (
           <div className="chart-placeholder" role="status">
@@ -338,9 +299,6 @@ export function AssetDetail({
             <div className="chart-placeholder">Aucune observation.</div>
           )}
         </section>
-      )}
-      {supportsAnalysis && tab === "analysis" && points.length > 2 && (
-        <AnalysisPanel asset={asset} points={points} />
       )}
     </div>
   );

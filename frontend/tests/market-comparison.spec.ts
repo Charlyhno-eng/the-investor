@@ -66,7 +66,7 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
   });
 }
 
-test("regression precedes HMM and bond yields cannot masquerade as returns", async ({
+test("market tabs keep regression and bond yields cannot masquerade as returns", async ({
   page,
 }) => {
   await mockApi(page);
@@ -74,7 +74,6 @@ test("regression precedes HMM and bond yields cannot masquerade as returns", asy
   await expect(page.getByRole("tab")).toHaveText([
     "Vue du marché",
     "Régression",
-    "HMM",
     "Frontières d’efficience",
   ]);
   await page.goto("/assets/bond-fr");

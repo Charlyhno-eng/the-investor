@@ -206,7 +206,7 @@ def test_existing_database_migration(local):
     assert row["country_code"] is None
 
 
-def test_bond_year_ranking_and_analysis_disabled(local):
+def test_bond_year_ranking(local):
     for code, values in [("FR", [50, 2, 4]), ("US", [0, 4, 6]), ("JP", [1])]:
         dates = (
             ["2024-10-01", "2024-11-01", "2025-10-01"]
@@ -238,14 +238,4 @@ def test_bond_year_ranking_and_analysis_disabled(local):
     assert rows[0]["year_yield_samples"] == 2
     assert rows[2]["year_average_yield"] is None
     assert rows[0]["bond_ranking_date"] == "2025-10-01"
-    response = local.post(
-        "/api/assets/FR/analysis",
-        json={
-            "train_start": "2000-01-01",
-            "train_end": "2010-01-01",
-            "test_start": "2011-01-01",
-            "test_end": "2020-01-01",
-        },
-    )
-    assert response.status_code == 422 and "obligations" in response.json()["detail"]
     assert local.get("/api/assets/FR/dividends").status_code == 422

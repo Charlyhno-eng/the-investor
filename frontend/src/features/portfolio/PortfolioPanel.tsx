@@ -8,7 +8,7 @@ import { post } from "../../lib/api";
 import { money } from "../../lib/currency";
 import { categories, date, number } from "../../lib/format";
 import type { Asset } from "../../lib/types";
-import { NumberInput } from "../analysis/NumberInput";
+import { NumberInput } from "../../components/NumberInput";
 import { Tooltip } from "../../components/Tooltip";
 import { Icon } from "../../components/Icon";
 import { stockCountry } from "../../lib/countries";
@@ -64,7 +64,11 @@ export function PortfolioPanel({
   assets,
   quantities,
   onQuantity,
+  title = "Portfolio",
+  simulation = false,
 }: {
+  title?: string;
+  simulation?: boolean;
   assets: Asset[];
   quantities: Quantities;
   onQuantity: (id: string, quantity: number) => void;
@@ -189,7 +193,9 @@ export function PortfolioPanel({
   return (
     <section
       className="portfolio-panel"
-      aria-label="Vue d’ensemble du Portfolio"
+      aria-label={
+        simulation ? `Vue d’ensemble ${title}` : "Vue d’ensemble du Portfolio"
+      }
     >
       <header className="portfolio-heading">
         <div className="asset-title">
@@ -197,13 +203,15 @@ export function PortfolioPanel({
             <Icon name="layers" size={24} />
           </span>
           <div>
-            <span className="eyebrow">VOTRE PATRIMOINE</span>
-            <h1>Portfolio</h1>
+            <span className="eyebrow">
+              {simulation ? "SIMULATION" : "VOTRE PATRIMOINE"}
+            </span>
+            <h1>{title}</h1>
           </div>
         </div>
         <div className="portfolio-summary">
           <div className="portfolio-total">
-            <span>Valeur du Portfolio</span>
+            <span>{simulation ? "Valeur simulée" : "Valeur du Portfolio"}</span>
             <strong>{result ? money(result.total) : "—"}</strong>
           </div>
           <div>
@@ -253,7 +261,11 @@ export function PortfolioPanel({
         </p>
       )}
       {!assets.length && (
-        <p>Ajoutez une étoile or à vos actifs détenus pour commencer.</p>
+        <p>
+          {simulation
+            ? "Ajoutez des actifs à cette stratégie pour commencer."
+            : "Ajoutez une étoile or à vos actifs détenus pour commencer."}
+        </p>
       )}
       {tab === "volatility" && (
         <VolatilityPanel holdings={JSON.parse(holdings)} assets={assets} />
@@ -315,7 +327,13 @@ export function PortfolioPanel({
                       }
                     >
                       <th>
-                        <Link to={`/assets/${asset.id}?library=portfolio`}>
+                        <Link
+                          to={
+                            simulation
+                              ? `/assets/${asset.id}`
+                              : `/assets/${asset.id}?library=portfolio`
+                          }
+                        >
                           {asset.name}
                         </Link>
                         <small>

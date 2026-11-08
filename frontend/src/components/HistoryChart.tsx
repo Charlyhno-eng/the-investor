@@ -10,14 +10,12 @@ import {
   type Time,
 } from "lightweight-charts";
 import { date, number } from "../lib/format";
-import type { Analysis, DividendEvent, Point } from "../lib/types";
+import type { ComparisonEquity, DividendEvent, Point } from "../lib/types";
 
 type Props = {
-  accessibleLabel?: string;
-  linesCaption?: string;
   points?: Point[];
   range?: number;
-  comparison?: Analysis["equity"];
+  comparison?: ComparisonEquity;
   comparisonLabels?: {
     strategy: string;
     benchmark: string;
@@ -27,7 +25,6 @@ type Props = {
   dividends?: DividendEvent[];
   overlays?: { title: string; color: string; points: Point[] }[];
   pointColors?: string[];
-  regimeDots?: { time: string; value: number; color: string }[];
   logarithmic?: boolean;
   lines?: {
     title: string;
@@ -38,8 +35,6 @@ type Props = {
 };
 const emptyPoints: Point[] = [];
 export function HistoryChart({
-  accessibleLabel,
-  linesCaption = "Base 100",
   points = emptyPoints,
   range = 0,
   comparison,
@@ -48,7 +43,6 @@ export function HistoryChart({
   dividends,
   overlays,
   pointColors,
-  regimeDots,
   logarithmic = false,
   lines,
 }: Props) {
@@ -169,20 +163,17 @@ export function HistoryChart({
         comparison.map((p) => ({ time: p.time as Time, value: p.strategy })),
       );
     } else {
-      const series = chart.addSeries(
-        overlays || regimeDots ? LineSeries : AreaSeries,
-        {
-          color: "#8390a7",
-          lineColor: "#edb786",
-          topColor: "#edb78620",
-          bottomColor: "#edb78600",
-          lineWidth: 2,
-          priceLineVisible: !regimeDots,
-          priceLineColor: "#edb78644",
-          priceLineStyle: 2,
-          priceFormat: { type: "price", precision: 2, minMove: 0.01 },
-        },
-      );
+      const series = chart.addSeries(overlays ? LineSeries : AreaSeries, {
+        color: "#8390a7",
+        lineColor: "#edb786",
+        topColor: "#edb78620",
+        bottomColor: "#edb78600",
+        lineWidth: 2,
+        priceLineVisible: true,
+        priceLineColor: "#edb78644",
+        priceLineStyle: 2,
+        priceFormat: { type: "price", precision: 2, minMove: 0.01 },
+      });
       series.setData(
         points.map((p, i) => ({
           time: p.time as Time,
@@ -286,24 +277,6 @@ export function HistoryChart({
       chart.subscribeCrosshairMove(showDividend);
       chart.subscribeClick(showDividend);
     }
-    if (regimeDots) {
-      for (const color of new Set(regimeDots.map((p) => p.color))) {
-        const dots = chart.addSeries(LineSeries, {
-          color,
-          lineVisible: false,
-          pointMarkersVisible: true,
-          pointMarkersRadius: regimeDots.length > 600 ? 1.5 : 2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-          crosshairMarkerVisible: false,
-        });
-        dots.setData(
-          regimeDots
-            .filter((p) => p.color === color)
-            .map((p) => ({ time: p.time as Time, value: p.value })),
-        );
-      }
-    }
     const data = lines?.[0]?.points ?? comparison ?? points;
     if (range && data.length > 1) {
       const last = data[data.length - 1].time;
@@ -326,7 +299,6 @@ export function HistoryChart({
     dividends,
     overlays,
     pointColors,
-    regimeDots,
     logarithmic,
     lines,
   ]);
@@ -337,15 +309,14 @@ export function HistoryChart({
         className="chart-canvas"
         role="img"
         aria-label={
-          accessibleLabel ??
-          (lines
+          lines
             ? "Performance du portefeuille et du S&P 500, base 100 en euros"
             : overlays
               ? "Prix, tendance ajustée et zones de retour à la tendance"
               : comparison
                 ? (comparisonLabels?.accessible ??
                   "Capital de la stratégie et du marché, base 100")
-                : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher.")
+                : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher."
         }
       />
       {lineHover && (
@@ -354,9 +325,7 @@ export function HistoryChart({
           role="tooltip"
           style={{ left: lineHover.x, top: lineHover.y }}
         >
-          <span>
-            {date(lineHover.time)} · {linesCaption}
-          </span>
+          <span>{date(lineHover.time)} · Base 100</span>
           {lineHover.values.map((v) => (
             <span key={v.title} style={{ color: v.color }}>
               {v.title} <strong>{number(v.value, 2)}</strong>

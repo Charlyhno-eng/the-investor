@@ -214,7 +214,11 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False):
 
 
 def load_histories(connection, assets):
-    """Shared observed EUR histories, with no interpolation or future FX."""
+    """Shared EUR total-return histories, with no interpolation or future FX.
+
+    Stocks use observations (Yahoo Adj Close, distributions reinvested), never
+    price_observations (raw share valuation). Do not add dividends again.
+    """
     currencies = [
         a["unit"] if a["category"] in ("stock", "etf", "currency") else "USD"
         for a in assets

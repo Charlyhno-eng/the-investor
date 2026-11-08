@@ -42,6 +42,11 @@ const paths: Record<string, React.ReactNode> = {
   arrow: <path d="M5 12h14m-6-6 6 6-6 6" />,
   close: <path d="m6 6 12 12M6 18 18 6" />,
   chevron: <path d="m6 9 6 6 6-6" />,
+  "chevron-up": <path d="m6 15 6-6 6 6" />,
+  "chevrons-up": <path d="m6 12 6-6 6 6m-12 6 6-6 6 6" />,
+  "chevron-down": <path d="m6 9 6 6 6-6" />,
+  "chevrons-down": <path d="m6 6 6 6 6-6m-12 6 6 6 6-6" />,
+  equal: <path d="M5 9h14M5 15h14" />,
   settings: (
     <>
       <path d="M4 7h16M4 17h16" />

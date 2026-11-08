@@ -180,6 +180,8 @@ test("removing an asset from its heading persists after reload", async ({
   await expect(page.locator(".asset-list a")).toHaveCount(0);
   await page.reload();
   await expect(page.locator(".asset-list a")).toHaveCount(0);
-  await page.getByRole("button", { name: "Crypto", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Cryptomonnaies", exact: true })
+    .click();
   await expect(page.locator(".asset-list a")).toHaveCount(1);
 });

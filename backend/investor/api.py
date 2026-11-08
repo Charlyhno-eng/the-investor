@@ -4,7 +4,6 @@ from threading import Event, Thread
 
 from fastapi import FastAPI, HTTPException, Query
 
-from investor.analysis.detection import RegimeRequest
 from investor.asset_metadata import enrich_asset, visible_asset
 from investor.db import connect
 from investor.import_runner import consume_imports
@@ -175,17 +174,3 @@ def optimize_portfolio(request: PerformanceRequest):
     from investor.performance import portfolio_performance
 
     return portfolio_performance(request, optimize=True)
-
-
-@app.get("/api/assets/{asset_id}/regime")
-def market_regime(asset_id: str):
-    from investor.analysis.detection import detect
-
-    return detect(asset_id)
-
-
-@app.post("/api/assets/{asset_id}/regime")
-def test_market_regime(asset_id: str, request: RegimeRequest):
-    from investor.analysis.detection import detect
-
-    return detect(asset_id, request)

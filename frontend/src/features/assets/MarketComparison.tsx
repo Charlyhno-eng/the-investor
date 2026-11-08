@@ -2,11 +2,11 @@ import { useEffect, useState } from "react";
 import { HistoryChart } from "../../components/HistoryChart";
 import { api } from "../../lib/api";
 import { date, percent } from "../../lib/format";
-import type { Analysis, Asset } from "../../lib/types";
+import type { ComparisonEquity, Asset } from "../../lib/types";
 
 type Comparison = {
   status: "ready";
-  equity: Analysis["equity"];
+  equity: ComparisonEquity;
   asset_return: number;
   index_return: number;
   start: string;

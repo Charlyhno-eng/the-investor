@@ -11,10 +11,20 @@ ni quantité enregistrée n’est modifiée.
 
 Les pondérations actuelles proviennent des valeurs réelles de l’onglet Positions.
 Les séries utilisent les observations historiques, les prix ajustés pour les
-actions, le S&P 500 total return (`^SP500TR`) et le change connu à chaque date
+actions (colonne Yahoo `Adj Close`, dividendes réinvestis et divisions
+d’actions ajustées), le S&P 500 total return (`^SP500TR`) et le change connu à chaque date
 (maximum sept jours d’ancienneté), via les mêmes fonctions que les frontières
 d’efficience. Une position non valorisable bloque la comparaison complète avec
 une raison explicite. Aucun sous-ensemble n’est silencieusement renormalisé.
+
+Le réinvestissement s’applique à toutes les courbes de comparaison, dans le
+Portfolio et les simulations de l’espace Stratégie, ainsi qu’aux cinq objectifs
+d’optimisation. Les distributions figurant dans la table `dividends` ne sont
+pas ajoutées aux rendements ajustés : elles y sont déjà prises en compte.
+Les quantités et poids actuels restent valorisés aux cours non ajustés, et
+ne sont pas augmentés par la simulation. La légende sous la courbe affiche
+explicitement « Dividendes réinvestis ». Il s’agit d’un rendement avant frais
+et fiscalité, sans retenue à la source propre à l’investisseur.
 
 Deux conventions sont disponibles :
 
@@ -22,7 +32,7 @@ Deux conventions sont disponibles :
   période peut remonter avant le premier prix d’un actif récent. La fraction
   affectée à cet actif reste en liquidités non rémunérées jusqu’à sa première
   observation. Le premier rendement d’actif commence entre ses deux premiers
-  prix observés. Une note visible liste les actifs concernés et leurs dates.
+  prix observés.
   Aucun prix ni rendement d’actif n’est inventé. Les données manquantes après
   l’apparition d’un actif sont exclues des dates, jamais remplacées par des
   rendements nuls. Les deux allocations suivent la même convention.
@@ -52,11 +62,19 @@ initial inclus. Sharpe = moyenne des variations simples / écart-type empirique
 à **0 %** ; ce n’est pas une série de taux sans risque observés. Avec une
 volatilité quasi nulle, le ratio est indisponible (`null`, affiché « — »).
 
-## Quatre objectifs
+Le tableau pliable affiche CAGR, volatilité annualisée, drawdown maximal,
+Sharpe, Sortino et Calmar. L’alpha et le bêta restent calculés dans la réponse
+technique mais ne sont plus affichés dans l’interface.
+
+## Portefeuilles simulés
+
+L’espace Stratégie permet de créer plusieurs simulations vides, de leur ajouter des actifs de la watchlist et du portfolio (actions, puis cryptomonnaies, puis autres actifs, avec accès à l’import), de définir leurs quantités et de retirer des actifs ou de supprimer une simulation. Les mêmes vues et calculs que Portfolio sont utilisés. Les simulations sont enregistrées dans le navigateur sous `investor-strategies`, indépendamment des favoris et des quantités du Portfolio.
+
+## Cinq objectifs
 
 Les modes conservent le même univers d’actifs et un budget de 100 %, sans levier
 ni vente à découvert. Dès trois actifs détenus, chaque poids est plafonné à
-35 % ; cela impose au moins trois poids non nuls dans chacun des quatre modes.
+35 % ; cela impose au moins trois poids non nuls dans chacun des cinq modes.
 Avec un ou deux actifs, le plafond est de 100 % pour conserver un problème
 réalisable. La contrainte s’applique pendant les résolutions, y compris sous la
 forme `y_i ≤ 0,35 × somme(y)` pour le Sharpe, et non après coup par simple
@@ -81,13 +99,14 @@ reste un comparatif. Aucun compromis ne maximise simultanément tous les critèr
    coïncident à `1e-8` près. Ce n’est pas une optimisation de variance présentée
    comme une optimisation du drawdown, ni un proxy de rendements non composés.
 
+5. **Diversification maximale** : maximiser `(w @ volatilités individuelles) / sqrt(wᵀΣw)`. La transformation homogène `y = w / (w @ volatilités)` permet une minimisation quadratique convexe sous contrainte `volatilités @ y = 1`, avec le plafond de poids appliqué avant normalisation. Ce mode utilise les volatilités et corrélations historiques et ne dépend pas des moyennes de rendement. Si toutes les volatilités sont nulles, le ratio est indéfini et l’allocation initiale admissible est conservée.
+
 SLSQP utilise des gradients analytiques, une tolérance `1e-12`, au plus 1 500
 itérations par résolution. Le mode drawdown ajoute au plus 150 contraintes
 successives. Convergence, valeurs finies et somme des poids sont vérifiées ;
 un échec affiche une erreur réessayable. Les résultats utilisent **le même
 historique pour optimiser et évaluer** : simulation rétrospective, sans validation
-hors échantillon ni prévision. Ce point reste visible après le calcul et dans
-l’infobulle de méthode. Changer le mode, la période ou les quantités invalide
+hors échantillon ni prévision. Ce point est expliqué dans l’infobulle de méthode. Changer le mode, la période ou les quantités invalide
 le résultat précédent.
 
 Les quantités indicatives sont `valeur_totale_actuelle × poids / dernier_prix_EUR`.
@@ -128,9 +147,11 @@ long paragraphe sous le graphique a été retiré ; la méthode reste dans
 ## Références et vérification
 
 - [MOSEK — Markowitz et ratio rendement/risque](https://docs.mosek.com/portfolio-cookbook/markowitz.html).
+- [Norges Bank — régressions et alpha de Jensen](https://www.nbim.no/contentassets/fdd69abfff8445cc967c30322b2d3968/factor-and-risk-adjusted-return_2024.pdf).
+- [TOBAM — ratio de diversification](https://www.tobam.fr/maximum-diversification/).
 - [SciPy — SLSQP](https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html).
 
-`backend/tests/test_performance.py` confronte les quatre objectifs à une recherche
+`backend/tests/test_performance.py` confronte les cinq objectifs à une recherche
 dense indépendante à deux actifs, puis vérifie les courbes, les quantités, les
 indicateurs, les historiques courts, les dates manquantes et la réservation en
 liquidités. `backend/tests/test_portfolio_regression.py` confronte l’écart normalisé
@@ -143,3 +164,25 @@ Les cartes de comparaison n’affichent plus le capital final. Le seuil propose
 antérieur. L’infobulle de la colonne de régression dans Positions utilise un
 portail vers le document et une position fixe bornée à l’écran : le conteneur
 défilant du tableau ne peut plus la découper ni la placer sous le contenu voisin.
+
+Le tableau sous les rendements cumulés compare le S&P 500, l’allocation actuelle
+et celle du mode optimisé sélectionné. CAGR, Sharpe, Sortino et Calmar sont
+favorables lorsqu’ils sont supérieurs au benchmark ; volatilité et amplitude
+positive du drawdown lorsqu’elles sont inférieures. Traits verts : meilleur,
+rouges : moins bon, gris : égalité ou comparaison indisponible. Les statuts sont
+aussi disponibles aux lecteurs d’écran. L’allocation optimisée reste vide avant
+calcul et lors d’un changement de mode.
+
+Le CAGR utilise la durée calendaire réelle (jours / 365,25). La volatilité et le
+Sharpe gardent l’annualisation 252 séances ou 12 mois et un taux sans risque de
+0 %. Le Sortino utilise une cible de 0 % et la racine de la moyenne des carrés
+des rendements négatifs, les rendements positifs contribuant zéro sur l’ensemble
+des observations ([convention de downside deviation décrite par le CFA Institute](https://rpc.cfainstitute.org/-/media/documents/code/gips/the-sortino-ratio.pdf)).
+Calmar = CAGR / amplitude du drawdown maximal. Les ratios dont le dénominateur
+est nul sont indéfinis et affichés « — ».
+
+Un test de régression vérifie deux détachements avec réinvestissement en parts
+supplémentaires, calculé indépendamment dans un registre de parts. Il confronte
+les courbes actuelle et optimisée à ce registre pour les cinq objectifs et les
+deux conventions d’historique, avec baisse des cours bruts aux détachements et
+absence de double comptage des distributions.

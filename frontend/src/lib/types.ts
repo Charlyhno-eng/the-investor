@@ -23,71 +23,11 @@ export type Asset = {
   bond_ranking_date: string | null;
 };
 export type Point = { time: string; value: number };
-export type Periods = {
-  train_start: string;
-  train_end: string;
-  test_start: string;
-  test_end: string;
-};
-export type Parameters = Periods & {
-  fee_bps: number;
-};
-export type Metrics = Record<string, number | null>;
-export type Analysis = {
-  id: string;
-  mode: "backtest" | "regimes";
-  warnings: string[];
-  train_points: number;
-  test_points: number;
-  periods_per_year: number;
-  actual_train: string[];
-  actual_test: string[];
-  parameters: Parameters;
-  equity: { time: string; strategy: number; benchmark: number }[];
-  strategy_metrics: Metrics | null;
-  benchmark_metrics: Metrics | null;
-  positions: { time: string; position: 0 | 1 }[];
-  regimes: { time: string; state: string; probabilities: number[] }[];
-  states: {
-    name: string;
-    mean_change: number;
-    persistence: number;
-    volatility?: number;
-  }[];
-  model_version?: string;
-  model_selection?: {
-    method: string;
-    selected_states: number;
-    regimes_supported: boolean;
-    validation_points: number;
-    validation_scores: Record<string, number>;
-    baseline_score: number | null;
-  };
-  transition_matrix: number[][];
-  diagnostics?: {
-    entry_reachable?: boolean;
-    entry_signal_observations?: number;
-    minimum_state_forecast?: number;
-    maximum_state_forecast?: number;
-    round_trip_threshold?: number;
-    exit_reachable: boolean;
-    negative_states: number;
-    negative_dominant_observations: number;
-    negative_dominant_while_held: number;
-    negative_dominant_without_exit_while_held: number;
-    exit_signal_observations: number;
-    net_excess_return: number;
-    nearly_always_invested: boolean;
-    nearly_always_cash: boolean;
-  };
-  trades: {
-    time: string;
-    side: string;
-    probability: number | null;
-    reason?: string;
-  }[];
-  exposure: number | null;
-};
+export type ComparisonEquity = {
+  time: string;
+  strategy: number;
+  benchmark: number;
+}[];
 export type ImportJob = {
   id: number | null;
   status: string;

@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
+import { Icon } from "../../components/Icon";
 import { HistoryChart } from "../../components/HistoryChart";
 import { Tooltip } from "../../components/Tooltip";
 import { post } from "../../lib/api";
 import { date, number, percent } from "../../lib/format";
 
 type SeriesKey = "portfolio" | "benchmark" | "optimized";
-type Mode = "balanced" | "volatility" | "performance" | "drawdown";
+type Mode =
+  "balanced" | "volatility" | "performance" | "drawdown" | "diversification";
 const modes: { key: Mode; title: string; description: string }[] = [
   {
     key: "balanced",
@@ -27,9 +29,20 @@ const modes: { key: Mode; title: string; description: string }[] = [
     title: "Drawdown minimal",
     description: "Limiter la plus forte baisse depuis un sommet.",
   },
+  {
+    key: "diversification",
+    title: "Diversification maximale",
+    description:
+      "Diversifier les risques selon les volatilités et les corrélations.",
+  },
 ];
 type Metrics = {
+  alpha: number | null;
+  beta: number | null;
   total_return: number;
+  cagr: number;
+  sortino: number | null;
+  calmar: number | null;
   volatility: number;
   max_drawdown: number;
   sharpe: number | null;
@@ -73,6 +86,22 @@ const series: { key: SeriesKey; title: string; color: string }[] = [
   { key: "portfolio", title: "Portfolio actuel", color: "#edb786" },
   { key: "benchmark", title: "S&P 500", color: "#65b9ff" },
   { key: "optimized", title: "Allocation optimisée", color: "#a4d8b6" },
+];
+
+const metricRows: {
+  key: Exclude<keyof Metrics, "total_return">;
+  label: string;
+  lower?: boolean;
+  ratio?: boolean;
+  digits?: number;
+  neutral?: boolean;
+}[] = [
+  { key: "cagr", label: "CAGR" },
+  { key: "volatility", label: "Volatilité annualisée", lower: true },
+  { key: "max_drawdown", label: "Drawdown maximal", lower: true },
+  { key: "sharpe", label: "Ratio de Sharpe", ratio: true },
+  { key: "sortino", label: "Ratio de Sortino", ratio: true },
+  { key: "calmar", label: "Ratio de Calmar", ratio: true },
 ];
 
 export function PerformancePanel({ holdings }: { holdings: string }) {
@@ -272,27 +301,114 @@ function PerformanceView({
                     <strong>
                       {percent(ready.metrics[s.key]!.total_return, true)}
                     </strong>
-                    <small>
-                      Volatilité annuelle{" "}
-                      {percent(ready.metrics[s.key]!.volatility)}
-                    </small>
-                    <small>
-                      Drawdown maximal{" "}
-                      {percent(ready.metrics[s.key]!.max_drawdown)}
-                    </small>
-                    <small>
-                      Sharpe{" "}
-                      {ready.metrics[s.key]!.sharpe == null
-                        ? "—"
-                        : number(ready.metrics[s.key]!.sharpe!, 2)}
-                    </small>
                   </div>
                 ))}
             </div>
+            <details className="performance-metrics-panel" open>
+              <summary>Indicateurs de performance</summary>
+              <div className="table-scroll">
+                <table
+                  className="positions-table performance-metrics"
+                  aria-label="Indicateurs de comparaison"
+                >
+                  <thead>
+                    <tr>
+                      <th scope="col">Indicateur</th>
+                      <th scope="col">S&amp;P 500</th>
+                      <th scope="col">Ma stratégie</th>
+                      <th scope="col">Ma stratégie optimisée</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {metricRows.map((metric) => (
+                      <tr key={metric.key}>
+                        <th scope="row">
+                          {metric.label}
+                          <small>
+                            {metric.key === "alpha"
+                              ? "Décimal · annualisé"
+                              : metric.neutral
+                                ? "Sensibilité au S&P 500"
+                                : metric.lower
+                                  ? "Plus faible"
+                                  : "Plus élevé"}
+                          </small>
+                        </th>
+                        {(["benchmark", "portfolio", "optimized"] as const).map(
+                          (key) => {
+                            const raw = ready.metrics[key]?.[metric.key];
+                            const reference =
+                              ready.metrics.benchmark[metric.key];
+                            const value =
+                              raw == null
+                                ? null
+                                : metric.key === "max_drawdown"
+                                  ? Math.abs(raw)
+                                  : raw;
+                            const baseline =
+                              reference == null
+                                ? null
+                                : metric.key === "max_drawdown"
+                                  ? Math.abs(reference)
+                                  : reference;
+                            const comparable =
+                              value != null && baseline != null;
+                            const delta = comparable
+                              ? (value! - baseline!) * (metric.lower ? -1 : 1)
+                              : 0;
+                            const state = !comparable
+                              ? "unavailable"
+                              : metric.neutral
+                                ? "neutral"
+                                : Math.abs(delta) < 1e-10
+                                  ? "equal"
+                                  : delta > 0
+                                    ? "better"
+                                    : "worse";
+                            const status =
+                              key === "benchmark"
+                                ? "Référence"
+                                : metric.neutral
+                                  ? "Sensibilité au facteur S&P 500, sans classement"
+                                  : !comparable
+                                    ? "Comparaison indisponible"
+                                    : state === "equal"
+                                      ? "Équivalent au S&P 500"
+                                      : state === "better"
+                                        ? "Meilleur que le S&P 500"
+                                        : "Moins bon que le S&P 500";
+                            return (
+                              <td
+                                key={key}
+                                data-comparison={
+                                  key === "benchmark" ? "reference" : state
+                                }
+                                title={status}
+                              >
+                                <span className="metric-value">
+                                  <i aria-hidden="true" />
+                                  {value == null
+                                    ? "—"
+                                    : metric.ratio
+                                      ? number(value, metric.digits ?? 2)
+                                      : percent(value)}
+                                  <span className="sr-only"> · {status}</span>
+                                </span>
+                              </td>
+                            );
+                          },
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
             <HistoryChart lines={lines} />
             <div className="performance-caption">
               <span>
-                Base 100 · EUR · {date(ready.start)} — {date(ready.end)}
+                Base 100 · EUR · Dividendes réinvestis · {date(ready.start)} —{" "}
+                {date(ready.end)}
               </span>
               <Tooltip label="Méthode de comparaison">
                 Simulation de vos pondérations actuelles, rééquilibrées à chaque{" "}
@@ -305,22 +421,17 @@ function PerformanceView({
                 fiscalité. Sharpe : rendement simple moyen annualisé divisé par
                 la volatilité annuelle, taux de référence fixé à 0 %. Drawdown :
                 baisse maximale depuis le plus haut de chaque courbe, capital
-                initial inclus.
+                initial inclus, affiché en amplitude positive dans le tableau.
+                CAGR : croissance composée annualisée sur la durée calendaire
+                réelle. Sortino : rendement moyen annualisé rapporté à la
+                déviation des rendements sous 0 %, calculée sur toutes les
+                observations. Calmar : CAGR divisé par l’amplitude du drawdown
+                maximal. Annualisation : 252 séances ou 12 mois selon la
+                fréquence. Un ratio sans dénominateur mesurable est affiché « —
+                ».
               </Tooltip>
             </div>
           </div>
-          {!!ready.cash_until?.length && (
-            <p className="performance-history-note">
-              Historique étendu : la part de chaque actif récent reste en
-              liquidités avant sa première observation, sans rendement.
-              {ready.cash_until.map((p) => (
-                <span key={p.id}>
-                  {" "}
-                  {p.name} : jusqu’au {date(p.date)}.
-                </span>
-              ))}
-            </p>
-          )}
           {history === "common" &&
             ready.requested_start &&
             Date.parse(ready.start) - Date.parse(ready.requested_start) >
@@ -359,6 +470,7 @@ function PerformanceView({
                   <label
                     key={m.key}
                     className={mode === m.key ? "selected" : ""}
+                    title={m.description}
                   >
                     <input
                       type="radio"
@@ -371,7 +483,6 @@ function PerformanceView({
                       }}
                     />
                     <strong>{m.title}</strong>
-                    <span>{m.description}</span>
                   </label>
                 ))}
               </fieldset>
@@ -392,10 +503,6 @@ function PerformanceView({
             </div>
             {ready.metrics.optimized && (
               <>
-                <p className="performance-simulation-note">
-                  Simulation rétrospective sur la période affichée, hors frais.
-                  Vos positions restent inchangées.
-                </p>
                 <div className="table-scroll">
                   <table className="positions-table performance-weights">
                     <thead>
@@ -414,7 +521,13 @@ function PerformanceView({
                           <td>{number(p.quantity, 8)}</td>
                           <td>{percent(p.weight)}</td>
                           <td className="recommended-weight">
-                            {percent(p.recommended_weight)}
+                            <span className="allocation-recommendation">
+                              {percent(p.recommended_weight)}
+                              <AllocationSignal
+                                current={p.weight}
+                                recommended={p.recommended_weight}
+                              />
+                            </span>
                           </td>
                           <td title={`Au cours du ${date(p.date)}`}>
                             {p.recommended_quantity == null
@@ -426,7 +539,36 @@ function PerformanceView({
                     </tbody>
                   </table>
                 </div>
+                <div
+                  className="allocation-legend"
+                  aria-label="Légende des recommandations"
+                >
+                  <span>
+                    <AllocationSignal current={0.1} recommended={0.12} />{" "}
+                    Renforcer
+                  </span>
+                  <span>
+                    <AllocationSignal current={0.1} recommended={0.2} />{" "}
+                    Renforcer fortement
+                  </span>
+                  <span>
+                    <AllocationSignal current={0.12} recommended={0.1} />{" "}
+                    Alléger
+                  </span>
+                  <span>
+                    <AllocationSignal current={0.2} recommended={0.1} /> Alléger
+                    fortement
+                  </span>
+                  <span>
+                    <AllocationSignal current={0.1} recommended={0} /> Sortir
+                  </span>
+                  <span>
+                    <AllocationSignal current={0.1} recommended={0.1} />{" "}
+                    Conserver
+                  </span>
+                </div>
                 <p className="fine-print">
+                  Deux chevrons : écart d’au moins 5 points de pourcentage.
                   Quantités indicatives calculées à valeur totale constante, aux
                   derniers cours de l’onglet Positions ; fractions d’actif
                   incluses. Une pondération nulle est possible.
@@ -437,5 +579,52 @@ function PerformanceView({
         </>
       )}
     </>
+  );
+}
+
+function AllocationSignal({
+  current,
+  recommended,
+}: {
+  current: number;
+  recommended: number | null;
+}) {
+  if (recommended == null) return null;
+  const delta = recommended - current;
+  // Ignore numerical solver noise, retaining changes below the display precision.
+  const unchanged = Math.abs(delta) < 1e-8;
+  const exit = !unchanged && recommended <= 1e-8;
+  const strong = Math.abs(delta) >= 0.05 - 1e-8;
+  const label = unchanged
+    ? "Conserver la position"
+    : exit
+      ? "Sortir de la position"
+      : delta > 0
+        ? strong
+          ? "Renforcer fortement la position"
+          : "Renforcer la position"
+        : strong
+          ? "Alléger fortement la position"
+          : "Alléger la position";
+  const icon = unchanged
+    ? "equal"
+    : exit
+      ? "close"
+      : delta > 0
+        ? strong
+          ? "chevrons-up"
+          : "chevron-up"
+        : strong
+          ? "chevrons-down"
+          : "chevron-down";
+  return (
+    <span
+      className={`allocation-signal ${unchanged ? "hold" : delta > 0 ? "increase" : "decrease"}`}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      <Icon name={icon} size={18} />
+    </span>
   );
 }

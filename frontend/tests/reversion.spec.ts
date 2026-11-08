@@ -144,7 +144,7 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
   }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    const { analysisRequests } = await mockApi(page);
+    await mockApi(page);
     await page.goto(`/assets/${id}`);
     await page.getByRole("tab", { name: "Régression", exact: true }).click();
     const panel = page.getByRole("region", { name: "Retour à la tendance" });
@@ -204,7 +204,6 @@ for (const id of ["yf-test", "yf-btc-usd"]) {
     await page.getByLabel("Fin de période").fill("2020-01-02");
     await expect(panel.getByRole("alert")).toContainText("début doit précéder");
     await expect(panel.locator("canvas")).toHaveCount(0);
-    expect(analysisRequests).toHaveLength(0);
     expect(errors).toEqual([]);
   });
 }

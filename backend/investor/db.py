@@ -40,9 +40,6 @@ def connect():
       updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
     CREATE UNIQUE INDEX IF NOT EXISTS pending_symbol ON import_jobs(symbol)
       WHERE status IN ('queued','running');
-    CREATE TABLE IF NOT EXISTS analysis_runs (
-      id TEXT PRIMARY KEY, result TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now')));
     CREATE TABLE IF NOT EXISTS dividends (
       asset_id TEXT REFERENCES assets(id), date TEXT NOT NULL, amount REAL NOT NULL,
       PRIMARY KEY(asset_id,date));
