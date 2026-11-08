@@ -13,6 +13,8 @@ import { date, number } from "../lib/format";
 import type { Analysis, DividendEvent, Point } from "../lib/types";
 
 type Props = {
+  accessibleLabel?: string;
+  linesCaption?: string;
   points?: Point[];
   range?: number;
   comparison?: Analysis["equity"];
@@ -36,6 +38,8 @@ type Props = {
 };
 const emptyPoints: Point[] = [];
 export function HistoryChart({
+  accessibleLabel,
+  linesCaption = "Base 100",
   points = emptyPoints,
   range = 0,
   comparison,
@@ -333,14 +337,15 @@ export function HistoryChart({
         className="chart-canvas"
         role="img"
         aria-label={
-          lines
+          accessibleLabel ??
+          (lines
             ? "Performance du portefeuille et du S&P 500, base 100 en euros"
             : overlays
               ? "Prix, tendance ajustée et zones de retour à la tendance"
               : comparison
                 ? (comparisonLabels?.accessible ??
                   "Capital de la stratégie et du marché, base 100")
-                : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher."
+                : "Historique interactif : zoom et déplacement. Repères D : dividendes, détails au survol ou au toucher.")
         }
       />
       {lineHover && (
@@ -349,7 +354,9 @@ export function HistoryChart({
           role="tooltip"
           style={{ left: lineHover.x, top: lineHover.y }}
         >
-          <span>{date(lineHover.time)} · Base 100</span>
+          <span>
+            {date(lineHover.time)} · {linesCaption}
+          </span>
           {lineHover.values.map((v) => (
             <span key={v.title} style={{ color: v.color }}>
               {v.title} <strong>{number(v.value, 2)}</strong>

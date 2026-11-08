@@ -12,6 +12,7 @@ import { AnalysisPanel } from "../analysis/AnalysisPanel";
 import { stockCountry } from "../../lib/countries";
 import { MarketComparison } from "./MarketComparison";
 import { ReversionPanel } from "../reversion/ReversionPanel";
+import { MadPanel } from "../mad/MadPanel";
 import { favoriteLabel, type Favorite } from "../../lib/favorites";
 export function AssetDetail({
   asset,
@@ -28,9 +29,9 @@ export function AssetDetail({
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
-    [tab, setTab] = useState<"chart" | "analysis" | "reversion" | "volatility">(
-      "chart",
-    );
+    [tab, setTab] = useState<
+      "chart" | "analysis" | "reversion" | "volatility" | "mad"
+    >("chart");
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -169,6 +170,16 @@ export function AssetDetail({
             HMM
           </button>
         )}
+        {["stock", "crypto"].includes(asset.category) && (
+          <button
+            role="tab"
+            aria-selected={tab === "mad"}
+            onClick={() => setTab("mad")}
+          >
+            <Icon name="analysis" size={16} />
+            MAD 21/200
+          </button>
+        )}
         <button
           role="tab"
           aria-selected={tab === "volatility"}
@@ -179,6 +190,21 @@ export function AssetDetail({
         </button>
       </div>
       {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
+      {["stock", "crypto"].includes(asset.category) &&
+        tab === "mad" &&
+        (loading ? (
+          <div className="chart-placeholder" role="status">
+            Chargement de l’historique
+          </div>
+        ) : error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : points.length ? (
+          <MadPanel key={asset.id} asset={asset} points={points} />
+        ) : (
+          <div className="chart-placeholder">Aucune observation.</div>
+        ))}
       {supportsAnalysis &&
         tab === "reversion" &&
         (loading ? (
