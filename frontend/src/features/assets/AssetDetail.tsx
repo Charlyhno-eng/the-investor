@@ -120,7 +120,9 @@ export function AssetDetail({
                 ? `Référence souveraine ${asset.benchmark_years ?? 10} ans`
                 : asset.frequency === "monthly"
                   ? "Prix & indices mensuels"
-                  : "Clôture quotidienne ajustée"}
+                  : asset.category === "commodity"
+                    ? "Clôture quotidienne · contrat à terme"
+                    : "Clôture quotidienne ajustée"}
             </span>
           </div>
         </div>
@@ -137,6 +139,14 @@ export function AssetDetail({
           </span>
         )}
       </div>
+      {asset.category === "commodity" && asset.source === "yahoo" && (
+        <p className="fine-print">
+          Cours journalier d’un contrat à terme, converti dans l’unité affichée.
+          Les échéances changent au fil du temps : cette série de prix peut
+          présenter des écarts au roulement et ne mesure pas le rendement d’un
+          investissement renouvelant ses contrats.
+        </p>
+      )}
       <div className="detail-tabs" role="tablist" aria-label="Vue de l’actif">
         <button
           role="tab"

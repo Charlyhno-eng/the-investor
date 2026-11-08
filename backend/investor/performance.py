@@ -2,7 +2,7 @@
 
 Both allocations use constant weights on observed dates, optionally reserving
 cash before inception. Objectives: Sharpe, variance, compounded performance,
-exact compounded maximum drawdown and diversification ratio. No forecast is generated.
+exact compounded maximum drawdown and standardized correlation risk. No forecast is generated.
 """
 
 import itertools
@@ -16,12 +16,12 @@ from threadpoolctl import threadpool_limits
 
 from investor.db import connect
 from investor.portfolio import PortfolioRequest, portfolio
-from investor.volatility import buckets, load_histories
+from investor.volatility import load_histories
 
 
 class PerformanceRequest(PortfolioRequest):
     mode: Literal[
-        "balanced", "volatility", "performance", "drawdown", "diversification"
+        "balanced", "volatility", "performance", "drawdown", "correlation"
     ] = "balanced"
     history: Literal["common", "extended"] = "common"
 
@@ -40,16 +40,173 @@ def factor_regression(returns, factor_returns, periods):
     return 0.0 if abs(alpha) < 1e-12 else alpha, float(slope)
 
 
-def optimize_weights(returns, current, mode="balanced"):
+def optimize_weights(returns, current, mode="balanced", locked=None):
+    """Select positions and solve each support with hard 3% / cardinality bounds.
+
+    Exhaust all supports up to eight assets. Larger universes use deterministic
+    ranked supports and bounded exchange search; no global optimality claim.
+    """
+    count = len(current)
+    locked = dict(locked or {})
+    if len(locked) == count:
+        return current.copy()
+    cap = 0.35 if count >= 3 else 1.0
+    floor = 0.03
+    minimum = max((count + 1) // 2, 1 if locked else int(np.ceil(1 / cap - 1e-10)))
+    maximum = min(count, len(locked) + int((1 - sum(locked.values()) + 1e-10) / floor))
+    if minimum > maximum:
+        raise HTTPException(
+            422,
+            "Contraintes incompatibles : la moitié des actifs doit être conservée avec au moins 3 % par position (33 positions maximum).",
+        )
+    if (
+        mode == "correlation"
+        and count > 1
+        and np.any(np.std(returns, axis=0, ddof=1) <= 1e-12)
+    ):
+        raise HTTPException(
+            422,
+            "Corrélations non mesurables : un actif a une volatilité nulle sur cette période.",
+        )
+    if count == 1:
+        return np.ones(1)
+    covariance = np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
+    means = returns.mean(axis=0)
+    correlation = None
+    if mode == "correlation":
+        deviations = np.sqrt(np.diag(covariance))
+        correlation = covariance / np.outer(deviations, deviations)
+
+    def objective(w):
+        if mode == "volatility":
+            return float(w @ covariance @ w)
+        if mode == "correlation":
+            return float(w @ correlation @ w)
+        changes = returns @ w
+        if mode == "performance":
+            return -float(np.log1p(changes).sum())
+        if mode == "drawdown":
+            logs = np.r_[0.0, np.cumsum(np.log1p(changes))]
+            return float(np.max(np.maximum.accumulate(logs) - logs))
+        risk = float(np.sqrt(max(0, w @ covariance @ w)))
+        mean = float(means @ w)
+        return (
+            -mean / risk
+            if risk > 1e-12
+            else (0.0 if abs(mean) < 1e-12 else -np.sign(mean) * np.inf)
+        )
+
+    solved = {}
+
+    def evaluate(support):
+        support = tuple(sorted(support))
+        if support in solved:
+            return
+        if not set(locked).issubset(support):
+            return
+        selected = np.array(support)
+        fixed = {j: locked[i] for j, i in enumerate(selected) if i in locked}
+        low = sum(fixed.values()) + floor * (len(selected) - len(fixed))
+        high = sum(fixed.values()) + cap * (len(selected) - len(fixed))
+        if low > 1 + 1e-10 or high < 1 - 1e-10:
+            return
+        try:
+            weights = _optimize_support(
+                returns[:, selected],
+                np.full(len(selected), 1 / len(selected)),
+                mode,
+                cap,
+                floor,
+                fixed=fixed,
+            )
+        except HTTPException as error:
+            if error.status_code != 503:
+                raise
+            solved[support] = None
+            return
+        full = np.zeros(count)
+        full[selected] = weights
+        if (
+            not np.all(np.isfinite(full))
+            or abs(full.sum() - 1) > 1e-8
+            or any(
+                full[i] > cap + 1e-8 or (full[i] > 1e-8 and full[i] < floor - 1e-8)
+                for i in range(count)
+                if i not in locked
+            )
+            or any(abs(full[i] - value) > 1e-8 for i, value in locked.items())
+        ):
+            raise HTTPException(
+                503, "Les contraintes de pondération n’ont pas été respectées."
+            )
+        solved[support] = (objective(full), full)
+
+    if count <= 8:
+        for size in range(minimum, maximum + 1):
+            for support in itertools.combinations(range(count), size):
+                evaluate(support)
+    else:
+        relaxed = (
+            current
+            if locked
+            else _optimize_support(returns, np.full(count, 1 / count), mode, cap)
+        )
+        rankings = [
+            np.argsort(-relaxed, kind="stable"),
+            np.argsort(-current, kind="stable"),
+        ]
+        for ranking in rankings:
+            for size in range(minimum, maximum + 1):
+                free = [int(i) for i in ranking if i not in locked]
+                evaluate(list(locked) + free[: max(0, size - len(locked))])
+        # Improve support membership, rather than only rounding a relaxed result.
+        for _ in range(2):
+            feasible = [
+                (key, value) for key, value in solved.items() if value is not None
+            ]
+            if not feasible:
+                break
+            support, (_, incumbent) = min(feasible, key=lambda item: item[1][0])
+            inside = sorted(
+                (i for i in support if i not in locked), key=lambda i: incumbent[i]
+            )[:3]
+            outside = [i for i in rankings[0] if i not in support][:3]
+            for remove, add in itertools.product(inside, outside):
+                evaluate((set(support) - {remove}) | {int(add)})
+    feasible = [value for value in solved.values() if value is not None]
+    if not feasible:
+        raise HTTPException(
+            422 if locked else 503,
+            "Contraintes incompatibles avec les quantités verrouillées. Déverrouillez un actif ou modifiez les quantités."
+            if locked
+            else "Aucune allocation admissible n’a convergé. Réessayez sur une autre période.",
+        )
+    weights = min(feasible, key=lambda item: item[0])[1]
+    if np.count_nonzero(weights > 1e-8) < minimum:
+        raise HTTPException(503, "Le nombre minimal de positions n’a pas été respecté.")
+    return weights
+
+
+def _optimize_support(returns, current, mode, cap, floor=0.0, fixed=None):
     """Long-only historical objectives; compounded drawdown uses convex cuts."""
     count = len(current)
     if count == 1:
         return current.copy()
-    cap = 0.35 if count >= 3 else 1.0
+    fixed = dict(fixed or {})
+    lower = np.array([fixed.get(i, floor) for i in range(count)])
+    upper = np.array([fixed.get(i, cap) for i in range(count)])
+    initial_fixed = lower.copy()
+    for i in range(count):
+        extra = min(upper[i] - initial_fixed[i], max(0, 1 - initial_fixed.sum()))
+        initial_fixed[i] += extra
     # An existing concentrated portfolio is a comparator, not a feasible solver seed.
     initial_weights = (
-        current.copy() if np.max(current) <= cap else np.full(count, 1 / count)
+        current.copy()
+        if np.max(current) <= cap and np.min(current) >= floor
+        else np.full(count, 1 / count)
     )
+    if fixed:
+        initial_weights = initial_fixed
     covariance = np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
     scaled = covariance / max(float(np.max(np.diag(covariance))), 1e-12)
     means = returns.mean(axis=0)
@@ -65,7 +222,7 @@ def optimize_weights(returns, current, mode="balanced"):
                 fun,
                 initial,
                 jac=jac,
-                bounds=bounds if bounds is not None else [(0, cap)] * count,
+                bounds=bounds if bounds is not None else list(zip(lower, upper)),
                 constraints=constraints if constraints is not None else [budget],
                 method="SLSQP",
                 options={"ftol": 1e-12, "maxiter": 1500},
@@ -81,36 +238,12 @@ def optimize_weights(returns, current, mode="balanced"):
 
     if mode == "volatility":
         weights = minimum_variance()
-    elif mode == "diversification":
-        # Maximize (w @ individual_volatilities) / sqrt(w @ covariance @ w).
-        # Homogeneity turns the ratio into a convex quadratic problem in y,
-        # with sigma @ y = 1 and the original cap encoded before normalization.
-        volatilities = np.sqrt(np.maximum(np.diag(scaled), 0))
-        if float(volatilities.max()) <= 1e-12:
-            weights = initial_weights.copy()
-        else:
-            seed = initial_weights
-            if volatilities @ seed <= 1e-12:
-                seed = np.full(count, 1 / count)
-            allocation = solve(
-                lambda y: float(y @ scaled @ y),
-                lambda y: 2 * scaled @ y,
-                initial=seed / (volatilities @ seed),
-                constraints=[
-                    {
-                        "type": "eq",
-                        "fun": lambda y: float(volatilities @ y - 1),
-                        "jac": lambda y: volatilities,
-                    },
-                    {
-                        "type": "ineq",
-                        "fun": lambda y: cap * y.sum() - y,
-                        "jac": lambda y: cap * np.ones((count, count)) - np.eye(count),
-                    },
-                ],
-                bounds=[(0, None)] * count,
-            )
-            weights = allocation / allocation.sum()
+    elif mode == "correlation":
+        deviations = np.sqrt(np.diag(covariance))
+        correlation = covariance / np.outer(deviations, deviations)
+        weights = solve(
+            lambda w: float(w @ correlation @ w), lambda w: 2 * correlation @ w
+        )
     elif mode == "performance":
         # Maximizing log wealth is a concave maximization on the simplex.
         scale = max(float(np.max(np.abs(means))), 1e-4)
@@ -120,11 +253,12 @@ def optimize_weights(returns, current, mode="balanced"):
         )
     elif mode == "balanced":
         minimum = minimum_variance()
-        best_mean = np.zeros(count)
-        remaining = 1.0
+        best_mean = lower.copy()
+        remaining = 1.0 - lower.sum()
         for i in np.argsort(-means):
-            best_mean[i] = min(cap, remaining)
-            remaining -= best_mean[i]
+            extra = min(upper[i] - lower[i], remaining)
+            best_mean[i] += extra
+            remaining -= extra
             if remaining <= 1e-12:
                 break
         if means @ best_mean > 1e-12:
@@ -143,8 +277,17 @@ def optimize_weights(returns, current, mode="balanced"):
                     },
                     {
                         "type": "ineq",
-                        "fun": lambda y: cap * y.sum() - y,
-                        "jac": lambda y: cap * np.ones((count, count)) - np.eye(count),
+                        "fun": lambda y: upper * y.sum() - y,
+                        "jac": lambda y: (
+                            upper[:, None] * np.ones((count, count)) - np.eye(count)
+                        ),
+                    },
+                    {
+                        "type": "ineq",
+                        "fun": lambda y: y - lower * y.sum(),
+                        "jac": lambda y: (
+                            np.eye(count) - lower[:, None] * np.ones((count, count))
+                        ),
                     },
                 ],
                 bounds=[(0, None)] * count,
@@ -164,54 +307,50 @@ def optimize_weights(returns, current, mode="balanced"):
                     else (0 if abs(mean) < 1e-12 else -np.inf)
                 )
 
-            if cap == 1:
-                candidates.extend(np.eye(count))
-            else:
-                incumbent = max(candidates, key=score)
-                incumbent_score = score(incumbent)
-                # Vertices of the 35%-capped simplex: 35%, 35%, 30%.
-                # Evaluate the third component in vector form for each pair.
-                diagonal = np.diag(covariance)
-                rest = 1 - 2 * cap
-                for i, j in itertools.combinations(range(count), 2):
-                    variances = (
-                        cap**2 * (diagonal[i] + diagonal[j] + 2 * covariance[i, j])
-                        + rest**2 * diagonal
-                        + 2 * cap * rest * (covariance[i] + covariance[j])
-                    )
-                    risks = np.sqrt(np.maximum(variances, 0))
-                    means_at_vertices = cap * (means[i] + means[j]) + rest * means
-                    scores = np.divide(
-                        means_at_vertices,
-                        risks,
-                        out=np.full(count, -np.inf),
-                        where=risks > 1e-12,
-                    )
-                    scores[(risks <= 1e-12) & (np.abs(means_at_vertices) < 1e-12)] = 0
-                    scores[[i, j]] = -np.inf
-                    k = int(np.argmax(scores))
-                    if k not in (i, j) and scores[k] > incumbent_score:
-                        incumbent = np.zeros(count)
-                        incumbent[[i, j, k]] = [cap, cap, rest]
-                        incumbent_score = float(scores[k])
-                candidates.append(incumbent)
+            # A nonpositive Sharpe reaches its maximum at a box-simplex vertex.
+            # Vertices have all but at most one weight at the floor or cap.
+            free = [i for i in range(count) if upper[i] - lower[i] > 1e-12]
+
+            def vertices(start, vertex, remaining):
+                if remaining <= 1e-10:
+                    candidates.append(vertex.copy())
+                    return
+                for j in free:
+                    if (
+                        vertex[j] == lower[j]
+                        and remaining <= upper[j] - lower[j] + 1e-10
+                    ):
+                        candidate = vertex.copy()
+                        candidate[j] += remaining
+                        candidates.append(candidate)
+                for k in range(start, len(free)):
+                    j = free[k]
+                    span = upper[j] - lower[j]
+                    if span <= remaining + 1e-10:
+                        candidate = vertex.copy()
+                        candidate[j] = upper[j]
+                        vertices(k + 1, candidate, remaining - span)
+
+            vertices(0, lower.copy(), 1 - lower.sum())
             weights = max(candidates, key=score)
     elif mode == "drawdown":
-        weights = _minimum_drawdown(returns, initial_weights, solve, cap)
+        weights = _minimum_drawdown(
+            returns, initial_weights, solve, cap, floor, bounds=list(zip(lower, upper))
+        )
     else:
         raise ValueError("Mode d’optimisation inconnu")
-    if np.max(weights) > cap + 1e-7 or np.min(weights) < -1e-7:
+    if np.any(weights > upper + 1e-7) or np.any(weights < lower - 1e-7):
         raise HTTPException(503, "Le plafond de concentration n’a pas été respecté.")
-    weights = np.clip(weights, 0, cap)
+    weights = np.clip(weights, lower, upper)
     if not np.isfinite(weights.sum()) or abs(weights.sum() - 1) > 1e-7:
         raise HTTPException(503, "Pondérations invalides après optimisation.")
     weights /= weights.sum()
-    if np.max(weights) > cap + 1e-8:
+    if np.any(weights > upper + 1e-8) or np.any(weights < lower - 1e-8):
         raise HTTPException(503, "Le plafond de concentration n’a pas été respecté.")
     return weights
 
 
-def _minimum_drawdown(returns, current, solve, cap=1.0):
+def _minimum_drawdown(returns, current, solve, cap=1.0, floor=0.0, bounds=None):
     """Cutting-plane epigraph of max peak-to-trough log loss (convex).
 
     Every interval loss is convex in w. Add the actual worst interval until
@@ -257,7 +396,8 @@ def _minimum_drawdown(returns, current, solve, cap=1.0):
                 },
                 {"type": "ineq", "fun": constraints, "jac": gradients},
             ],
-            bounds=[(0, cap)] * count + [(0, None)],
+            bounds=(bounds if bounds is not None else [(floor, cap)] * count)
+            + [(0, None)],
         )
         weights, bound = x[:-1], float(x[-1])
         if constraints(x).min() < -1e-7:
@@ -277,9 +417,27 @@ def comparison_data(
     optimize=False,
     mode="balanced",
     history="common",
+    locked_asset_ids=(),
 ):
-    monthly = any(a["frequency"] == "monthly" for a in assets)
-    histories = [buckets(h, monthly) for h in [*histories, benchmark]]
+    non_daily = [a for a in assets if a["frequency"] != "daily"]
+    if non_daily:
+        return {
+            "status": "insufficient",
+            "message": "La comparaison et l’optimisation utilisent uniquement des cours journaliers. "
+            "Un historique journalier est nécessaire pour : "
+            + ", ".join(a["name"] for a in non_daily)
+            + ".",
+            "excluded": [
+                {
+                    "id": a["id"],
+                    "name": a["name"],
+                    "reason": "Historique journalier indisponible.",
+                }
+                for a in non_daily
+            ],
+        }
+    # Keep every observed date: never downsample the portfolio or benchmark.
+    histories = [dict(sorted(h.items())) for h in [*histories, benchmark]]
     if any(not h for h in histories):
         return {
             "status": "insufficient",
@@ -307,13 +465,13 @@ def comparison_data(
             for d in sorted(set.intersection(*(set(h) for h in histories)))
             if cutoff <= d <= latest
         ]
-    minimum = 12 if monthly else 21
+    minimum = 21
     if len(common) - 1 < minimum or any(
         sum(d in h for d in common) < minimum + 1 for h in histories[:-1]
     ):
         return {
             "status": "insufficient",
-            "message": f"Il faut au moins {minimum} variations {'mensuelles' if monthly else 'quotidiennes'} observées par actif sur cette période.",
+            "message": f"Il faut au moins {minimum} variations quotidiennes observées par actif sur cette période.",
         }
     returns = np.array(
         [
@@ -324,9 +482,16 @@ def comparison_data(
             for left, right in itertools.pairwise(common)
         ]
     )
-    periods = 12 if monthly else 252
+    periods = 252
     current = np.array([p["weight"] for p in positions])
-    recommended = optimize_weights(returns[:, :-1], current, mode) if optimize else None
+    locked = {
+        i: current[i]
+        for i, p in enumerate(positions)
+        if p.get("id") in locked_asset_ids
+    }
+    recommended = (
+        optimize_weights(returns[:, :-1], current, mode, locked) if optimize else None
+    )
     strategies = {"portfolio": returns[:, :-1] @ current, "benchmark": returns[:, -1]}
     if recommended is not None:
         strategies["optimized"] = returns[:, :-1] @ recommended
@@ -375,7 +540,7 @@ def comparison_data(
         ],
         "start": common[0],
         "end": common[-1],
-        "frequency": "monthly" if monthly else "daily",
+        "frequency": "daily",
         "observations": len(common) - 1,
         "equity": [
             {"time": d, **{key: float(curve[i]) for key, curve in curves.items()}}
@@ -388,7 +553,12 @@ def comparison_data(
                 "recommended_weight": float(recommended[i])
                 if recommended is not None
                 else None,
-                "recommended_quantity": float(total * recommended[i] / p["price"])
+                "locked": p.get("id") in locked_asset_ids,
+                "recommended_quantity": (
+                    p["quantity"]
+                    if p.get("id") in locked_asset_ids
+                    else float(total * recommended[i] / p["price"])
+                )
                 if recommended is not None
                 else None,
             }
@@ -398,6 +568,10 @@ def comparison_data(
 
 
 def portfolio_performance(request: PerformanceRequest, optimize=False):
+    if not set(request.locked_asset_ids).issubset(
+        {h.asset_id for h in request.holdings}
+    ):
+        raise HTTPException(422, "Un actif verrouillé doit figurer dans les positions.")
     valuation = portfolio(request)
     if valuation["status"] == "pending":
         return valuation
@@ -432,4 +606,5 @@ def portfolio_performance(request: PerformanceRequest, optimize=False):
         optimize,
         mode=request.mode,
         history=request.history,
+        locked_asset_ids=request.locked_asset_ids,
     )

@@ -288,3 +288,29 @@ def test_fx_uses_no_future_and_expires_after_seven_days():
         {"2025-01-02": 100, "2025-01-10": 100}, None, {"2025-01-01": 2, "2025-01-11": 4}
     ) == {"2025-01-02": 50}
     assert converted({"2025-01-01": 100}, None, {"2025-01-02": 2}) == {}
+
+
+def test_frontier_with_all_positions_locked_collapses_to_actual_portfolio(client):
+    http, days = client
+    a = seed(days, "a")
+    b = seed(days, "b", sign=-1)
+    response = http.post(
+        "/api/portfolio/volatility",
+        json={
+            "holdings": [
+                {"asset_id": "a", "quantity": 3},
+                {"asset_id": "b", "quantity": 1},
+            ],
+            "locked_asset_ids": ["a", "b"],
+        },
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert len(result["frontier"]) == 1
+    assert result["lower_frontier"] == []
+    prices = np.array([[v[2] for v in values] for values in (a, b)]).T
+    changes = np.diff(prices, axis=0) / prices[:-1]
+    expected = changes @ [0.75, 0.25]
+    assert result["frontier"][0]["volatility"] == pytest.approx(
+        expected.std(ddof=1) * np.sqrt(252) * 100
+    )

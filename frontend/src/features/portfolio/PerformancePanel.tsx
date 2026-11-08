@@ -7,7 +7,7 @@ import { date, number, percent } from "../../lib/format";
 
 type SeriesKey = "portfolio" | "benchmark" | "optimized";
 type Mode =
-  "balanced" | "volatility" | "performance" | "drawdown" | "diversification";
+  "balanced" | "volatility" | "performance" | "drawdown" | "correlation";
 const modes: { key: Mode; title: string; description: string }[] = [
   {
     key: "balanced",
@@ -30,10 +30,10 @@ const modes: { key: Mode; title: string; description: string }[] = [
     description: "Limiter la plus forte baisse depuis un sommet.",
   },
   {
-    key: "diversification",
-    title: "Diversification maximale",
+    key: "correlation",
+    title: "Corrélations minimales",
     description:
-      "Diversifier les risques selon les volatilités et les corrélations.",
+      "Minimiser le risque des rendements standardisés pour favoriser des corrélations faibles ou négatives.",
   },
 ];
 type Metrics = {
@@ -52,7 +52,7 @@ export type PerformanceResult = {
   currency: "EUR";
   start: string;
   end: string;
-  frequency: "daily" | "monthly";
+  frequency: "daily";
   observations: number;
   mode?: Mode | null;
   history?: "common" | "extended";
@@ -89,12 +89,10 @@ const series: { key: SeriesKey; title: string; color: string }[] = [
 ];
 
 const metricRows: {
-  key: Exclude<keyof Metrics, "total_return">;
+  key: Exclude<keyof Metrics, "total_return" | "alpha" | "beta">;
   label: string;
   lower?: boolean;
   ratio?: boolean;
-  digits?: number;
-  neutral?: boolean;
 }[] = [
   { key: "cagr", label: "CAGR" },
   { key: "volatility", label: "Volatilité annualisée", lower: true },
@@ -104,7 +102,18 @@ const metricRows: {
   { key: "calmar", label: "Ratio de Calmar", ratio: true },
 ];
 
-export function PerformancePanel({ holdings }: { holdings: string }) {
+export function PerformancePanel({
+  holdings,
+  lockedAssetIds = [],
+}: {
+  holdings: string;
+  lockedAssetIds?: string[];
+}) {
+  const locks = JSON.stringify(
+    lockedAssetIds.filter((id) =>
+      JSON.parse(holdings).some((h: { asset_id: string }) => h.asset_id === id),
+    ),
+  );
   const [years, setYears] = useState(3);
   const [history, setHistory] = useState("extended");
   return (
@@ -149,8 +158,9 @@ export function PerformancePanel({ holdings }: { holdings: string }) {
         </div>
       </div>
       <PerformanceView
-        key={`${holdings}:${years}:${history}`}
+        key={`${holdings}:${years}:${history}:${locks}`}
         holdings={holdings}
+        locks={locks}
         years={years}
         history={history}
       />
@@ -160,10 +170,12 @@ export function PerformancePanel({ holdings }: { holdings: string }) {
 
 function PerformanceView({
   holdings,
+  locks,
   years,
   history,
 }: {
   holdings: string;
+  locks: string;
   years: number;
   history: string;
 }) {
@@ -185,6 +197,7 @@ function PerformanceView({
           optimize ? "/portfolio/optimize" : "/portfolio/performance",
           {
             holdings: JSON.parse(holdings),
+            locked_asset_ids: JSON.parse(locks),
             years,
             history,
             mode: optimize ?? "balanced",
@@ -214,7 +227,7 @@ function PerformanceView({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [holdings, years, history, optimize, revision]);
+  }, [holdings, locks, years, history, optimize, revision]);
   const ready = useMemo(() => {
     if (result?.status !== "ready") return null;
     if (!result.mode || result.mode === mode) return result;
@@ -325,74 +338,97 @@ function PerformanceView({
                         <th scope="row">
                           {metric.label}
                           <small>
-                            {metric.key === "alpha"
-                              ? "Décimal · annualisé"
-                              : metric.neutral
-                                ? "Sensibilité au S&P 500"
-                                : metric.lower
-                                  ? "Plus faible"
-                                  : "Plus élevé"}
+                            {metric.lower ? "Plus faible" : "Plus élevé"}
                           </small>
                         </th>
                         {(["benchmark", "portfolio", "optimized"] as const).map(
                           (key) => {
                             const raw = ready.metrics[key]?.[metric.key];
-                            const reference =
-                              ready.metrics.benchmark[metric.key];
-                            const value =
+                            const normalize = (
+                              raw: number | null | undefined,
+                            ) =>
                               raw == null
                                 ? null
                                 : metric.key === "max_drawdown"
                                   ? Math.abs(raw)
                                   : raw;
-                            const baseline =
-                              reference == null
-                                ? null
-                                : metric.key === "max_drawdown"
-                                  ? Math.abs(reference)
-                                  : reference;
-                            const comparable =
-                              value != null && baseline != null;
-                            const delta = comparable
-                              ? (value! - baseline!) * (metric.lower ? -1 : 1)
-                              : 0;
-                            const state = !comparable
-                              ? "unavailable"
-                              : metric.neutral
-                                ? "neutral"
-                                : Math.abs(delta) < 1e-10
-                                  ? "equal"
-                                  : delta > 0
-                                    ? "better"
-                                    : "worse";
-                            const status =
+                            const value = normalize(raw);
+                            const compare = (
+                              reference: number | null,
+                              name: string,
+                            ) => {
+                              const delta =
+                                value == null || reference == null
+                                  ? null
+                                  : (value - reference) *
+                                    (metric.lower ? -1 : 1);
+                              const state =
+                                delta == null
+                                  ? "unavailable"
+                                  : Math.abs(delta) < 1e-10
+                                    ? "equal"
+                                    : delta > 0
+                                      ? "better"
+                                      : "worse";
+                              const status =
+                                delta == null
+                                  ? `Comparaison indisponible avec ${name}`
+                                  : state === "equal"
+                                    ? `Équivalent ${name === "le S&P 500" ? "au S&P 500" : `à ${name}`}`
+                                    : state === "better"
+                                      ? `Meilleur que ${name}`
+                                      : `Moins bon que ${name}`;
+                              return { state, status };
+                            };
+                            const benchmark = compare(
+                              normalize(ready.metrics.benchmark[metric.key]),
+                              "le S&P 500",
+                            );
+                            const current = compare(
+                              normalize(ready.metrics.portfolio[metric.key]),
+                              "la stratégie de base",
+                            );
+                            const markers =
                               key === "benchmark"
-                                ? "Référence"
-                                : metric.neutral
-                                  ? "Sensibilité au facteur S&P 500, sans classement"
-                                  : !comparable
-                                    ? "Comparaison indisponible"
-                                    : state === "equal"
-                                      ? "Équivalent au S&P 500"
-                                      : state === "better"
-                                        ? "Meilleur que le S&P 500"
-                                        : "Moins bon que le S&P 500";
+                                ? [
+                                    {
+                                      state: "reference",
+                                      status: "Référence S&P 500",
+                                    },
+                                  ]
+                                : key === "optimized"
+                                  ? [benchmark, current]
+                                  : [benchmark];
+                            const status = markers
+                              .map((m) => m.status)
+                              .join(" · ");
                             return (
                               <td
                                 key={key}
                                 data-comparison={
-                                  key === "benchmark" ? "reference" : state
+                                  key === "benchmark"
+                                    ? "reference"
+                                    : benchmark.state
                                 }
                                 title={status}
                               >
                                 <span className="metric-value">
-                                  <i aria-hidden="true" />
+                                  <span className="metric-signals">
+                                    {markers.map((marker, i) => (
+                                      <i
+                                        key={i}
+                                        data-comparison={marker.state}
+                                        role="img"
+                                        aria-label={marker.status}
+                                        title={marker.status}
+                                      />
+                                    ))}
+                                  </span>
                                   {value == null
                                     ? "—"
                                     : metric.ratio
-                                      ? number(value, metric.digits ?? 2)
+                                      ? number(value, 2)
                                       : percent(value)}
-                                  <span className="sr-only"> · {status}</span>
                                 </span>
                               </td>
                             );
@@ -403,32 +439,36 @@ function PerformanceView({
                   </tbody>
                 </table>
               </div>
+              <p className="metric-signals-legend">
+                Allocation optimisée : premier trait comparé au S&amp;P 500,
+                second à la stratégie de base. Vert : meilleur · Rouge : moins
+                bon · Gris : égal ou indisponible.
+              </p>
             </details>
             <HistoryChart lines={lines} />
             <div className="performance-caption">
               <span>
-                Base 100 · EUR · Dividendes réinvestis · {date(ready.start)} —{" "}
-                {date(ready.end)}
+                Base 100 · EUR · Données journalières ·{" "}
+                {number(ready.observations, 0)} séances · Dividendes réinvestis
+                · {date(ready.start)} — {date(ready.end)}
               </span>
               <Tooltip label="Méthode de comparaison">
-                Simulation de vos pondérations actuelles, rééquilibrées à chaque{" "}
-                {ready.frequency === "monthly"
-                  ? "mois observé"
-                  : "séance observée"}
-                . Ce n’est pas l’historique de votre compte : les dates d’achat
-                ne sont pas connues. Actions et S&P 500 à dividendes réinvestis
-                ; matières premières selon leur série de prix. Hors frais et
-                fiscalité. Sharpe : rendement simple moyen annualisé divisé par
-                la volatilité annuelle, taux de référence fixé à 0 %. Drawdown :
-                baisse maximale depuis le plus haut de chaque courbe, capital
-                initial inclus, affiché en amplitude positive dans le tableau.
-                CAGR : croissance composée annualisée sur la durée calendaire
-                réelle. Sortino : rendement moyen annualisé rapporté à la
-                déviation des rendements sous 0 %, calculée sur toutes les
+                Simulation de vos pondérations actuelles, rééquilibrées à chaque
+                séance observée. Les courbes et les cinq optimisations utilisent
+                toutes les observations journalières communes, sans regroupement
+                mensuel. Ce n’est pas l’historique de votre compte : les dates
+                d’achat ne sont pas connues. Actions et S&P 500 à dividendes
+                réinvestis ; matières premières selon leur série de prix. Hors
+                frais et fiscalité. Sharpe : rendement simple moyen annualisé
+                divisé par la volatilité annuelle, taux de référence fixé à 0 %.
+                Drawdown : baisse maximale depuis le plus haut de chaque courbe,
+                capital initial inclus, affiché en amplitude positive dans le
+                tableau. CAGR : croissance composée annualisée sur la durée
+                calendaire réelle. Sortino : rendement moyen annualisé rapporté
+                à la déviation des rendements sous 0 %, calculée sur toutes les
                 observations. Calmar : CAGR divisé par l’amplitude du drawdown
-                maximal. Annualisation : 252 séances ou 12 mois selon la
-                fréquence. Un ratio sans dénominateur mesurable est affiché « —
-                ».
+                maximal. Annualisation : 252 séances. Un ratio sans dénominateur
+                mesurable est affiché « — ».
               </Tooltip>
             </div>
           </div>
@@ -449,17 +489,29 @@ function PerformanceView({
                   Optimiser la répartition{" "}
                   <Tooltip label="Méthode d’optimisation">
                     {modes.find((m) => m.key === mode)?.description}
-                    Mêmes actifs, poids plafonnés à 35 % à partir de trois
-                    actifs, total 100 %, sans emprunt ni vente à découvert. Le
-                    Sharpe utilise un taux de référence de 0 %. Chaque mode peut
-                    sacrifier un autre indicateur. Les poids sont calculés et
-                    évalués sur le même historique : simulation rétrospective,
-                    sans prévision des performances futures.
+                    Les quantités verrouillées sont conservées, même en dehors
+                    des seuils de pondération. Les seuils s’appliquent aux
+                    positions libres. Des contraintes incompatibles empêchent le
+                    calcul. Au moins la moitié des actifs détenus, arrondie au
+                    supérieur. Chaque position retenue pèse au moins 3 %, avec
+                    un plafond de 35 % dès trois actifs disponibles. Total 100
+                    %, sans emprunt ni vente à découvert. La sélection des
+                    positions est approchée au-delà de huit actifs ; les
+                    contraintes restent strictes. Le Sharpe utilise un taux de
+                    référence de 0 %. Chaque mode peut sacrifier un autre
+                    indicateur. Les poids sont calculés et évalués sur le même
+                    historique : simulation rétrospective, sans prévision des
+                    performances futures.
                   </Tooltip>
                 </h2>
                 <p>
                   Choisissez l’objectif de votre simulation sur la période
-                  affichée. Plafond de 35 % par actif dès trois actifs détenus.
+                  affichée. Au moins {Math.ceil(ready.positions.length / 2)}{" "}
+                  {ready.positions.length <= 2 ? "actif" : "actifs"} sur{" "}
+                  {ready.positions.length} · 3 % minimum par position retenue ·
+                  plafond de 35 % dès trois actifs.{" "}
+                  {JSON.parse(locks).length > 0 &&
+                    `${JSON.parse(locks).length} quantité(s) verrouillée(s), prioritaires sur ces seuils.`}
                 </p>
               </div>
             </div>

@@ -81,6 +81,7 @@ def save(
     benchmark_years=None,
     dividends=None,
     dividend_coverage=None,
+    replace_history=False,
 ):
     if not assets or not observations:
         raise ValueError(f"{source}: import vide, données locales conservées")
@@ -93,6 +94,15 @@ def save(
             db.executemany(
                 "UPDATE assets SET country_code=?, benchmark_years=? WHERE id=?",
                 [(country_code, benchmark_years, asset[0]) for asset in assets],
+            )
+        if replace_history:
+            db.executemany(
+                "DELETE FROM observations WHERE asset_id=?",
+                [(asset[0],) for asset in assets],
+            )
+            db.executemany(
+                "DELETE FROM price_observations WHERE asset_id=?",
+                [(asset[0],) for asset in assets],
             )
         db.executemany(
             "INSERT INTO observations VALUES (?,?,?) ON CONFLICT(asset_id,date) DO UPDATE SET value=excluded.value",

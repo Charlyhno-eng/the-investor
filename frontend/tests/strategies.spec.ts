@@ -147,6 +147,27 @@ test("simulated portfolio sends its own holdings to the comparison", async ({
   ).toBeVisible();
   expect(holdings).toEqual([{ asset_id: "yf-test", quantity: 4 }]);
   for (const name of [
+    "Comparaison & optimisation",
+    "Répartition",
+    "Corrélations",
+    "Frontières d’efficience",
+  ]) {
+    await page.getByRole("tab", { name, exact: true }).click();
+    await expect(page.locator(".strategy-toolbar")).toHaveCount(0);
+    await expect(
+      page.getByLabel("Actifs de la stratégie", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Comparaison simulée", exact: true }),
+    ).toBeVisible();
+  }
+  await page.getByRole("tab", { name: "Positions", exact: true }).click();
+  await expect(page.locator(".strategy-toolbar")).toBeVisible();
+  await expect(
+    page.getByLabel("Actifs de la stratégie", { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator(".positions-table input").first()).toHaveValue("4");
+  for (const name of [
     "Positions",
     "Répartition",
     "Corrélations",
@@ -182,4 +203,70 @@ test("empty watchlist explains availability and keeps import accessible", async 
     .getByRole("button", { name: "Importer un actif", exact: true })
     .click();
   await expect(page.getByRole("dialog")).toBeVisible();
+});
+
+test("locked quantities persist and are sent to every simulation", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.addInitScript(() => {
+    if (!localStorage.getItem("investor-strategies"))
+      localStorage.setItem(
+        "investor-strategies",
+        JSON.stringify([
+          {
+            id: "locked-test",
+            name: "Quantités fixes",
+            quantities: { "yf-btc-usd": 1, "yf-test": 4 },
+          },
+        ]),
+      );
+  });
+  await page.goto("/markets/strategy");
+  const quantity = page.getByRole("spinbutton", {
+    name: "Quantité Bitcoin",
+    exact: true,
+  });
+  await expect(quantity).toHaveValue("1");
+  await page
+    .getByRole("button", { name: "Verrouiller Bitcoin", exact: true })
+    .click();
+  await expect(quantity).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Bitcoin Retirer de la stratégie" }),
+  ).toBeDisabled();
+  await page.reload();
+  await expect(quantity).toHaveValue("1");
+  await expect(quantity).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Déverrouiller Bitcoin" }),
+  ).toHaveAttribute("aria-pressed", "true");
+  const comparison = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/portfolio/performance") &&
+      request.method() === "POST",
+  );
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
+  expect((await comparison).postDataJSON().locked_asset_ids).toEqual([
+    "yf-btc-usd",
+  ]);
+  const frontier = page.waitForRequest(
+    (request) =>
+      request.url().endsWith("/portfolio/volatility") &&
+      request.method() === "POST",
+  );
+  await page
+    .getByRole("tab", { name: "Frontières d’efficience", exact: true })
+    .click();
+  expect((await frontier).postDataJSON().locked_asset_ids).toEqual([
+    "yf-btc-usd",
+  ]);
+  await page.getByRole("tab", { name: "Positions", exact: true }).click();
+  await page.getByRole("button", { name: "Déverrouiller Bitcoin" }).click();
+  await expect(quantity).toBeEnabled();
+  await quantity.fill("2");
+  await quantity.blur();
+  await expect(quantity).toHaveValue("2");
 });

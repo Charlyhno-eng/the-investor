@@ -4,6 +4,7 @@ from datetime import date
 
 import numpy as np
 import pytest
+from fastapi import HTTPException
 from investor import db
 from investor.comparison import INDEX
 from investor.performance import comparison_data, factor_regression, optimize_weights
@@ -77,7 +78,7 @@ def test_paths_weights_quantities_and_independent_benchmark(client):
 
 
 @pytest.mark.parametrize(
-    "mode", ["balanced", "volatility", "performance", "drawdown", "diversification"]
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
 )
 def test_optimizer_matches_dense_two_asset_search(mode):
     rng = np.random.default_rng(91)
@@ -85,6 +86,8 @@ def test_optimizer_matches_dense_two_asset_search(mode):
     current = np.array([0.7, 0.3])
     w = optimize_weights(returns, current, mode)
     grid = np.column_stack((np.linspace(0, 1, 3001), np.linspace(1, 0, 3001)))
+
+    grid = grid[np.all((grid < 1e-10) | (grid >= 0.03 - 1e-10), axis=1)]
 
     def objective(weights):
         changes = returns @ weights.T
@@ -99,9 +102,12 @@ def test_optimizer_matches_dense_two_asset_search(mode):
             return changes.var(axis=0, ddof=1)
         if mode == "performance":
             return -logs[-1]
-        if mode == "diversification":
-            return -(weights @ returns.std(axis=0, ddof=1)) / changes.std(
-                axis=0, ddof=1
+        if mode == "correlation":
+            return np.einsum(
+                "ij,jk,ik->i",
+                np.atleast_2d(weights),
+                np.corrcoef(returns, rowvar=False),
+                np.atleast_2d(weights),
             )
         return np.max(np.maximum.accumulate(logs, axis=0) - logs, axis=0)
 
@@ -163,7 +169,7 @@ def test_validation_missing_history_exclusions_and_pending(client):
     )
 
 
-def test_monthly_alignment_fx_and_one_asset(client):
+def test_daily_alignment_fx_and_one_asset(client):
     http, days = client
     seed(days, "a", unit="EUR")
     base = request(http, True, [{"asset_id": "a", "quantity": 1}])
@@ -181,25 +187,6 @@ def test_monthly_alignment_fx_and_one_asset(client):
             assert fx["metrics"]["portfolio"][key] == value
     assert fx["metrics"]["portfolio"]["beta"] != base["metrics"]["portfolio"]["beta"]
     assert fx["metrics"]["benchmark"] != base["metrics"]["benchmark"]
-    months = [f"2024-{m:02d}-15" for m in range(1, 13)] + [
-        f"2025-{m:02d}-15" for m in range(1, 13)
-    ]
-    history = {d: 100 + i * 2 for i, d in enumerate(months)}
-    result = comparison_data(
-        [{"frequency": "monthly"}],
-        [history],
-        history,
-        [{"weight": 1, "value": 200, "price": 100}],
-        3,
-        True,
-    )
-    assert result["frequency"] == "monthly"
-    assert result["observations"] == 23
-    assert result["metrics"]["benchmark"] == result["metrics"]["portfolio"]
-    changes = np.diff(list(history.values())) / np.array(list(history.values())[:-1])
-    assert result["metrics"]["portfolio"]["volatility"] == pytest.approx(
-        changes.std(ddof=1) * np.sqrt(12)
-    )
 
 
 def test_extended_history_reserves_cash_before_inception_and_does_not_fill_gaps():
@@ -293,7 +280,7 @@ def test_metrics_reproduce_exact_drawdown_and_sharpe(client):
 
 
 @pytest.mark.parametrize(
-    "mode", ["balanced", "volatility", "performance", "drawdown", "diversification"]
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
 )
 @pytest.mark.parametrize("case", ["positive", "negative", "zero"])
 def test_all_modes_enforce_concentration_even_when_current_portfolio_is_concentrated(
@@ -307,6 +294,10 @@ def test_all_modes_enforce_concentration_even_when_current_portfolio_is_concentr
         returns = -np.abs(returns)
     elif case == "zero":
         returns = np.zeros((200, 4))
+    if mode == "correlation" and case == "zero":
+        with pytest.raises(HTTPException, match="Corrélations non mesurables"):
+            optimize_weights(returns, np.array([1.0, 0.0, 0.0, 0.0]), mode)
+        return
     weights = optimize_weights(returns, np.array([1.0, 0.0, 0.0, 0.0]), mode)
     assert weights.sum() == pytest.approx(1)
     assert weights.min() >= 0
@@ -348,20 +339,19 @@ def test_factor_regression_recovers_intercept_and_signed_beta(beta, periods):
     assert factor_regression(factor, np.zeros(5), periods) == (None, None)
 
 
-def test_diversification_uses_covariance_and_handles_a_zero_risk_seed():
+def test_correlation_is_independent_of_volatility_and_means():
     rng = np.random.default_rng(21)
     returns = rng.normal(0, [0.01, 0.03], (2000, 2))
     current = np.array([0.5, 0.5])
-    weights = optimize_weights(returns, current, "diversification")
-    inverse_volatility = 1 / returns.std(axis=0, ddof=1)
-    expected = inverse_volatility / inverse_volatility.sum()
-    assert weights == pytest.approx(expected, abs=1e-5)
-    shifted = optimize_weights(returns + [0.005, -0.003], current, "diversification")
-    assert shifted == pytest.approx(weights, abs=1e-7)
+    weights = optimize_weights(returns, current, "correlation")
+    assert weights == pytest.approx([0.5, 0.5], abs=1e-6)
+    transformed = returns * [2, 0.5] + [0.005, -0.003]
+    assert optimize_weights(transformed, current, "correlation") == pytest.approx(
+        weights, abs=1e-7
+    )
     with_cash = np.column_stack((np.zeros(2000), returns[:, 0]))
-    weights = optimize_weights(with_cash, np.array([1.0, 0.0]), "diversification")
-    assert np.all(np.isfinite(weights))
-    assert weights.sum() == pytest.approx(1)
+    with pytest.raises(HTTPException, match="Corrélations non mesurables"):
+        optimize_weights(with_cash, current, "correlation")
 
 
 def test_removed_model_endpoints_are_unavailable(client):
@@ -385,7 +375,7 @@ def test_removed_model_endpoints_are_unavailable(client):
 
 @pytest.mark.parametrize("history", ["common", "extended"])
 @pytest.mark.parametrize(
-    "mode", ["balanced", "volatility", "performance", "drawdown", "diversification"]
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
 )
 def test_dividends_reinvested_in_current_and_optimized_curves(client, history, mode):
     """Two cash distributions: compare against an independent share ledger.
@@ -420,7 +410,10 @@ def test_dividends_reinvested_in_current_and_optimized_curves(client, history, m
             "UPDATE price_observations SET value=? WHERE asset_id='a' AND date=?",
             zip(raw, days),
         )
-        connection.execute("UPDATE observations SET value=100 WHERE asset_id='b'")
+        connection.executemany(
+            "UPDATE observations SET value=? WHERE asset_id='b' AND date=?",
+            [(100 * (1 + 0.00001 * np.sin(i)), day) for i, day in enumerate(days)],
+        )
         connection.executemany(
             "INSERT INTO dividends(asset_id,date,amount) VALUES (?,?,?)", dividends
         )
@@ -431,8 +424,10 @@ def test_dividends_reinvested_in_current_and_optimized_curves(client, history, m
     current /= current.sum()
     weights = np.array([p["recommended_weight"] for p in optimized["positions"]])
     reinvested = np.array(wealth[1:]) / wealth[:-1] - 1
-    expected_current = np.r_[100.0, 100 * np.cumprod(1 + current[0] * reinvested)]
-    expected_optimized = np.r_[100.0, 100 * np.cumprod(1 + weights[0] * reinvested)]
+    b_prices = 100 * (1 + 0.00001 * np.sin(np.arange(len(days))))
+    returns = np.column_stack((reinvested, b_prices[1:] / b_prices[:-1] - 1))
+    expected_current = np.r_[100.0, 100 * np.cumprod(1 + returns @ current)]
+    expected_optimized = np.r_[100.0, 100 * np.cumprod(1 + returns @ weights)]
     assert [p["weight"] for p in base["positions"]] == pytest.approx(current)
     assert [p["portfolio"] for p in base["equity"]] == pytest.approx(expected_current)
     assert [p["portfolio"] for p in optimized["equity"]] == pytest.approx(
@@ -442,10 +437,167 @@ def test_dividends_reinvested_in_current_and_optimized_curves(client, history, m
         expected_optimized
     )
     for i in (30, 70):
-        assert optimized["equity"][i]["portfolio"] == pytest.approx(
-            optimized["equity"][i - 1]["portfolio"]
+        assert (
+            abs(
+                optimized["equity"][i]["portfolio"]
+                / optimized["equity"][i - 1]["portfolio"]
+                - 1
+            )
+            < 1e-4
         )
     assert raw[-1] < raw[0]  # Price-only performance would wrongly report a loss.
     assert base["metrics"]["portfolio"]["total_return"] > 0
     if mode == "performance":
         assert weights == pytest.approx([1, 0], abs=1e-6)
+
+
+@pytest.mark.parametrize("optimize", [False, True])
+@pytest.mark.parametrize("history", ["common", "extended"])
+def test_monthly_asset_never_downsamples_the_daily_portfolio(client, optimize, history):
+    http, days = client
+    seed(days, "a")
+    seed(days, "b", frequency="monthly", category="commodity")
+    result = request(http, optimize, history=history)
+    assert result["status"] == "insufficient"
+    assert "cours journaliers" in result["message"]
+    assert result["excluded"] == [
+        {"id": "b", "name": "b", "reason": "Historique journalier indisponible."}
+    ]
+    assert "equity" not in result
+
+
+@pytest.mark.parametrize(
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
+)
+def test_daily_curves_preserve_intramonth_drawdown_and_last_session(client, mode):
+    http, days = client
+    seed(days, "a")
+    prices = np.full(len(days), 100.0)
+    # A sharp, fully recovered loss inside one month disappears in month-end data.
+    trough = next(i for i in range(10, len(days) - 1) if days[i][8:10] == "15")
+    prices[trough] = 50
+    prices[-1] = 110
+    with db.connect() as connection:
+        connection.executemany(
+            "UPDATE observations SET value=? WHERE asset_id='a' AND date=?",
+            zip(prices, days),
+        )
+    holdings = [{"asset_id": "a", "quantity": 1}]
+    base = request(http, holdings=holdings)
+    result = request(http, True, holdings=holdings, mode=mode)
+    assert result["frequency"] == "daily"
+    assert result["observations"] == len(days) - 1
+    assert [p["time"] for p in result["equity"]] == days
+    changes = prices[1:] / prices[:-1] - 1
+    for key in ("portfolio", "optimized"):
+        assert [p[key] for p in result["equity"]] == pytest.approx(prices)
+        assert result["metrics"][key]["max_drawdown"] == pytest.approx(-0.5)
+        assert result["metrics"][key]["volatility"] == pytest.approx(
+            changes.std(ddof=1) * np.sqrt(252)
+        )
+    assert base["equity"] == [
+        {k: v for k, v in p.items() if k != "optimized"} for p in result["equity"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
+)
+@pytest.mark.parametrize("count", [7, 11])
+def test_all_modes_keep_half_the_assets_with_a_three_percent_floor(mode, count):
+    rng = np.random.default_rng(74)
+    returns = rng.normal(0.0004, 0.012, (120, count))
+    returns[:, 0] += 0.008
+    weights = optimize_weights(returns, np.full(count, 1 / count), mode)
+    active = weights[weights > 1e-8]
+    assert len(active) >= (count + 1) // 2
+    assert active.min() >= 0.03 - 1e-8
+    assert active.max() <= 0.35 + 1e-8
+    assert weights.sum() == pytest.approx(1)
+
+
+def test_infeasible_asset_count_is_explicit():
+    with pytest.raises(HTTPException, match="Contraintes incompatibles"):
+        optimize_weights(np.zeros((30, 67)), np.full(67, 1 / 67), "performance")
+
+
+def test_performance_optimizes_with_floor_instead_of_adding_tiny_positions_afterwards():
+    returns = np.tile([0.02, 0.01, 0.005, 0.003, 0.002, 0.001, -0.001], (60, 1))
+    weights = optimize_weights(returns, np.full(7, 1 / 7), "performance")
+    assert weights == pytest.approx([0.35, 0.35, 0.27, 0.03, 0, 0, 0], abs=1e-7)
+
+
+def test_correlation_favors_negative_relationships_over_a_correlated_cluster():
+    rng = np.random.default_rng(9)
+    factor = rng.normal(0, 0.01, 1000)
+    returns = np.column_stack((factor, factor, -factor, rng.normal(0, 0.01, 1000)))
+    weights = optimize_weights(returns, np.full(4, 0.25), "correlation")
+    # Give the negatively correlated holding the maximum available weight.
+    assert weights[2] == pytest.approx(0.35, abs=1e-6)
+    corr = np.corrcoef(returns, rowvar=False)
+    assert weights @ corr @ weights < np.full(4, 0.25) @ corr @ np.full(4, 0.25)
+
+
+def test_largest_feasible_universe_retains_33_positions():
+    returns = np.tile(np.linspace(0.01, 0.0001, 66), (30, 1))
+    weights = optimize_weights(returns, np.full(66, 1 / 66), "performance")
+    active = weights[weights > 1e-8]
+    assert len(active) == 33
+    assert active.min() >= 0.03 - 1e-8
+    assert weights.sum() == pytest.approx(1)
+
+
+@pytest.mark.parametrize(
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
+)
+def test_locked_quantities_are_hard_constraints_in_every_mode(mode):
+    rng = np.random.default_rng(32)
+    changes = rng.normal(
+        [0.001, 0.0004, 0.0002, 0.0008], [0.02, 0.01, 0.03, 0.015], (150, 4)
+    )
+    current = np.array([0.72, 0.01, 0.17, 0.10])
+    locked = {0: 0.72, 1: 0.01}
+    weights = optimize_weights(changes, current, mode, locked)
+    assert weights[:2] == pytest.approx(current[:2], abs=1e-8)
+    assert weights.sum() == pytest.approx(1)
+    assert all(
+        w == pytest.approx(0, abs=1e-8) or 0.03 - 1e-8 <= w <= 0.35 + 1e-8
+        for w in weights[2:]
+    )
+    assert optimize_weights(
+        changes, current, mode, dict(enumerate(current))
+    ) == pytest.approx(current)
+
+
+def test_incompatible_locks_raise_instead_of_changing_locked_position():
+    rng = np.random.default_rng(7)
+    changes = rng.normal(0, 0.01, (100, 3))
+    with pytest.raises(HTTPException) as error:
+        optimize_weights(
+            changes, np.array([0.99, 0.005, 0.005]), "volatility", {0: 0.99}
+        )
+    assert error.value.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "mode", ["balanced", "volatility", "performance", "drawdown", "correlation"]
+)
+def test_api_retains_exact_locked_quantity(client, mode):
+    http, days = client
+    seed(days, "a")
+    seed(days, "b", sign=-1)
+    result = http.post(
+        "/api/portfolio/optimize",
+        json={
+            "holdings": [
+                {"asset_id": "a", "quantity": 3},
+                {"asset_id": "b", "quantity": 1},
+            ],
+            "locked_asset_ids": ["a"],
+            "mode": mode,
+        },
+    )
+    assert result.status_code == 200, result.text
+    positions = result.json()["positions"]
+    assert positions[0]["recommended_quantity"] == 3
+    assert positions[0]["recommended_weight"] == pytest.approx(0.75)

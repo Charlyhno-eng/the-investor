@@ -10,6 +10,7 @@ export function NumberInput({
   min: number | string;
   max: number | string;
   step?: number | "any";
+  disabled?: boolean;
 }) {
   const [draft, setDraft] = useState(String(value));
   const [focused, setFocused] = useState(false);

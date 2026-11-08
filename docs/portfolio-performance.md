@@ -40,10 +40,14 @@ Deux conventions sont disponibles :
   L’interface explique cette limitation si elle raccourcit la période demandée.
 
 Les données se terminent à la dernière date exploitable par toutes les séries.
-Les variations sont quotidiennes (annualisation 252, au moins 21 variations
-observées par actif). Si un actif est mensuel : derniers prix observés des mois
-terminés, annualisation 12, au moins 12 variations observées par actif. Les
-matières premières restent des séries de prix, sans rendement de futures inventé.
+Les variations sont exclusivement quotidiennes : au moins 21 variations
+observées par actif, annualisation de la volatilité et des ratios sur 252 séances.
+Toutes les observations communes sont conservées pour les courbes, les métriques
+et les cinq objectifs, y compris la dernière séance disponible et les variations
+à l’intérieur d’un mois. Un actif mensuel bloque la comparaison complète avec
+son nom et une demande d’historique journalier ; il n’entraîne plus de regroupement
+mensuel du portefeuille. Aucun cours quotidien n’est interpolé depuis les sources
+mensuelles. Les matières premières restent des séries de prix, sans rendement de futures inventé.
 
 Pour une allocation constante `w`, chaque variation est `r_t @ w` ; la courbe
 est `100 × produit(1 + r_t @ w)`. Les poids sont rééquilibrés à chaque observation.
@@ -72,42 +76,54 @@ L’espace Stratégie permet de créer plusieurs simulations vides, de leur ajou
 
 ## Cinq objectifs
 
-Les modes conservent le même univers d’actifs et un budget de 100 %, sans levier
-ni vente à découvert. Dès trois actifs détenus, chaque poids est plafonné à
-35 % ; cela impose au moins trois poids non nuls dans chacun des cinq modes.
-Avec un ou deux actifs, le plafond est de 100 % pour conserver un problème
-réalisable. La contrainte s’applique pendant les résolutions, y compris sous la
-forme `y_i ≤ 0,35 × somme(y)` pour le Sharpe, et non après coup par simple
-troncature. Des positions actuelles plus concentrées restent le comparateur ;
-elles ne sont pas modifiées. Un poids nul est possible. Le S&P 500
-reste un comparatif. Aucun compromis ne maximise simultanément tous les critères.
+Les modes partent des actifs détenus et valorisés du portefeuille ou de la
+simulation. Une position à quantité nulle n’est pas ajoutée à cet univers.
+Tous les modes imposent :
 
-1. **Équilibre** : maximiser le Sharpe historique. Si une moyenne positive est
-   disponible, transformation convexe `min yᵀΣy` sous `μᵀy = 1`, `y ≥ 0`, puis
-   `w = y / somme(y)`. Les moyennes sont mises à l’échelle pour le calcul.
-   Pour des moyennes toutes non positives, le meilleur ratio défini se situe
-   à un sommet du simplexe ; on compare aussi les poids initiaux et la solution
-   de variance minimale, notamment pour le cas de variance nulle et moyenne nulle.
-2. **Volatilité minimale** : minimiser `wᵀΣw` sans contrainte de rendement.
-3. **Performance maximale** : maximiser la moyenne de `log(1 + r_t @ w)`, donc
-   la performance composée de la période. Le rendement n’est pas remplacé par
-   une moyenne arithmétique et aucune limite artificielle de volatilité n’est ajoutée.
-4. **Drawdown minimal** : minimiser le drawdown composé exact. Le maximum des
-   pertes logarithmiques entre tous les couples sommet/creux est convexe en `w`.
-   Une épigraphe et des contraintes successives ajoutent l’intervalle réellement
-   le plus défavorable jusqu’à ce que le drawdown calculé et sa borne inférieure
-   coïncident à `1e-8` près. Ce n’est pas une optimisation de variance présentée
-   comme une optimisation du drawdown, ni un proxy de rendements non composés.
+- budget de 100 %, sans levier ni vente à découvert ;
+- au moins `ceil(n / 2)` positions parmi les `n` actifs disponibles ;
+- poids de chaque position soit nul, soit **au moins 3 %** ;
+- poids plafonné à **35 %** dès trois actifs disponibles (100 % pour un ou deux).
 
-5. **Diversification maximale** : maximiser `(w @ volatilités individuelles) / sqrt(wᵀΣw)`. La transformation homogène `y = w / (w @ volatilités)` permet une minimisation quadratique convexe sous contrainte `volatilités @ y = 1`, avec le plafond de poids appliqué avant normalisation. Ce mode utilise les volatilités et corrélations historiques et ne dépend pas des moyennes de rendement. Si toutes les volatilités sont nulles, le ratio est indéfini et l’allocation initiale admissible est conservée.
+Le plafond peut imposer davantage de positions que la moitié. Les positions de
+l’allocation actuelle restent le comparateur, même si elles ne respectent pas
+ces limites ; aucune quantité enregistrée n’est modifiée. Le minimum de 3 %
+limite à 33 positions retenues : à partir de 67 actifs disponibles, la règle de
+la moitié devient impossible et une erreur explicite est retournée.
 
-SLSQP utilise des gradients analytiques, une tolérance `1e-12`, au plus 1 500
-itérations par résolution. Le mode drawdown ajoute au plus 150 contraintes
-successives. Convergence, valeurs finies et somme des poids sont vérifiées ;
-un échec affiche une erreur réessayable. Les résultats utilisent **le même
-historique pour optimiser et évaluer** : simulation rétrospective, sans validation
-hors échantillon ni prévision. Ce point est expliqué dans l’infobulle de méthode. Changer le mode, la période ou les quantités invalide
-le résultat précédent.
+1. **Équilibre** : maximiser le Sharpe historique, avec taux de référence de 0 %.
+   La transformation homogène du Sharpe positif encode le plancher et le plafond
+   comme contraintes linéaires avant normalisation. Pour des moyennes toutes
+   non positives, les sommets du simplexe borné sont comparés.
+2. **Volatilité minimale** : minimiser `wᵀΣw`.
+3. **Performance maximale** : maximiser la performance composée sur la période,
+   via la moyenne de `log(1 + r_t @ w)`.
+4. **Drawdown minimal** : minimiser la perte composée entre un sommet et un creux,
+   par contraintes successives sur les intervalles les plus défavorables.
+5. **Corrélations minimales** (`correlation`, remplace `diversification`) :
+   minimiser `wᵀCw`, où `C` est la matrice des corrélations des rendements
+   journaliers en EUR. Les rendements sont standardisés à variance unitaire :
+   l’objectif dépend des corrélations et des poids, pas des niveaux de volatilité
+   ni des moyennes. Les corrélations faibles et négatives réduisent ce critère ;
+   la diagonale pénalise la concentration. Cela ne force pas artificiellement les
+   corrélations observées à zéro. Une volatilité nulle rend les corrélations
+   indéfinies et produit une erreur explicite pour cet objectif.
+
+Les contraintes de cardinalité et de plancher rendent le choix des positions
+discret ([formulation avec variables de sélection](https://docs.mosek.com/MOSEKPortfolioCookbook/transaction.html)).
+Pour huit actifs ou moins, tous les sous-ensembles réalisables sont examinés.
+Au-delà, la sélection est **approchée et déterministe** : solutions sur des
+sous-ensembles classés selon la solution relâchée et les poids actuels, puis
+échanges bornés de positions autour de la meilleure solution. Il n’y a pas de
+garantie d’optimum global pour cette sélection. Chaque sous-ensemble impose le
+plancher de 3 % et le plafond dans le solveur, jamais par ajout de petites lignes
+après calcul. Les sous-ensembles qui échouent à converger sont ignorés ; s’il
+n’en reste aucun, une erreur est retournée. Somme, finitude, nombre de positions,
+plancher et plafond sont vérifiés avant de retourner une allocation.
+
+Les résultats utilisent **le même historique pour optimiser et évaluer** :
+simulation rétrospective, sans prévision. Changer le mode, la période ou les
+quantités invalide le résultat précédent.
 
 Les quantités indicatives sont `valeur_totale_actuelle × poids / dernier_prix_EUR`.
 La date du cours figure dans la cellule et dans Positions ; les fractions sont
@@ -148,7 +164,7 @@ long paragraphe sous le graphique a été retiré ; la méthode reste dans
 
 - [MOSEK — Markowitz et ratio rendement/risque](https://docs.mosek.com/portfolio-cookbook/markowitz.html).
 - [Norges Bank — régressions et alpha de Jensen](https://www.nbim.no/contentassets/fdd69abfff8445cc967c30322b2d3968/factor-and-risk-adjusted-return_2024.pdf).
-- [TOBAM — ratio de diversification](https://www.tobam.fr/maximum-diversification/).
+- [MOSEK — cardinalité et planchers de position](https://docs.mosek.com/MOSEKPortfolioCookbook/transaction.html).
 - [SciPy — SLSQP](https://docs.scipy.org/doc/scipy/reference/optimize.minimize-slsqp.html).
 
 `backend/tests/test_performance.py` confronte les cinq objectifs à une recherche
@@ -174,7 +190,7 @@ aussi disponibles aux lecteurs d’écran. L’allocation optimisée reste vide 
 calcul et lors d’un changement de mode.
 
 Le CAGR utilise la durée calendaire réelle (jours / 365,25). La volatilité et le
-Sharpe gardent l’annualisation 252 séances ou 12 mois et un taux sans risque de
+Sharpe gardent l’annualisation 252 séances et un taux sans risque de
 0 %. Le Sortino utilise une cible de 0 % et la racine de la moyenne des carrés
 des rendements négatifs, les rendements positifs contribuant zéro sur l’ensemble
 des observations ([convention de downside deviation décrite par le CFA Institute](https://rpc.cfainstitute.org/-/media/documents/code/gips/the-sortino-ratio.pdf)).
@@ -186,3 +202,19 @@ supplémentaires, calculé indépendamment dans un registre de parts. Il confron
 les courbes actuelle et optimisée à ce registre pour les cinq objectifs et les
 deux conventions d’historique, avec baisse des cours bruts aux détachements et
 absence de double comptage des distributions.
+
+Dans les indicateurs, la stratégie de base porte un trait comparé au S&P 500.
+L’allocation optimisée porte deux traits indépendants : le premier comparé au
+S&P 500, le second à la stratégie de base. Chaque trait est vert si meilleur,
+rouge si moins bon, gris si égal ou indisponible. Les métriques de risque
+inversent le sens de comparaison ; le drawdown est comparé en amplitude.
+Le survol et les libellés accessibles précisent chaque référence.
+
+Le bandeau de composition d’une stratégie et les pastilles de retrait d’actifs
+s’affichent uniquement dans Positions. Les autres onglets conservent l’en-tête
+et les vues partagées avec le Portfolio, sans les contrôles de composition.
+
+
+Dans une stratégie, le cadenas de chaque ligne de Positions conserve exactement sa quantité dans les cinq objectifs d’optimisation. Il désactive la saisie et le retrait jusqu’au déverrouillage. Les cadenas sont enregistrés avec la stratégie dans le navigateur ; les stratégies existantes sont lues sans cadenas par défaut. L’API reçoit `locked_asset_ids` et fixe le poids courant correspondant, à budget et prix de valorisation constants ; la quantité indicative retournée est exactement la quantité initiale. Les bornes de 3 % / 35 % s’appliquent aux positions libres, les positions verrouillées sont prioritaires. La cardinalité minimale reste applicable. Des contraintes incompatibles produisent une erreur explicite, sans modifier un verrou. Lorsque toutes les positions sont verrouillées, l’allocation reste identique.
+
+Les frontières d’efficience utilisent aussi les poids fixes : chaque allocation admissible conserve les positions verrouillées, et seul le budget restant est réparti. Tous les actifs verrouillés réduisent la frontière au point du portefeuille. Les courbes historiques conservent leur convention de pondérations constantes rééquilibrées ; le cadenas fixe les quantités recommandées aux cours de valorisation, pas un historique de transactions.

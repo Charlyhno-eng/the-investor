@@ -4,9 +4,9 @@ import logging
 import time
 
 from investor import db
-from investor.ingest import fred, world_bank
+from investor.ingest import fred
 from investor.market import CRYPTO, import_symbol, process_one
-from investor.market_catalog import CURRENCIES, ETF
+from investor.market_catalog import COMMODITY_FUTURES, CURRENCIES, ETF
 
 log = logging.getLogger(__name__)
 
@@ -26,14 +26,18 @@ def main():
                         for row in connection.execute(
                             "SELECT id,category FROM assets WHERE source='yahoo'"
                         )
-                        if row["category"] != "crypto"
-                        or row["id"][3:].upper() in CRYPTO
+                        if row["category"] != "commodity"
+                        and (
+                            row["category"] != "crypto"
+                            or row["id"][3:].upper() in CRYPTO
+                        )
                     ]
                 symbols = {s: "crypto" for s in CRYPTO}
                 symbols.update(dict(imported))
                 symbols.update({s: "etf" for s in ETF})
                 symbols.update({s: "currency" for s in CURRENCIES})
-                scheduled = [world_bank, fred] + [
+                symbols.update({s: "commodity" for s in COMMODITY_FUTURES})
+                scheduled = [fred] + [
                     lambda s=s, c=c: import_symbol(s, c) for s, c in symbols.items()
                 ]
                 next_refresh = time.monotonic() + 86400

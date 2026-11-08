@@ -8,15 +8,21 @@ import type { RiskResult } from "./types";
 
 type Holding = { asset_id: string; quantity: number };
 type Props =
-  | { asset: Asset; holdings?: never; assets?: never }
-  | { asset?: never; holdings: Holding[]; assets: Asset[] };
-export function VolatilityPanel({ asset, holdings }: Props) {
+  | { asset: Asset; holdings?: never; assets?: never; lockedAssetIds?: never }
+  | {
+      asset?: never;
+      holdings: Holding[];
+      assets: Asset[];
+      lockedAssetIds?: string[];
+    };
+export function VolatilityPanel({ asset, holdings, lockedAssetIds }: Props) {
   const [years, setYears] = useState(3);
   const [result, setResult] = useState<RiskResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const selected = JSON.stringify(holdings ?? []);
+  const locks = JSON.stringify(lockedAssetIds ?? []);
   const assetId = asset?.id;
   const lastDate = asset?.last_date;
   const lastValue = asset?.last_value;
@@ -36,7 +42,15 @@ export function VolatilityPanel({ asset, holdings }: Props) {
             )
           : await post<RiskResult>(
               "/portfolio/volatility",
-              { holdings: JSON.parse(selected), years },
+              {
+                holdings: JSON.parse(selected),
+                years,
+                locked_asset_ids: JSON.parse(locks).filter((id: string) =>
+                  JSON.parse(selected).some(
+                    (h: { asset_id: string }) => h.asset_id === id,
+                  ),
+                ),
+              },
               controller.signal,
             );
         if (controller.signal.aborted) return;
@@ -62,7 +76,7 @@ export function VolatilityPanel({ asset, holdings }: Props) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [assetId, lastDate, lastValue, selected, years, revision]);
+  }, [assetId, lastDate, lastValue, selected, locks, years, revision]);
   const ready = result?.status === "ready";
   const portfolio = !!holdings;
   return (

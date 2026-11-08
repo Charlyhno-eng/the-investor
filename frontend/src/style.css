@@ -3085,20 +3085,20 @@ td {
   gap: 9px;
   white-space: nowrap;
 }
-.performance-metrics .metric-value > i {
+.performance-metrics .metric-signals > i {
   display: inline-block;
   width: 3px;
   height: 17px;
   border-radius: 2px;
   background: #7e8790;
 }
-.performance-metrics [data-comparison="better"] .metric-value > i {
+.performance-metrics .metric-signals > i[data-comparison="better"] {
   background: #65c7a5;
 }
-.performance-metrics [data-comparison="worse"] .metric-value > i {
+.performance-metrics .metric-signals > i[data-comparison="worse"] {
   background: #ed8c85;
 }
-.performance-metrics [data-comparison="reference"] .metric-value > i {
+.performance-metrics .metric-signals > i[data-comparison="reference"] {
   background: #65b9ff;
 }
 @media (max-width: 600px) {
@@ -3320,4 +3320,37 @@ td {
     flex-basis: 100%;
     max-width: none;
   }
+}
+
+.metric-signals {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.metric-signals-legend {
+  margin: 0;
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.6;
+  border-top: 1px solid var(--line);
+}
+
+.quantity-lock {
+  margin-left: 8px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  vertical-align: middle;
+}
+.quantity-lock[aria-pressed="true"] {
+  color: var(--accent);
+  background: #cfa85c18;
+}
+.strategy-assets button:disabled {
+  opacity: 0.65;
+  cursor: default;
 }

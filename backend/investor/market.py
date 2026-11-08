@@ -6,11 +6,12 @@ import json
 import logging
 import math
 from datetime import UTC, datetime
+from itertools import pairwise
 
 import yfinance as yf
 
 from investor import db
-from investor.market_catalog import CRYPTO, CURRENCIES, ETF
+from investor.market_catalog import COMMODITY_FUTURES, CRYPTO, CURRENCIES, ETF
 
 log = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ log = logging.getLogger(__name__)
 def import_symbol(symbol: str, category: str) -> str:
     if category == "crypto" and symbol not in CRYPTO:
         raise ValueError("Cryptomonnaie absente du catalogue.")
+    if category == "commodity" and symbol not in COMMODITY_FUTURES:
+        raise ValueError("Matière première absente du catalogue journalier.")
     yf.set_tz_cache_location(str(db.DATA_DIR / "provider-cache"))
     ticker = yf.Ticker(symbol)
     frame = ticker.history(
@@ -29,19 +32,22 @@ def import_symbol(symbol: str, category: str) -> str:
         "stock": "EQUITY",
         "etf": "ETF",
         "currency": "CURRENCY",
+        "commodity": "FUTURE",
     }[category]
     if metadata.get("instrumentType") != expected:
         raise ValueError(
-            "Symbole introuvable ou catégorie incompatible (actions cotées uniquement)."
+            f"Symbole introuvable ou catégorie incompatible : {symbol} ({metadata.get('instrumentType')})."
         )
     if frame.empty:
         raise ValueError("Aucun historique disponible pour ce symbole.")
     if category == "stock" and "Adj Close" not in frame:
         raise ValueError("Clôtures ajustées absentes ; données précédentes conservées.")
-    asset_id = "yf-" + symbol.lower()
+    commodity = COMMODITY_FUTURES.get(symbol) if category == "commodity" else None
+    asset_id = commodity[0] if commodity else "yf-" + symbol.lower()
+    multiplier = commodity[3] if commodity else 1
     # Daily timestamps use the exchange's local calendar, not a UTC conversion.
     points = [
-        (asset_id, stamp.date().isoformat(), float(value))
+        (asset_id, stamp.date().isoformat(), float(value) * multiplier)
         for stamp, value in frame[
             "Adj Close" if "Adj Close" in frame else "Close"
         ].items()
@@ -58,6 +64,20 @@ def import_symbol(symbol: str, category: str) -> str:
         or symbol
     )
     currency = metadata.get("currency", "USD")
+    if commodity:
+        expected_currency = (
+            "USX" if symbol in {"KE=F", "ZC=F", "ZS=F", "KC=F"} else "USD"
+        )
+        if currency != expected_currency:
+            raise ValueError(
+                f"Devise du contrat inattendue : {symbol} ({currency}, attendu {expected_currency})."
+            )
+        name, currency = commodity[1], commodity[2]
+        if len(points) < 22 or not any(
+            0 < (datetime.fromisoformat(b[1]) - datetime.fromisoformat(a[1])).days < 7
+            for a, b in pairwise(points)
+        ):
+            raise ValueError("Historique journalier insuffisant.")
     dividends = None
     coverage = None
     if category == "stock":
@@ -121,6 +141,7 @@ def import_symbol(symbol: str, category: str) -> str:
         f"yahoo:{symbol}",
         dividends=dividends,
         dividend_coverage=coverage,
+        replace_history=bool(commodity),
     )
     if category == "stock":
         update_country(ticker, asset_id)
@@ -128,7 +149,7 @@ def import_symbol(symbol: str, category: str) -> str:
         connection.executemany(
             "INSERT OR REPLACE INTO price_observations VALUES (?,?,?)",
             [
-                (asset_id, stamp.date().isoformat(), float(value))
+                (asset_id, stamp.date().isoformat(), float(value) * multiplier)
                 for stamp, value in frame["Close"].items()
                 if math.isfinite(float(value)) and value > 0
             ],
@@ -192,6 +213,19 @@ def process_one() -> bool:
             (status, asset_id, error, job["id"]),
         )
     return True
+
+
+def seed_commodities():
+    failures = []
+    for symbol in COMMODITY_FUTURES:
+        try:
+            import_symbol(symbol, "commodity")
+            log.info("Importé : %s", symbol)
+        except Exception:
+            log.exception("Échec : %s", symbol)
+            failures.append(symbol)
+    if failures:
+        raise RuntimeError("Imports incomplets : " + ", ".join(failures))
 
 
 def seed_crypto():

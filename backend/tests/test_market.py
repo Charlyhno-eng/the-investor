@@ -301,3 +301,55 @@ def test_abandoned_import_recovers_without_resetting_active_download(
     assert calls == ["STALE"]
     assert not market.process_one()
     assert local.get(f"/api/asset-imports/{active['id']}").json()["status"] == "running"
+
+
+@pytest.mark.parametrize("symbol", list(market.COMMODITY_FUTURES))
+def test_daily_commodities_replace_monthly_history_with_normalized_units(
+    local, monkeypatch, symbol
+):
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    asset_id, _name, unit, factor = market.COMMODITY_FUTURES[symbol]
+    db.save(
+        [
+            (
+                asset_id,
+                "Monthly",
+                "commodity",
+                "price",
+                unit,
+                "monthly",
+                "world-bank",
+                "https://example.com",
+            )
+        ],
+        [(asset_id, "1960-01-01", 5)],
+        "test",
+    )
+    frame = pd.DataFrame(
+        {"Close": [100.0] * 30}, index=pd.date_range("2026-01-01", periods=30)
+    )
+    metadata = {
+        "instrumentType": "FUTURE",
+        "currency": "USX" if symbol in {"KE=F", "ZC=F", "ZS=F", "KC=F"} else "USD",
+    }
+    ticker = SimpleNamespace(
+        history=lambda **kwargs: frame, get_history_metadata=lambda: metadata
+    )
+    monkeypatch.setattr(market.yf, "Ticker", lambda _: ticker)
+    assert local.get("/api/assets").json() == []
+    assert market.import_symbol(symbol, "commodity") == asset_id
+    assets = local.get("/api/assets").json()
+    assert assets[0]["frequency"] == "daily"
+    assert assets[0]["unit"] == unit
+    history = local.get(f"/api/assets/{asset_id}/history").json()
+    assert len(history) == 30
+    assert history[0]["value"] == pytest.approx(100 * factor)
+    # Failed refresh must preserve the successfully migrated history and metadata.
+    metadata["currency"] = "EUR"
+    with pytest.raises(ValueError, match="Devise"):
+        market.import_symbol(symbol, "commodity")
+    assert local.get(f"/api/assets/{asset_id}/history").json() == history
+    assert local.get("/api/assets").json()[0]["frequency"] == "daily"

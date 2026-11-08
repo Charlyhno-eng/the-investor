@@ -126,7 +126,7 @@ test("portfolio comparison, explicit optimization, hover names and unchanged hol
   );
   expect(optimizations).toHaveLength(0);
   await expect(panel.locator(".performance-caption")).toContainText(
-    "Dividendes réinvestis",
+    "Données journalières · 119 séances · Dividendes réinvestis",
   );
   await expect(panel.locator(".performance-weights")).toHaveCount(0);
   const chart = panel.getByRole("img", { name: /base 100 en euros/ });
@@ -344,7 +344,7 @@ test("all optimization modes, risk metrics and extended history remain explicit"
     ["Volatilité minimale", "volatility"],
     ["Performance maximale", "performance"],
     ["Drawdown minimal", "drawdown"],
-    ["Diversification maximale", "diversification"],
+    ["Corrélations minimales", "correlation"],
   ]) {
     await panel.getByRole("radio", { name: new RegExp(label) }).check();
     await panel
@@ -452,4 +452,64 @@ test("allocation icons cover increases, reductions, exit and unchanged weights",
   await page
     .locator(".performance-optimization")
     .screenshot({ path: testInfo.outputPath("allocation-signals.png") });
+});
+
+test("optimized metric markers independently compare benchmark and base strategy", async ({
+  page,
+}, testInfo) => {
+  await setup(page);
+  const optimized = model(true);
+  Object.assign(optimized.metrics.optimized!, {
+    cagr: 0.09,
+    volatility: 0.18,
+    max_drawdown: -0.25,
+    sharpe: 0.56,
+  });
+  await page.route("**/api/portfolio/performance", (r) =>
+    r.fulfill({ json: model() }),
+  );
+  await page.route("**/api/portfolio/optimize", (r) =>
+    r.fulfill({ json: optimized }),
+  );
+  await page.goto("/markets/portfolio");
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Optimiser les poids", exact: true })
+    .click();
+  const table = page.getByRole("table", { name: "Indicateurs de comparaison" });
+  const expected = [
+    ["CAGR", "better", "worse"],
+    ["Volatilité annualisée", "worse", "better"],
+    ["Drawdown maximal", "worse", "equal"],
+    ["Ratio de Sharpe", "equal", "worse"],
+    ["Ratio de Sortino", "unavailable", "unavailable"],
+    ["Ratio de Calmar", "better", "better"],
+  ];
+  const colors: Record<string, string> = {
+    better: "rgb(101, 199, 165)",
+    worse: "rgb(237, 140, 133)",
+    equal: "rgb(126, 135, 144)",
+    unavailable: "rgb(126, 135, 144)",
+  };
+  for (const [label, benchmark, base] of expected) {
+    const cells = table
+      .getByRole("row", { name: new RegExp(`^${label}`) })
+      .locator("td");
+    await expect(cells.nth(1).locator(".metric-signals i")).toHaveCount(1);
+    const markers = cells.nth(2).locator(".metric-signals i");
+    await expect(markers).toHaveCount(2);
+    for (const [i, state] of [benchmark, base].entries()) {
+      await expect(markers.nth(i)).toHaveAttribute("data-comparison", state);
+      await expect(markers.nth(i)).toHaveCSS("background-color", colors[state]);
+      await expect(markers.nth(i)).toHaveAttribute(
+        "aria-label",
+        new RegExp(i === 0 ? "S&P 500" : "stratégie de base"),
+      );
+    }
+  }
+  await page
+    .locator(".performance-metrics-panel")
+    .screenshot({ path: testInfo.outputPath("double-metric-markers.png") });
 });

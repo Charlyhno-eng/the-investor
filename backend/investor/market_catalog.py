@@ -61,7 +61,7 @@ CURRENCIES = dict(
         ],
     )
 )
-COMMODITIES = {
+ARCHIVED_COMMODITIES = {
     "wb-crude-oil-brent",
     "wb-natural-gas-us",
     "wb-coal-australian",
@@ -83,3 +83,23 @@ COMMODITIES = {
     "wb-cocoa",
     "wb-cotton-a-index",
 }
+
+# Daily nearby futures; normalized to the previous physical quote's unit.
+# Stable IDs retain browser watchlists and quantities. These are price proxies,
+# not physical spot quotes or the total return of a rolling futures investment.
+POUND_KG = 0.45359237
+COMMODITY_FUTURES = {
+    "BZ=F": ("wb-crude-oil-brent", "Brent · futures", "($/bbl)", 1),
+    "NG=F": ("wb-natural-gas-us", "Gaz naturel US · futures", "($/mmbtu)", 1),
+    "GC=F": ("wb-gold", "Or · futures", "($/troy oz)", 1),
+    "SI=F": ("wb-silver", "Argent · futures", "($/troy oz)", 1),
+    "PL=F": ("wb-platinum", "Platine · futures", "($/troy oz)", 1),
+    "ALI=F": ("wb-aluminum", "Aluminium · futures", "($/mt)", 1),
+    "HG=F": ("wb-copper", "Cuivre · futures", "($/mt)", 1000 / POUND_KG),
+    "KE=F": ("wb-wheat-us-hrw", "Blé HRW US · futures", "($/mt)", 10 / (60 * POUND_KG)),
+    "ZC=F": ("wb-maize", "Maïs · futures", "($/mt)", 10 / (56 * POUND_KG)),
+    "ZS=F": ("wb-soybeans", "Soja · futures", "($/mt)", 10 / (60 * POUND_KG)),
+    "KC=F": ("wb-coffee-arabica", "Café arabica · futures", "($/kg)", 0.01 / POUND_KG),
+    "CC=F": ("wb-cocoa", "Cacao · futures", "($/kg)", 0.001),
+}
+COMMODITIES = {entry[0] for entry in COMMODITY_FUTURES.values()}

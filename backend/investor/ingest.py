@@ -16,8 +16,8 @@ from openpyxl import load_workbook
 
 from investor.countries import COUNTRIES, series_for
 from investor.db import DATA_DIR, save
-from investor.market import seed_crypto
-from investor.market_catalog import COMMODITIES
+from investor.market import seed_commodities, seed_crypto
+from investor.market_catalog import ARCHIVED_COMMODITIES
 
 log = logging.getLogger("ingest")
 WORLD_BANK = "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx"
@@ -69,7 +69,7 @@ def parse_world_bank(payload):
                 continue
             name = str(names[col]).strip()
             asset_id = "wb-" + re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-            if asset_id not in COMMODITIES:
+            if asset_id not in ARCHIVED_COMMODITIES:
                 continue
             values = []
             for row in rows[first:]:
@@ -100,7 +100,20 @@ def parse_world_bank(payload):
 
 def world_bank():
     assets, points = parse_world_bank(download(WORLD_BANK, "xlsx"))
-    save(assets, points, "world-bank")
+    # Explicit archival import must never overwrite migrated daily futures.
+    from investor.db import connect
+
+    with connect() as connection:
+        migrated = {
+            r["id"]
+            for r in connection.execute(
+                "SELECT id FROM assets WHERE category='commodity' AND frequency='daily'"
+            )
+        }
+    assets = [a for a in assets if a[0] not in migrated]
+    points = [p for p in points if p[0] not in migrated]
+    if assets:
+        save(assets, points, "world-bank")
     log.info("Banque mondiale : %d séries, %d observations", len(assets), len(points))
 
 
@@ -210,7 +223,9 @@ def fred():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--source", choices=["all", "world-bank", "fred", "crypto"], default="all"
+        "--source",
+        choices=["all", "world-bank", "fred", "crypto", "commodities"],
+        default="all",
     )
     parser.add_argument(
         "--interval", type=int, help="Répéter toutes les N secondes (minimum 3600)"
@@ -224,7 +239,8 @@ def main():
     while True:
         failed = False
         for source, run in [
-            ("world-bank", world_bank),
+            ("commodities", seed_commodities),
+            *([("world-bank", world_bank)] if args.source == "world-bank" else []),
             ("fred", fred),
             ("crypto", seed_crypto),
         ]:

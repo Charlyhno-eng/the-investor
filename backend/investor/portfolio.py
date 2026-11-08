@@ -18,6 +18,7 @@ class Holding(BaseModel):
 
 
 class PortfolioRequest(BaseModel):
+    locked_asset_ids: list[str] = Field(default_factory=list, max_length=200)
     holdings: list[Holding] = Field(max_length=200)
     years: int = Field(default=3, ge=1, le=20)
     include_benchmark: bool = False

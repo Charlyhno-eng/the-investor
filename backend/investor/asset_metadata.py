@@ -34,7 +34,7 @@ def enrich_asset(db, row):
 
 def visible_asset(row):
     if row["category"] == "commodity":
-        return row["id"] in COMMODITIES
+        return row["id"] in COMMODITIES and row["frequency"] == "daily"
     if row["category"] == "bond":
         return row["country_code"] in COUNTRIES
     return True
