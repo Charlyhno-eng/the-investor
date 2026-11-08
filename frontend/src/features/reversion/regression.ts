@@ -1,7 +1,7 @@
 import type { Point } from "../../lib/types";
 
 export type RegressionScale = "log" | "linear";
-export const minimumObservations = 30;
+const minimumObservations = 30;
 
 /** OLS against elapsed calendar years; residual error has n - 2 degrees of freedom. */
 export function fitRegression(

@@ -18,16 +18,21 @@ export function WatchlistPanel({ assets }: { assets: Asset[] }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const revision = JSON.stringify(
-    assets.map((a) => [a.id, a.last_date, a.last_value]),
+    assets
+      .filter(supportsDeviation)
+      .map((a) => [a.id, a.last_date, a.last_value]),
   );
   useEffect(() => {
     const controller = new AbortController();
     setRows([]);
     setError("");
-    if (!assets.some(supportsDeviation)) return () => controller.abort();
+    const assetIds = (JSON.parse(revision) as [string, string, number][]).map(
+      ([id]) => id,
+    );
+    if (!assetIds.length) return () => controller.abort();
     post<{ positions: Row[] }>(
       "/portfolio/regression",
-      { asset_ids: assets.filter(supportsDeviation).map((a) => a.id) },
+      { asset_ids: assetIds },
       controller.signal,
     )
       .then((r) => setRows(r.positions))

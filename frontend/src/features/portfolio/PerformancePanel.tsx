@@ -1,106 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { Icon } from "../../components/Icon";
+import { usePerformance } from "./usePerformance";
+import { PerformanceMetrics } from "./PerformanceMetrics";
+import { AllocationSignal } from "./AllocationSignal";
+import { modes, series, type PerformanceResult } from "./performanceTypes";
+import { useMemo, useState } from "react";
 import { HistoryChart } from "../../components/HistoryChart";
 import { Tooltip } from "../../components/Tooltip";
-import { post } from "../../lib/api";
 import { date, number, percent } from "../../lib/format";
-
-type SeriesKey = "portfolio" | "benchmark" | "optimized";
-type Mode =
-  "balanced" | "volatility" | "performance" | "drawdown" | "correlation";
-const modes: { key: Mode; title: string; description: string }[] = [
-  {
-    key: "balanced",
-    title: "Équilibre",
-    description: "Meilleur ratio rendement / volatilité (Sharpe).",
-  },
-  {
-    key: "volatility",
-    title: "Volatilité minimale",
-    description: "Réduire au maximum les variations du portefeuille.",
-  },
-  {
-    key: "performance",
-    title: "Performance maximale",
-    description: "Maximiser le rendement cumulé historique.",
-  },
-  {
-    key: "drawdown",
-    title: "Drawdown minimal",
-    description: "Limiter la plus forte baisse depuis un sommet.",
-  },
-  {
-    key: "correlation",
-    title: "Corrélations minimales",
-    description:
-      "Minimiser le risque des rendements standardisés pour favoriser des corrélations faibles ou négatives.",
-  },
-];
-type Metrics = {
-  alpha: number | null;
-  beta: number | null;
-  total_return: number;
-  cagr: number;
-  sortino: number | null;
-  calmar: number | null;
-  volatility: number;
-  max_drawdown: number;
-  sharpe: number | null;
-};
-export type PerformanceResult = {
-  status: "ready";
-  currency: "EUR";
-  start: string;
-  end: string;
-  frequency: "daily";
-  observations: number;
-  mode?: Mode | null;
-  history?: "common" | "extended";
-  requested_start?: string;
-  cash_until?: { id: string; name: string; date: string }[];
-  equity: {
-    time: string;
-    portfolio: number;
-    benchmark: number;
-    optimized?: number;
-  }[];
-  metrics: { portfolio: Metrics; benchmark: Metrics; optimized?: Metrics };
-  positions: {
-    id: string;
-    name: string;
-    quantity: number;
-    weight: number;
-    date: string;
-    recommended_quantity: number | null;
-    recommended_weight: number | null;
-  }[];
-};
-type Result =
-  | PerformanceResult
-  | {
-      status: "insufficient";
-      message: string;
-      excluded?: { id: string; name: string; reason: string }[];
-    };
-const series: { key: SeriesKey; title: string; color: string }[] = [
-  { key: "portfolio", title: "Portfolio actuel", color: "#edb786" },
-  { key: "benchmark", title: "S&P 500", color: "#65b9ff" },
-  { key: "optimized", title: "Allocation optimisée", color: "#a4d8b6" },
-];
-
-const metricRows: {
-  key: Exclude<keyof Metrics, "total_return" | "alpha" | "beta">;
-  label: string;
-  lower?: boolean;
-  ratio?: boolean;
-}[] = [
-  { key: "cagr", label: "CAGR" },
-  { key: "volatility", label: "Volatilité annualisée", lower: true },
-  { key: "max_drawdown", label: "Drawdown maximal", lower: true },
-  { key: "sharpe", label: "Ratio de Sharpe", ratio: true },
-  { key: "sortino", label: "Ratio de Sortino", ratio: true },
-  { key: "calmar", label: "Ratio de Calmar", ratio: true },
-];
 
 export function PerformancePanel({
   holdings,
@@ -179,55 +84,16 @@ function PerformanceView({
   years: number;
   history: string;
 }) {
-  const [result, setResult] = useState<Result | null>(null);
-  const [mode, setMode] = useState<Mode>("balanced");
-  const [optimize, setOptimize] = useState<Mode | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [revision, setRevision] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: ReturnType<typeof setTimeout>;
-    let attempts = 0;
-    setLoading(true);
-    setError("");
-    async function load() {
-      try {
-        const data = await post<Result | { status: "pending" }>(
-          optimize ? "/portfolio/optimize" : "/portfolio/performance",
-          {
-            holdings: JSON.parse(holdings),
-            locked_asset_ids: JSON.parse(locks),
-            years,
-            history,
-            mode: optimize ?? "balanced",
-          },
-          controller.signal,
-        );
-        if (controller.signal.aborted) return;
-        if (data.status === "pending") {
-          if (++attempts >= 90)
-            throw new Error(
-              "Les données prennent plus de temps que prévu. Réessayez dans un instant.",
-            );
-          timer = setTimeout(load, 2000);
-        } else {
-          setResult(data);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (!controller.signal.aborted) {
-          setError((e as Error).message);
-          setLoading(false);
-        }
-      }
-    }
-    void load();
-    return () => {
-      controller.abort();
-      clearTimeout(timer);
-    };
-  }, [holdings, locks, years, history, optimize, revision]);
+  const {
+    result,
+    mode,
+    setMode,
+    optimize,
+    setOptimize,
+    loading,
+    error,
+    retry,
+  } = usePerformance({ holdings, locks, years, history });
   const ready = useMemo(() => {
     if (result?.status !== "ready") return null;
     if (!result.mode || result.mode === mode) return result;
@@ -273,10 +139,7 @@ function PerformanceView({
       {error && (
         <p className="error" role="alert">
           {error}{" "}
-          <button
-            className="secondary-button"
-            onClick={() => setRevision((v) => v + 1)}
-          >
+          <button className="secondary-button" onClick={() => retry()}>
             Réessayer
           </button>
         </p>
@@ -317,134 +180,7 @@ function PerformanceView({
                   </div>
                 ))}
             </div>
-            <details className="performance-metrics-panel" open>
-              <summary>Indicateurs de performance</summary>
-              <div className="table-scroll">
-                <table
-                  className="positions-table performance-metrics"
-                  aria-label="Indicateurs de comparaison"
-                >
-                  <thead>
-                    <tr>
-                      <th scope="col">Indicateur</th>
-                      <th scope="col">S&amp;P 500</th>
-                      <th scope="col">Ma stratégie</th>
-                      <th scope="col">Ma stratégie optimisée</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {metricRows.map((metric) => (
-                      <tr key={metric.key}>
-                        <th scope="row">
-                          {metric.label}
-                          <small>
-                            {metric.lower ? "Plus faible" : "Plus élevé"}
-                          </small>
-                        </th>
-                        {(["benchmark", "portfolio", "optimized"] as const).map(
-                          (key) => {
-                            const raw = ready.metrics[key]?.[metric.key];
-                            const normalize = (
-                              raw: number | null | undefined,
-                            ) =>
-                              raw == null
-                                ? null
-                                : metric.key === "max_drawdown"
-                                  ? Math.abs(raw)
-                                  : raw;
-                            const value = normalize(raw);
-                            const compare = (
-                              reference: number | null,
-                              name: string,
-                            ) => {
-                              const delta =
-                                value == null || reference == null
-                                  ? null
-                                  : (value - reference) *
-                                    (metric.lower ? -1 : 1);
-                              const state =
-                                delta == null
-                                  ? "unavailable"
-                                  : Math.abs(delta) < 1e-10
-                                    ? "equal"
-                                    : delta > 0
-                                      ? "better"
-                                      : "worse";
-                              const status =
-                                delta == null
-                                  ? `Comparaison indisponible avec ${name}`
-                                  : state === "equal"
-                                    ? `Équivalent ${name === "le S&P 500" ? "au S&P 500" : `à ${name}`}`
-                                    : state === "better"
-                                      ? `Meilleur que ${name}`
-                                      : `Moins bon que ${name}`;
-                              return { state, status };
-                            };
-                            const benchmark = compare(
-                              normalize(ready.metrics.benchmark[metric.key]),
-                              "le S&P 500",
-                            );
-                            const current = compare(
-                              normalize(ready.metrics.portfolio[metric.key]),
-                              "la stratégie de base",
-                            );
-                            const markers =
-                              key === "benchmark"
-                                ? [
-                                    {
-                                      state: "reference",
-                                      status: "Référence S&P 500",
-                                    },
-                                  ]
-                                : key === "optimized"
-                                  ? [benchmark, current]
-                                  : [benchmark];
-                            const status = markers
-                              .map((m) => m.status)
-                              .join(" · ");
-                            return (
-                              <td
-                                key={key}
-                                data-comparison={
-                                  key === "benchmark"
-                                    ? "reference"
-                                    : benchmark.state
-                                }
-                                title={status}
-                              >
-                                <span className="metric-value">
-                                  <span className="metric-signals">
-                                    {markers.map((marker, i) => (
-                                      <i
-                                        key={i}
-                                        data-comparison={marker.state}
-                                        role="img"
-                                        aria-label={marker.status}
-                                        title={marker.status}
-                                      />
-                                    ))}
-                                  </span>
-                                  {value == null
-                                    ? "—"
-                                    : metric.ratio
-                                      ? number(value, 2)
-                                      : percent(value)}
-                                </span>
-                              </td>
-                            );
-                          },
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="metric-signals-legend">
-                Allocation optimisée : premier trait comparé au S&amp;P 500,
-                second à la stratégie de base. Vert : meilleur · Rouge : moins
-                bon · Gris : égal ou indisponible.
-              </p>
-            </details>
+            <PerformanceMetrics result={ready} />
             <HistoryChart lines={lines} />
             <div className="performance-caption">
               <span>
@@ -543,7 +279,7 @@ function PerformanceView({
                 disabled={loading || !!ready.metrics.optimized}
                 onClick={() => {
                   setOptimize(mode);
-                  setRevision((v) => v + 1);
+                  retry();
                 }}
               >
                 {loading && optimize
@@ -631,52 +367,5 @@ function PerformanceView({
         </>
       )}
     </>
-  );
-}
-
-function AllocationSignal({
-  current,
-  recommended,
-}: {
-  current: number;
-  recommended: number | null;
-}) {
-  if (recommended == null) return null;
-  const delta = recommended - current;
-  // Ignore numerical solver noise, retaining changes below the display precision.
-  const unchanged = Math.abs(delta) < 1e-8;
-  const exit = !unchanged && recommended <= 1e-8;
-  const strong = Math.abs(delta) >= 0.05 - 1e-8;
-  const label = unchanged
-    ? "Conserver la position"
-    : exit
-      ? "Sortir de la position"
-      : delta > 0
-        ? strong
-          ? "Renforcer fortement la position"
-          : "Renforcer la position"
-        : strong
-          ? "Alléger fortement la position"
-          : "Alléger la position";
-  const icon = unchanged
-    ? "equal"
-    : exit
-      ? "close"
-      : delta > 0
-        ? strong
-          ? "chevrons-up"
-          : "chevron-up"
-        : strong
-          ? "chevrons-down"
-          : "chevron-down";
-  return (
-    <span
-      className={`allocation-signal ${unchanged ? "hold" : delta > 0 ? "increase" : "decrease"}`}
-      role="img"
-      aria-label={label}
-      title={label}
-    >
-      <Icon name={icon} size={18} />
-    </span>
   );
 }

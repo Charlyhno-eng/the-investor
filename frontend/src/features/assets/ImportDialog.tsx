@@ -140,7 +140,7 @@ export function ImportDialog({
     !selected &&
     !searching &&
     (searchError || (query.trim().length >= 2 && !results.length)) &&
-    /^[A-Za-z0-9][A-Za-z0-9.\-]{0,23}$/.test(query.trim());
+    /^[A-Za-z0-9][A-Za-z0-9.-]{0,23}$/.test(query.trim());
   return (
     <dialog
       ref={dialog}

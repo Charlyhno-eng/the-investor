@@ -1,5 +1,5 @@
+import { useStrategies } from "./features/portfolio/useStrategies";
 import {
-  useStrategies,
   StrategyLibrary,
   StrategyWorkspace,
 } from "./features/portfolio/Strategies";
@@ -19,11 +19,11 @@ import {
   type Library,
   type Favorites,
 } from "./lib/favorites";
+import { PortfolioPanel } from "./features/portfolio/PortfolioPanel";
 import {
-  PortfolioPanel,
   readQuantities,
   type Quantities,
-} from "./features/portfolio/PortfolioPanel";
+} from "./features/portfolio/quantities";
 export function App() {
   const strategies = useStrategies();
   const { id, categoryId } = useParams();
@@ -130,16 +130,17 @@ export function App() {
     return () => clearInterval(interval);
   }, [refresh]);
   const selected = visibleAssets.find((a) => a.id === id);
+  const selectedCategory = selected?.category;
   useEffect(() => {
-    if (selected)
+    if (selectedCategory)
       setCategory((current) =>
         isLibrary(library)
           ? library
           : isLibrary(current)
             ? current
-            : selected.category,
+            : selectedCategory,
       );
-  }, [selected?.id, library]);
+  }, [selectedCategory, library]);
   useEffect(() => {
     if (
       categoryId === "strategy" ||

@@ -4,9 +4,9 @@ import logging
 import time
 
 from investor import db
+from investor.imports.catalog import COMMODITY_FUTURES, CRYPTO, CURRENCIES, ETF
+from investor.imports.service import import_symbol, process_one
 from investor.ingest import fred
-from investor.market import CRYPTO, import_symbol, process_one
-from investor.market_catalog import COMMODITY_FUTURES, CURRENCIES, ETF
 
 log = logging.getLogger(__name__)
 

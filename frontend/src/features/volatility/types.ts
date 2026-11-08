@@ -3,7 +3,7 @@ export type MapPoint = {
   volatility: number;
   sharpe: number | null;
 };
-export type NamedPoint = MapPoint & {
+type NamedPoint = MapPoint & {
   id: string;
   name: string;
   kind: "asset" | "benchmark";

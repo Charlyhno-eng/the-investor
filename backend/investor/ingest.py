@@ -16,8 +16,8 @@ from openpyxl import load_workbook
 
 from investor.countries import COUNTRIES, series_for
 from investor.db import DATA_DIR, save
-from investor.market import seed_commodities, seed_crypto
-from investor.market_catalog import ARCHIVED_COMMODITIES
+from investor.imports.catalog import ARCHIVED_COMMODITIES
+from investor.imports.service import seed_commodities, seed_crypto
 
 log = logging.getLogger("ingest")
 WORLD_BANK = "https://thedocs.worldbank.org/en/doc/74e8be41ceb20fa0da750cda2f6b9e4e-0050012026/related/CMO-Historical-Data-Monthly.xlsx"

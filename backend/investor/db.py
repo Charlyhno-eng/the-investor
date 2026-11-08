@@ -52,7 +52,6 @@ def connect():
         ("country_code", "TEXT"),
         ("benchmark_years", "INTEGER"),
         ("country", "TEXT"),
-        ("is_dividend", "INTEGER NOT NULL DEFAULT 0"),
         ("sector", "TEXT"),
     ]:
         if column not in columns:

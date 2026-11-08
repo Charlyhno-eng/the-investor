@@ -46,7 +46,7 @@ Sources : [Banque mondiale, Commodity Markets](https://www.worldbank.org/en/rese
 
 ## Dividendes des actions
 
-Le bouton **Dividende** en haut à droite d’une fiche action active une classification manuelle, indépendante des étoiles du Portfolio et de la Watchlist. Elle est enregistrée dans SQLite (`assets.is_dividend`) via `PATCH /api/assets/{id}/dividend-status` et reste présente après actualisation des cours. Le filtre **Dividendes uniquement** sélectionne les actions marquées encore présentes dans la liste affichée ; un retrait les exclut, un réajout restaure leur classification. Il ne prédit aucun versement et ne modifie pas l’historique des dividendes. Les actions retirées de la bibliothèque peuvent être réajoutées par le dialogue d’ajout sans télécharger une deuxième copie de leur historique.
+Le filtre **Dividendes uniquement** sélectionne les actions dont le rendement annuel moyen des dividendes dépasse 4 %, sur les trois années civiles terminées précédant la dernière date de couverture. Seules les années entièrement couvertes et aux pourcentages connus entrent dans la moyenne ; les années sans versement comptent pour zéro. La classification est calculée à partir de l’historique importé, indépendamment des favoris. Les actions retirées peuvent être réajoutées sans dupliquer leur historique.
 
 Le worker télécharge aussi les événements `Dividends` de l’historique quotidien Yahoo (`actions=True`) et les conserve dans les tables `dividends` et `dividend_imports`. Les consultations `GET /api/assets/{id}/dividends` restent locales. Une actualisation réussie remplace les événements de la fenêtre téléchargée pour prendre en compte corrections et suppressions ; une erreur conserve les données précédentes. Les actions déjà présentes sont complétées à leur prochaine actualisation.
 
@@ -62,22 +62,28 @@ Les obligations présentent des taux de référence souverains. Elles sont class
 
 ```text
 backend/investor/
-  api.py                   catalogue, historiques et routes de portefeuille
-  db.py                    stockage, migration et écritures transactionnelles
+  api.py                   assemblage FastAPI et cycle de vie du worker
+  assets/                  routes du catalogue, métadonnées et comparaison
+  portfolio/               routes, valorisation, performance, régression, volatilité
+  imports/                 routes, validation, recherche, catalogue et file d’import
+  db.py                    stockage SQLite et migrations
   ingest.py, countries.py  connecteurs Banque mondiale et OCDE/FRED
-  market_catalog.py        sélection crypto initiale
-  market_schemas.py        validation des demandes d’import
-  market_api.py            file d’import et recherche par nom ou symbole
-  stock_search.py          découverte Yahoo, cache borné, repli local
-  import_runner.py         traitement automatique de la file avec l’API
-  market.py                téléchargement et archives Yahoo
   worker.py                orchestration indépendante des imports
+backend/tests/
+  unit/                    calculs numériques, métadonnées et parseurs
+  integration/             API, stockage, imports et traitements asynchrones
+  conftest.py, support.py  données et fixtures partagées
 frontend/src/
   components/              graphiques, infobulles et saisies partagées
   features/assets/         catalogue et vue marché
   features/reversion/      régression et bandes
-  features/portfolio/      portefeuille, simulations et optimisation
+  features/portfolio/      composants, hooks, types et stockage des simulations
   features/volatility/     frontières d’efficience
+frontend/tests/
+  unit/                    calculs purs exécutés par Vitest dans Node
+  e2e/                     parcours navigateur Playwright, desktop et mobile
+scripts/
+  check_structure.py       vérification des fichiers et dossiers sources
 ```
 
 ## Stockage et pipeline
@@ -92,7 +98,7 @@ Banque mondiale / FRED / Yahoo → worker → archives + SQLite → API → Reac
 # Imports ponctuels ; ne nécessitent pas l’API
 PYTHONPATH=backend uv run python -m investor.ingest --source world-bank
 PYTHONPATH=backend uv run python -m investor.ingest --source fred
-PYTHONPATH=backend uv run python -m investor.market --seed
+PYTHONPATH=backend uv run python -m investor.imports.service --seed
 ```
 
 Les imports indépendants continuent après l’échec d’une source ; les données précédentes sont conservées. Un import ponctuel incomplet retourne un code non nul. Les archives et la base sont ignorées par Git : exécuter `make import` sur une nouvelle installation. `INVESTOR_DATA_DIR` choisit un autre répertoire. Prévoir un volume persistant et sauvegarder SQLite avec son API de sauvegarde.
@@ -100,13 +106,10 @@ Les imports indépendants continuent après l’échec d’une source ; les donn
 ## Vérification
 
 ```sh
-make test
-make build
-# Formatage et contrôles statiques :
-uv run ruff check backend
-uv run ruff format --check backend
-cd frontend
-npm run format:check
+make check       # lint, format, code inutilisé, structure, tests backend/unitaires et build
+make check-all   # ajoute les parcours navigateur desktop et mobile
+make format      # corrige les règles automatiques et formate Python/TypeScript/CSS
+make test-unit   # uniquement les tests unitaires backend et frontend
 ```
 
 Le proxy Vite sert `/api` en développement. Un déploiement devra router `/api` vers FastAPI et les routes d’interface vers `index.html`. Cette application est prévue pour un usage local : avant exposition publique, ajouter contrôle d’accès, quotas et supervision des imports/calculs.
@@ -115,7 +118,9 @@ TradingView Lightweight Charts™ — Copyright © 2025 TradingView, Inc., Apach
 
 ### Organisation et tests
 
-Le backend métier est dans `backend/investor/` et ses tests dans `backend/tests/`. Les calculs du portefeuille sont dans `portfolio.py`, `performance.py` et `volatility.py`. La régression des prix est calculée dans le navigateur.
+Les tests unitaires sont séparés des tests d’intégration et des parcours navigateur. Les fixtures partagées du backend vivent dans `backend/tests/support.py`, sans importer un module de tests depuis un autre. La régression des prix est calculée dans le navigateur.
+
+Ruff contrôle les imports, les erreurs Python et le formatage. ESLint vérifie TypeScript, les règles des hooks et les exports compatibles avec React Refresh. Prettier fixe le style du frontend. Knip détecte les fichiers, exports et dépendances inutilisés. `scripts/check_structure.py` refuse les fichiers et dossiers sources vides et les tests placés dans le code applicatif. Les dépendances installées, caches, rapports de tests et données locales sont exclus du contrôle de structure.
 
 ```sh
 make test                           # tests Python
