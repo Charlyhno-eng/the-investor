@@ -281,3 +281,45 @@ def test_sp500_reference_is_in_correlation_without_becoming_a_position(local):
     assert result["correlation"]["matrix"][1][1] == pytest.approx(1)
     assert result["correlation"]["matrix"][0][1] == pytest.approx(1)
     assert result["total_usd"] == 200
+
+
+def test_five_hundred_holdings_are_valued_and_correlated(local):
+    """The chart's dense mode must also be reachable with real API holdings."""
+    ids = [f"dense-{i}" for i in range(500)]
+    days = [(date.today() - timedelta(days=40 - i)).isoformat() for i in range(35)]
+    points = [
+        (asset_id, day, 100 * math.exp(0.01 * math.sin(i)))
+        for asset_id in ids
+        for i, day in enumerate(days)
+    ]
+    db.save(
+        [
+            (
+                asset_id,
+                asset_id,
+                "stock",
+                "price",
+                "USD",
+                "daily",
+                "test",
+                "https://example.com",
+            )
+            for asset_id in ids
+        ],
+        points,
+        "dense-test",
+    )
+    with db.connect() as connection:
+        connection.executemany("INSERT INTO price_observations VALUES (?,?,?)", points)
+    response = local.post(
+        "/api/portfolio/analytics",
+        json={"holdings": [{"asset_id": asset_id, "quantity": 1} for asset_id in ids]},
+    )
+    assert response.status_code == 200
+    result = response.json()
+    assert result["status"] == "ready"
+    assert len(result["positions"]) == 500
+    assert sum(p["weight"] for p in result["positions"]) == pytest.approx(1)
+    assert len(result["correlation"]["matrix"]) == 500
+    assert all(len(row) == 500 for row in result["correlation"]["matrix"])
+    assert result["correlation"]["matrix"][0][-1] == pytest.approx(1)

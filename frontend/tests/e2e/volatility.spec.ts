@@ -83,6 +83,14 @@ async function assertCleanChart(page: Page, count: number) {
   await expect(page.locator(".risk-table tbody tr")).toHaveCount(count);
   await expect(page.locator(".risk-table")).toBeHidden();
   await expect(page.locator(".risk-benchmark-star")).toHaveCount(1);
+  await expect(page.locator(".vol-panel .vol-heading")).toHaveCount(0);
+  await expect(page.locator(".vol-panel")).not.toContainText(
+    "RENDEMENT & RISQUE",
+  );
+  await expect(
+    page.locator(".vol-chart-card").getByLabel("Période de comparaison"),
+  ).toBeVisible();
+
   await expect(
     page.locator(".risk-map-legend, .risk-point-label, .risk-marker line"),
   ).toHaveCount(0);
@@ -187,7 +195,7 @@ test("portfolio always includes all holdings, with one point per asset plus benc
   await assertCleanChart(page, 3);
   await expect(
     page.locator(".vol-portfolio > .portfolio-section-heading h2"),
-  ).toContainText("Frontières d’efficience");
+  ).toHaveCount(0);
   await page.getByText("Détail des actifs", { exact: true }).click();
   await expect(page.locator(".risk-table")).toBeVisible();
   await page.getByText("Détail des actifs", { exact: true }).click();

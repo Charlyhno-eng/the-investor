@@ -12,6 +12,7 @@ import { categories } from "../../lib/format";
 import type { Asset } from "../../lib/types";
 import { Icon } from "../../components/Icon";
 import { AllocationChart } from "./AllocationChart";
+import { RecommendationsPanel } from "../recommendations/RecommendationsPanel";
 export function PortfolioPanel({
   assets,
   quantities,
@@ -21,6 +22,7 @@ export function PortfolioPanel({
   positionsHeader,
   lockedAssetIds = [],
   onToggleLock,
+  recommendationAssets = assets,
 }: {
   lockedAssetIds?: string[];
   onToggleLock?: (id: string) => void;
@@ -30,6 +32,7 @@ export function PortfolioPanel({
   assets: Asset[];
   quantities: Quantities;
   onQuantity: (id: string, quantity: number) => void;
+  recommendationAssets?: Asset[];
 }) {
   const [tab, setTab] = useState("positions");
   const [allocationView, setAllocationView] = useState("assets");
@@ -195,6 +198,9 @@ export function PortfolioPanel({
             ["performance", "Comparaison & optimisation", "stock"],
             ["correlation", "Corrélations", "analysis"],
             ["volatility", "Frontières d’efficience", "analysis"],
+            ...(!simulation
+              ? [["recommendations", "Recommandation action", "stock"]]
+              : []),
           ].map(([key, title, icon]) => (
             <button
               key={key}
@@ -207,10 +213,10 @@ export function PortfolioPanel({
             </button>
           ))}
         </div>
-        {loading && (
+        {tab !== "recommendations" && loading && (
           <p role="status">Actualisation des valeurs du portefeuille…</p>
         )}
-        {error && (
+        {tab !== "recommendations" && error && (
           <p className="error" role="alert">
             {error}{" "}
             <button
@@ -221,7 +227,7 @@ export function PortfolioPanel({
             </button>
           </p>
         )}
-        {!assets.length && (
+        {tab !== "recommendations" && !assets.length && (
           <p>
             {simulation
               ? "Ajoutez des actifs à cette stratégie pour commencer."
@@ -239,6 +245,12 @@ export function PortfolioPanel({
           <PerformancePanel
             holdings={holdings}
             lockedAssetIds={lockedAssetIds}
+          />
+        )}
+        {tab === "recommendations" && !simulation && (
+          <RecommendationsPanel
+            assets={recommendationAssets}
+            heldAssetIds={assets.map((a) => a.id)}
           />
         )}
         {tab === "positions" && (
@@ -299,6 +311,7 @@ export function PortfolioPanel({
               </label>
               {result?.positions.length ? (
                 <AllocationChart
+                  key={allocationView}
                   positions={
                     allocationView === "assets"
                       ? result.positions
@@ -331,16 +344,18 @@ export function PortfolioPanel({
             onYearsChange={setYears}
           />
         )}
-        {tab !== "volatility" && !!result?.excluded.length && (
-          <div className="portfolio-exclusions">
-            <p>Positions non valorisées :</p>
-            {result.excluded.map((entry) => (
-              <p key={entry.id}>
-                {entry.name} : {entry.reason}
-              </p>
-            ))}
-          </div>
-        )}
+        {tab !== "volatility" &&
+          tab !== "recommendations" &&
+          !!result?.excluded.length && (
+            <div className="portfolio-exclusions">
+              <p>Positions non valorisées :</p>
+              {result.excluded.map((entry) => (
+                <p key={entry.id}>
+                  {entry.name} : {entry.reason}
+                </p>
+              ))}
+            </div>
+          )}
       </section>
     </>
   );

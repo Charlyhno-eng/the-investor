@@ -262,6 +262,7 @@ export function App() {
             <AssetDetail
               key={selected.id}
               asset={selected}
+              assets={visibleAssets}
               favorite={favorites[selected.id]}
               onToggleFavorite={() => toggleFavorite(selected.id)}
               onRemove={() => removeAsset(selected.id)}
@@ -272,6 +273,10 @@ export function App() {
             />
           ) : category === "portfolio" ? (
             <PortfolioPanel
+              recommendationAssets={visibleAssets.filter(
+                (a) =>
+                  favorites[a.id] === "gold" || favorites[a.id] === "silver",
+              )}
               assets={visibleAssets
                 .filter((a) => favorites[a.id] === "gold")
                 .sort(

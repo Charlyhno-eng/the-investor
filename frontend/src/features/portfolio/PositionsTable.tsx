@@ -9,6 +9,8 @@ import type { Asset } from "../../lib/types";
 import { RegressionDeviation, type Deviation } from "./RegressionDeviation";
 import type { Quantities } from "./quantities";
 import type { PortfolioResult } from "./types";
+import { useMomentumScores } from "../momentum/useMomentumScores";
+import { MomentumCell, MomentumHeading } from "../momentum/MomentumCell";
 
 export function PositionsTable({
   assets,
@@ -29,6 +31,7 @@ export function PositionsTable({
   onToggleLock?: (id: string) => void;
   simulation: boolean;
 }) {
+  const momentum = useMomentumScores(assets);
   return (
     <div className="table-scroll">
       <table className="positions-table">
@@ -38,6 +41,9 @@ export function PositionsTable({
             <th>Quantité détenue</th>
             <th>Valeur en €</th>
             <th>Date du cours</th>
+            <th>
+              <MomentumHeading />
+            </th>
             <th>
               Écart à la régression{" "}
               <Tooltip floating label="Écart à la régression sur cinq ans">
@@ -117,6 +123,9 @@ export function PositionsTable({
                 </td>
                 <td>{position ? money(position.value) : "—"}</td>
                 <td>{position ? date(position.date) : "—"}</td>
+                <td>
+                  <MomentumCell asset={asset} momentum={momentum} />
+                </td>
                 <td>
                   <RegressionDeviation deviation={deviation} />
                 </td>

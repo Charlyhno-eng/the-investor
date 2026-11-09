@@ -88,11 +88,15 @@ export function VolatilityPanel({ asset, holdings, lockedAssetIds }: Props) {
           : "Frontières d’efficience de l’actif"
       }
     >
-      <div className={portfolio ? "portfolio-section-heading" : "vol-heading"}>
-        <div>
-          {!portfolio && <span className="eyebrow">RENDEMENT & RISQUE</span>}
-          <h2>
-            Frontières d’efficience{" "}
+      <section className="vol-chart-card">
+        <div className="vol-chart-heading">
+          <div className="vol-chart-context">
+            {!portfolio && <h3>{asset?.name} face au marché</h3>}
+            {ready && (
+              <span className="fine-print">
+                {date(result.start)} — {date(result.end)} · EUR
+              </span>
+            )}
             <Tooltip label="Comprendre le graphique">
               Un point par actif, et le S&P 500 en étoile bleue, sur les mêmes
               dates et en euros. La courbe minimise la variance pour chaque
@@ -104,61 +108,51 @@ export function VolatilityPanel({ asset, holdings, lockedAssetIds }: Props) {
               est en pointillés. Les rendements moyens historiques servent
               d’estimation des rendements attendus.
             </Tooltip>
-          </h2>
-          {portfolio && (
-            <p>Comparez le rendement et le risque de vos actifs au S&P 500.</p>
-          )}
-        </div>
-        <div className="range-buttons" aria-label="Période de comparaison">
-          {[1, 3, 5, 10].map((y) => (
-            <button
-              key={y}
-              aria-pressed={y === years}
-              onClick={() => setYears(y)}
-            >
-              {y}A
-            </button>
-          ))}
-        </div>
-      </div>
-      {loading && (
-        <div className="chart-placeholder" role="status">
-          <span className="spinner" />
-          {portfolio
-            ? "Calcul du risque et chargement du S&P 500…"
-            : "Calcul du rendement et chargement du S&P 500…"}
-        </div>
-      )}
-      {error && (
-        <p className="error" role="alert">
-          {error}{" "}
-          <button
-            className="secondary-button"
-            onClick={() => setRevision((v) => v + 1)}
-          >
-            Réessayer
-          </button>
-        </p>
-      )}
-      {result?.status === "insufficient" && (
-        <div className="portfolio-empty" role="status">
-          {result.message}
-        </div>
-      )}
-      {ready && (
-        <section className="vol-chart-card">
-          <div className="vol-chart-heading">
-            {!portfolio && <h3>{asset?.name} face au marché</h3>}
-            <span className="fine-print">
-              {date(result.start)} — {date(result.end)} · EUR
-            </span>
           </div>
+          <div className="range-buttons" aria-label="Période de comparaison">
+            {[1, 3, 5, 10].map((y) => (
+              <button
+                key={y}
+                aria-pressed={y === years}
+                onClick={() => setYears(y)}
+              >
+                {y}A
+              </button>
+            ))}
+          </div>
+        </div>
+        {loading && (
+          <div className="chart-placeholder" role="status">
+            <span className="spinner" />
+            {portfolio
+              ? "Calcul du risque et chargement du S&P 500…"
+              : "Calcul du rendement et chargement du S&P 500…"}
+          </div>
+        )}
+        {error && (
+          <p className="error" role="alert">
+            {error}{" "}
+            <button
+              className="secondary-button"
+              onClick={() => setRevision((v) => v + 1)}
+            >
+              Réessayer
+            </button>
+          </p>
+        )}
+        {result?.status === "insufficient" && (
+          <div className="portfolio-empty" role="status">
+            {result.message}
+          </div>
+        )}
+
+        {ready && (
           <RiskReturnChart
             key={`${selected}-${years}-${result.end}`}
             result={result}
           />
-        </section>
-      )}
+        )}
+      </section>
       {!!result?.excluded?.length && (
         <div className="vol-exclusions" role="note">
           <strong>Actifs hors graphique</strong>

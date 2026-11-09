@@ -7,7 +7,10 @@ import { Icon } from "../../components/Icon";
 import { RegressionDeviation, type Deviation } from "./RegressionDeviation";
 import type { Asset } from "../../lib/types";
 type Row = Deviation;
+import { useMomentumScores } from "../momentum/useMomentumScores";
+import { MomentumCell, MomentumHeading } from "../momentum/MomentumCell";
 export function WatchlistPanel({ assets }: { assets: Asset[] }) {
+  const momentum = useMomentumScores(assets);
   const orderedAssets = [...assets].sort(
     (a, b) =>
       categories.findIndex((c) => c.id === a.category) -
@@ -69,6 +72,9 @@ export function WatchlistPanel({ assets }: { assets: Asset[] }) {
               <tr>
                 <th>Actif</th>
                 <th>Date du cours</th>
+                <th>
+                  <MomentumHeading />
+                </th>
                 <th>Écart à la régression</th>
               </tr>
             </thead>
@@ -80,7 +86,7 @@ export function WatchlistPanel({ assets }: { assets: Asset[] }) {
                     {(index === 0 ||
                       orderedAssets[index - 1].category !== a.category) && (
                       <tr className="watchlist-class-heading">
-                        <th colSpan={3}>
+                        <th colSpan={4}>
                           {categories.find((c) => c.id === a.category)?.name}
                         </th>
                       </tr>
@@ -105,6 +111,9 @@ export function WatchlistPanel({ assets }: { assets: Asset[] }) {
                         </small>
                       </th>
                       <td>{date(a.last_date)}</td>
+                      <td>
+                        <MomentumCell asset={a} momentum={momentum} />
+                      </td>
                       <td>
                         {supportsDeviation(a) ? (
                           <RegressionDeviation deviation={row} />

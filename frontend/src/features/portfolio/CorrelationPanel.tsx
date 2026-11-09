@@ -1,3 +1,4 @@
+import { CorrelationHeatmap } from "./CorrelationHeatmap";
 import { Tooltip } from "../../components/Tooltip";
 import { number } from "../../lib/format";
 import { correlationColor } from "./correlationColor";
@@ -60,48 +61,59 @@ export function CorrelationPanel({
               <span>+1 · Similaires</span>
             </div>
           </div>
-          <div className="table-scroll correlation-scroll">
-            <table className="correlation-table">
-              <caption className="sr-only">
-                Corrélations des actifs et du S&P 500
-              </caption>
-              <thead>
-                <tr>
-                  <th>Actif</th>
-                  {correlation.assets.map((a) => (
-                    <th key={a.id}>{a.name}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {correlation.assets.map((a, i) => (
-                  <tr key={a.id}>
-                    <th>{a.name}</th>
-                    {correlation.matrix[i].map((value, j) => (
-                      <td
-                        key={j}
-                        title={`${a.name} / ${correlation.assets[j].name}`}
-                        style={{
-                          background:
-                            value === null
-                              ? "#171d29"
-                              : correlationColor(value),
-                          color:
-                            value === null
-                              ? "#8490a2"
-                              : Math.abs(value) > 0.72
-                                ? "#fff"
-                                : "#172235",
-                        }}
-                      >
-                        {value === null ? "—" : number(value, 2)}
-                      </td>
+          {correlation.assets.length > 16 ? (
+            <CorrelationHeatmap correlation={correlation} />
+          ) : (
+            <div className="table-scroll correlation-scroll correlation-viewport">
+              <table
+                className="correlation-table"
+                style={{
+                  fontSize: `${Math.max(8, 14 - correlation.assets.length / 3)}px`,
+                }}
+              >
+                <caption className="sr-only">
+                  Corrélations des actifs et du S&P 500
+                </caption>
+                <thead>
+                  <tr>
+                    <th>Actif</th>
+                    {correlation.assets.map((a) => (
+                      <th key={a.id} title={a.name}>
+                        {a.name}
+                      </th>
                     ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {correlation.assets.map((a, i) => (
+                    <tr key={a.id}>
+                      <th title={a.name}>{a.name}</th>
+                      {correlation.matrix[i].map((value, j) => (
+                        <td
+                          key={j}
+                          title={`${a.name} / ${correlation.assets[j].name} : ${value === null ? "—" : number(value, 2)}`}
+                          style={{
+                            background:
+                              value === null
+                                ? "#171d29"
+                                : correlationColor(value),
+                            color:
+                              value === null
+                                ? "#8490a2"
+                                : Math.abs(value) > 0.72
+                                  ? "#fff"
+                                  : "#172235",
+                          }}
+                        >
+                          {value === null ? "—" : number(value, 2)}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </>
       ) : (
         <p>

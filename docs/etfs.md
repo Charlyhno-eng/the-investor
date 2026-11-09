@@ -1,0 +1,23 @@
+# ETF ajoutés à la bibliothèque
+
+Références vérifiées le 9 novembre 2026. Les symboles servent à importer les historiques de cotation, sans passer d’ordre.
+
+| Fonds | Symbole importé | ISIN | Devise | Identification |
+|---|---|---|---|---|
+| Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc | LQQ.PA | FR0010342592 | EUR | Nasdaq-100 avec levier **quotidien** x2, capitalisation ; éligible PEA selon Amundi. |
+| iShares EURO STOXX Banks 30-15 UCITS ETF (DE) EUR (Acc) | EXA1.AS | DE000A2QP372 | EUR | Banques de la zone euro, capitalisation ; indiqué PEA chez Bourse Direct. Le « 30-15 » fait partie du nom de l’indice et ne garantit pas 30 positions. |
+| Invesco S&P 500 Momentum ETF | SPMO | US46138E3392 | USD | Fonds américain coté NYSE Arca. Piste retenue avec l’utilisateur pour son souvenir d’un ETF S&P 500 sélectionnant les actions à fort momentum. |
+
+LQQ vise deux fois la variation **journalière** de son indice, avec coûts de financement ; cela ne signifie pas deux fois le rendement cumulé sur plusieurs mois.
+
+Le nom « Banks 30 » correspond plus précisément à l’iShares 30-15 qu’à l’Amundi Euro Stoxx Banks BNKE, initialement envisagé pendant la recherche. La part EXA1 retenue est capitalisante ; ne pas la confondre avec la part distributive portant un autre ISIN.
+
+SPMO sélectionne des actions du S&P 500 à fort score de momentum et se recompose deux fois par an. L’identité du fonds vu sur les réseaux reste incertaine. SPMO est présenté comme fonds américain, sans étiquette UCITS ou PEA dans l’application. Son indice et le score Momentum de l’application utilisent des méthodes différentes.
+
+Sources :
+
+- [Amundi : produit LQQ et fonctionnement du levier](https://www.amundietf.lu/en/individual/products/equity/amundi-nasdaq100-daily-2x-leveraged-ucits-etf-acc/fr0010342592).
+- [Amundi : fiche de mars 2026, ISIN et éligibilité PEA](https://www.amundietf.fr/pdfDocuments/monthly-factsheet/FR0010342592/FRA/FRA/INSTITUTIONNEL/ETF/20260331).
+- [iShares : part EXA1, ISIN et cotation EXA1.AS](https://www.ishares.com/uk/individual/en/products/325273/?siteEntryPassthrough=true&switchLocale=y).
+- [Bourse Direct : part EXA1 et indication PEA](https://www.boursedirect.fr/fr/marche/euronext-amsterdam/ishares-euro-stoxx-banks-30-15-DE000A2QP372-EXA1-EUR-XAMS/seance).
+- [Invesco : SPMO, ISIN, indice et rebalancement](https://www.invesco.com/us/en/financial-products/etfs/invesco-sp-500-momentum-etf.html).

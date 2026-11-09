@@ -1,6 +1,7 @@
 """Read-only asset library and historical data endpoints."""
 
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 
@@ -99,3 +100,19 @@ def asset_comparison(
     from investor.assets.comparison import compare
 
     return compare(asset_id, start, end, reinvest)
+
+
+@router.get("/assets/{asset_id}/momentum")
+def asset_momentum(asset_id: str, benchmark: str | None = None):
+    from investor.assets.momentum import momentum
+
+    return momentum(asset_id, benchmark)
+
+
+@router.get("/momentum")
+def momentum_scores(
+    benchmark: str | None = None, category: Literal["stock", "crypto"] = "stock"
+):
+    from investor.assets.momentum import momentum
+
+    return momentum(benchmark=benchmark, category=category)

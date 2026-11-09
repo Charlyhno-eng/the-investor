@@ -13,13 +13,21 @@ INDEX = "^SP500TR"
 
 
 def import_reference(symbol):
-    if symbol not in (INDEX, "^GSPC") and not re.fullmatch(r"[A-Z]{3}USD=X", symbol):
+    if symbol not in (INDEX, "^GSPC", "^FCHI", "BTC-USD") and not re.fullmatch(
+        r"[A-Z]{3}USD=X", symbol
+    ):
         raise ValueError("Référence non prise en charge")
     yf.set_tz_cache_location(str(db.DATA_DIR / "provider-cache"))
     ticker = yf.Ticker(symbol)
     frame = ticker.history(period="max", interval="1d", auto_adjust=False, timeout=30)
     metadata = ticker.get_history_metadata()
-    expected = "INDEX" if symbol in (INDEX, "^GSPC") else "CURRENCY"
+    expected = (
+        "CRYPTOCURRENCY"
+        if symbol == "BTC-USD"
+        else "INDEX"
+        if symbol in (INDEX, "^GSPC", "^FCHI")
+        else "CURRENCY"
+    )
     if frame.empty or metadata.get("instrumentType") != expected:
         raise ValueError("Référence absente ou de type incorrect")
     rows = [

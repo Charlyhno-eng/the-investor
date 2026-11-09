@@ -12,13 +12,16 @@ import { stockCountry } from "../../lib/countries";
 import { MarketComparison } from "./MarketComparison";
 import { ReversionPanel } from "../reversion/ReversionPanel";
 import { favoriteLabel, type Favorite } from "../../lib/favorites";
+import { MomentumPanel } from "../momentum/MomentumPanel";
 export function AssetDetail({
   asset,
+  assets,
   favorite,
   onToggleFavorite,
   onRemove,
 }: {
   asset: Asset;
+  assets: Asset[];
   favorite?: Favorite;
   onToggleFavorite: () => void;
   onRemove: () => void;
@@ -27,7 +30,9 @@ export function AssetDetail({
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
-    [tab, setTab] = useState<"chart" | "reversion" | "volatility">("chart");
+    [tab, setTab] = useState<"chart" | "reversion" | "volatility" | "momentum">(
+      "chart",
+    );
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
@@ -53,9 +58,9 @@ export function AssetDetail({
   const category = categories.find((c) => c.id === asset.category)!;
   const cutoff = new Date(`${asset.last_date}T00:00:00Z`);
   cutoff.setUTCFullYear(cutoff.getUTCFullYear() - range);
-  const visible = range
-    ? points.filter((p) => p.time >= cutoff.toISOString().slice(0, 10))
-    : points;
+  const visible = points.filter(
+    (p) => p.time >= cutoff.toISOString().slice(0, 10),
+  );
   const start = visible[0]?.value;
   const difference =
     start == null
@@ -103,7 +108,7 @@ export function AssetDetail({
               {asset.id.startsWith("yf-")
                 ? asset.id.slice(3).toUpperCase()
                 : (asset.country_code ?? asset.unit)}
-              {asset.category === "stock" && (
+              {(asset.category === "stock" || asset.category === "crypto") && (
                 <>
                   <i />
                   {stockCountry(asset)}
@@ -166,6 +171,16 @@ export function AssetDetail({
             Régression
           </button>
         )}
+        {(asset.category === "stock" || asset.category === "crypto") && (
+          <button
+            role="tab"
+            aria-selected={tab === "momentum"}
+            onClick={() => setTab("momentum")}
+          >
+            <Icon name="stock" size={16} />
+            Momentum
+          </button>
+        )}
         <button
           role="tab"
           aria-selected={tab === "volatility"}
@@ -176,6 +191,10 @@ export function AssetDetail({
         </button>
       </div>
       {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
+      {(asset.category === "stock" || asset.category === "crypto") &&
+        tab === "momentum" && (
+          <MomentumPanel key={asset.id} asset={asset} assets={assets} />
+        )}
       {supportsRegression &&
         tab === "reversion" &&
         (loading ? (
@@ -248,13 +267,13 @@ export function AssetDetail({
               </div>
             )}
             <div className="range-buttons" aria-label="Période affichée">
-              {[1, 5, 10, 0].map((y) => (
+              {[1, 5, 10].map((y) => (
                 <button
                   key={y}
                   onClick={() => setRange(y)}
                   aria-pressed={range === y}
                 >
-                  {y ? `${y}A` : "Tout"}
+                  {`${y}A`}
                 </button>
               ))}
             </div>

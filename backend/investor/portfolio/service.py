@@ -18,8 +18,8 @@ class Holding(BaseModel):
 
 
 class PortfolioRequest(BaseModel):
-    locked_asset_ids: list[str] = Field(default_factory=list, max_length=200)
-    holdings: list[Holding] = Field(max_length=200)
+    locked_asset_ids: list[str] = Field(default_factory=list, max_length=1000)
+    holdings: list[Holding] = Field(max_length=1000)
     years: int = Field(default=3, ge=1, le=20)
     include_benchmark: bool = False
     currency: Literal["EUR"] = "EUR"
@@ -228,15 +228,21 @@ def portfolio(request: PortfolioRequest):
         ]
         count = max(0, len(common) - 1)
         minimum = 6 if monthly else 20
-        matrix = []
-        for left in returns:
-            row = []
-            for right in returns:
-                if count < minimum or np.std(left) < 1e-12 or np.std(right) < 1e-12:
-                    row.append(None)
-                else:
-                    row.append(float(np.clip(np.corrcoef(left, right)[0, 1], -1, 1)))
-            matrix.append(row)
+        # Compute valid pairs together: hundreds of assets must not trigger
+        # hundreds of thousands of separate corrcoef/std calls.
+        matrix = [[None] * len(returns) for _ in returns]
+        valid = (
+            [i for i, series in enumerate(returns) if np.std(series) >= 1e-12]
+            if count >= minimum
+            else []
+        )
+        if valid:
+            coefficients = np.clip(
+                np.atleast_2d(np.corrcoef([returns[i] for i in valid])), -1, 1
+            )
+            for i, values in zip(valid, coefficients.tolist(), strict=True):
+                for j, value in zip(valid, values, strict=True):
+                    matrix[i][j] = value
         return {
             "status": "ready",
             "currency": request.currency,

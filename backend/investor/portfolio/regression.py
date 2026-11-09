@@ -9,7 +9,7 @@ from investor.db import connect
 
 
 class RegressionRequest(BaseModel):
-    asset_ids: list[str] = Field(max_length=200)
+    asset_ids: list[str] = Field(max_length=1000)
 
 
 def regression_deviations(request):

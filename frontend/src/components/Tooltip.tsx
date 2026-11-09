@@ -5,10 +5,12 @@ export function Tooltip({
   label,
   children,
   floating = false,
+  question = false,
 }: {
   label: string;
   children: React.ReactNode;
   floating?: boolean;
+  question?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState({ left: 8, top: 8 });
@@ -73,7 +75,13 @@ export function Tooltip({
           if (e.key === "Escape") setOpen(false);
         }}
       >
-        <Icon name="info" size={13} />
+        {question ? (
+          <span className="question-mark" aria-hidden="true">
+            ?
+          </span>
+        ) : (
+          <Icon name="info" size={13} />
+        )}
       </button>
       {floating ? open && createPortal(tooltip, document.body) : tooltip}
     </span>

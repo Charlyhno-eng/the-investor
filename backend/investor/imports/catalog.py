@@ -12,7 +12,13 @@ CRYPTO = {
 # Preserve archived histories while removing these assets from the library and refreshes.
 REMOVED_CRYPTO = ("yf-ada-usd", "yf-xrp-usd")
 
-ETF = {"SPY": "SPDR S&P 500 ETF"}
+ETF = {
+    "SPY": "SPDR S&P 500 ETF",
+    "CAC.PA": "Amundi CAC 40 UCITS ETF Dist",
+    "LQQ.PA": "Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc",
+    "EXA1.AS": "iShares EURO STOXX Banks 30-15 UCITS ETF (DE) EUR (Acc)",
+    "SPMO": "Invesco S&P 500 Momentum ETF · US",
+}
 CURRENCIES = dict(
     zip(
         [
