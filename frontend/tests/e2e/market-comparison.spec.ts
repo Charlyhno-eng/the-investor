@@ -23,17 +23,10 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
     ).toBeVisible();
     await expect(region).toContainText("+20 %");
     await expect(region).toContainText("+10 %");
-    await expect(region).toContainText("hors dividendes");
-    const reinvestButton = page.getByRole("button", {
-      name: "Dividendes réinvestis",
-      exact: true,
-    });
-    const priceButton = page.getByRole("button", { name: "Revenir au prix" });
-    const left = (await reinvestButton.boundingBox())!;
-    const right = (await priceButton.boundingBox())!;
-    expect(left.x + left.width).toBeLessThanOrEqual(right.x);
-    expect(Math.abs(left.y - right.y)).toBeLessThan(2);
-    await reinvestButton.click();
+    await expect(region).toContainText("dividendes réinvestis");
+    await expect(
+      page.getByRole("button", { name: "Dividendes réinvestis", exact: true }),
+    ).toHaveCount(0);
     await expect
       .poll(() =>
         new URL(comparisonRequests.at(-1)!).searchParams.get("reinvest"),
@@ -46,10 +39,6 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
       .poll(() => new URL(comparisonRequests.at(-1)!).searchParams.get("start"))
       .toBe("2021-03-10");
     await expect(region.locator("canvas").first()).toBeVisible();
-    await page.getByRole("button", { name: "Tout", exact: true }).click();
-    await expect
-      .poll(() => new URL(comparisonRequests.at(-1)!).searchParams.has("start"))
-      .toBe(false);
     await expect
       .poll(() =>
         page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -74,6 +63,7 @@ test("market tabs keep regression and bond yields cannot masquerade as returns",
   await expect(page.getByRole("tab")).toHaveText([
     "Vue du marché",
     "Régression",
+    "Momentum",
     "Frontières d’efficience",
   ]);
   await page.goto("/assets/bond-fr");

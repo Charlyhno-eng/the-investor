@@ -59,8 +59,16 @@ export function Tooltip({
   return (
     <span
       className="tooltip"
-      onMouseEnter={() => setOpen(true)}
-      onMouseLeave={() => setOpen(false)}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse") setOpen(true);
+      }}
+      onPointerLeave={(event) => {
+        if (
+          event.pointerType === "mouse" &&
+          document.activeElement !== anchor.current
+        )
+          setOpen(false);
+      }}
     >
       <button
         type="button"

@@ -53,7 +53,7 @@ export function PortfolioPanel({
   const [deviationError, setDeviationError] = useState("");
   const assetIds = JSON.stringify(assets.map((a) => a.id));
   const historyRevision = JSON.stringify(
-    assets.map((a) => [a.last_date, a.last_value, a.points]),
+    assets.map((a) => [a.data_revision, a.last_date, a.last_value, a.points]),
   );
   useEffect(() => {
     if (tab !== "positions") return;
@@ -114,7 +114,7 @@ export function PortfolioPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [holdings, years, revision]);
+  }, [holdings, years, revision, historyRevision]);
   const sectorPositions = Object.values(
     (result?.positions ?? []).reduce<
       Record<
@@ -243,6 +243,7 @@ export function PortfolioPanel({
         )}
         {tab === "performance" && (
           <PerformancePanel
+            dataRevision={historyRevision}
             holdings={holdings}
             lockedAssetIds={lockedAssetIds}
           />

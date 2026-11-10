@@ -7,14 +7,18 @@ export function usePerformance({
   locks,
   years,
   history,
+  feeRate,
+  dataRevision,
 }: {
   holdings: string;
   locks: string;
   years: number;
   history: string;
+  feeRate: number;
+  dataRevision: string;
 }) {
   const [result, setResult] = useState<Result | null>(null);
-  const [mode, setMode] = useState<Mode>("balanced");
+  const [mode, setMode] = useState<Mode>("equal");
   const [optimize, setOptimize] = useState<Mode | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -34,7 +38,8 @@ export function usePerformance({
             locked_asset_ids: JSON.parse(locks),
             years,
             history,
-            mode: optimize ?? "balanced",
+            mode: optimize ?? "equal",
+            fee_rate: feeRate,
           },
           controller.signal,
         );
@@ -61,7 +66,16 @@ export function usePerformance({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [holdings, locks, years, history, optimize, revision]);
+  }, [
+    holdings,
+    locks,
+    years,
+    history,
+    feeRate,
+    optimize,
+    revision,
+    dataRevision,
+  ]);
   return {
     result,
     mode,

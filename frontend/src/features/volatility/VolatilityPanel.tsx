@@ -15,7 +15,12 @@ type Props =
       assets: Asset[];
       lockedAssetIds?: string[];
     };
-export function VolatilityPanel({ asset, holdings, lockedAssetIds }: Props) {
+export function VolatilityPanel({
+  asset,
+  assets,
+  holdings,
+  lockedAssetIds,
+}: Props) {
   const [years, setYears] = useState(3);
   const [result, setResult] = useState<RiskResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -23,6 +28,14 @@ export function VolatilityPanel({ asset, holdings, lockedAssetIds }: Props) {
   const [revision, setRevision] = useState(0);
   const selected = JSON.stringify(holdings ?? []);
   const locks = JSON.stringify(lockedAssetIds ?? []);
+  const dataRevision = JSON.stringify(
+    (asset ? [asset] : (assets ?? [])).map((a) => [
+      a.data_revision,
+      a.last_date,
+      a.last_value,
+      a.points,
+    ]),
+  );
   const assetId = asset?.id;
   const lastDate = asset?.last_date;
   const lastValue = asset?.last_value;
@@ -76,7 +89,16 @@ export function VolatilityPanel({ asset, holdings, lockedAssetIds }: Props) {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [assetId, lastDate, lastValue, selected, locks, years, revision]);
+  }, [
+    dataRevision,
+    assetId,
+    lastDate,
+    lastValue,
+    selected,
+    locks,
+    years,
+    revision,
+  ]);
   const ready = result?.status === "ready";
   const portfolio = !!holdings;
   return (

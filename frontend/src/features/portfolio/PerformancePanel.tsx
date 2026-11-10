@@ -10,9 +10,11 @@ import { date, number, percent } from "../../lib/format";
 export function PerformancePanel({
   holdings,
   lockedAssetIds = [],
+  dataRevision = "",
 }: {
   holdings: string;
   lockedAssetIds?: string[];
+  dataRevision?: string;
 }) {
   const locks = JSON.stringify(
     lockedAssetIds.filter((id) =>
@@ -21,6 +23,7 @@ export function PerformancePanel({
   );
   const [years, setYears] = useState(3);
   const [history, setHistory] = useState("extended");
+  const [feeRate, setFeeRate] = useState(0.005);
   return (
     <section
       className="portfolio-content portfolio-performance"
@@ -64,10 +67,13 @@ export function PerformancePanel({
       </div>
       <PerformanceView
         key={`${holdings}:${years}:${history}:${locks}`}
+        dataRevision={dataRevision}
         holdings={holdings}
         locks={locks}
         years={years}
         history={history}
+        feeRate={feeRate}
+        setFeeRate={setFeeRate}
       />
     </section>
   );
@@ -78,11 +84,17 @@ function PerformanceView({
   locks,
   years,
   history,
+  feeRate,
+  setFeeRate,
+  dataRevision,
 }: {
   holdings: string;
   locks: string;
   years: number;
   history: string;
+  feeRate: number;
+  setFeeRate: (value: number) => void;
+  dataRevision: string;
 }) {
   const {
     result,
@@ -93,12 +105,27 @@ function PerformanceView({
     loading,
     error,
     retry,
-  } = usePerformance({ holdings, locks, years, history });
+  } = usePerformance({
+    holdings,
+    locks,
+    years,
+    history,
+    feeRate,
+    dataRevision,
+  });
   const ready = useMemo(() => {
     if (result?.status !== "ready") return null;
-    if (!result.mode || result.mode === mode) return result;
+    if (
+      !result.mode ||
+      (result.mode === mode &&
+        (mode !== "equal" || result.fee_rate === feeRate))
+    )
+      return result;
     return {
       ...result,
+      mode: null,
+      allocations: {},
+      unavailable: {},
       metrics: {
         portfolio: result.metrics.portfolio,
         benchmark: result.metrics.benchmark,
@@ -109,7 +136,14 @@ function PerformanceView({
         benchmark,
       })),
     } as PerformanceResult;
-  }, [result, mode]);
+  }, [result, mode, feeRate]);
+  const calculated = ready?.mode === mode;
+  const hasAllocation =
+    !!ready &&
+    series.some(
+      (s) =>
+        s.key !== "portfolio" && s.key !== "benchmark" && ready.metrics[s.key],
+    );
   const lines = useMemo(
     () =>
       ready
@@ -118,11 +152,12 @@ function PerformanceView({
             .map((s) => ({
               title: s.title,
               color:
-                ready.metrics.optimized && s.key !== "optimized"
+                hasAllocation &&
+                (s.key === "portfolio" || s.key === "benchmark")
                   ? `${s.color}55`
                   : s.color,
-              lineWidth: (ready.metrics.optimized
-                ? s.key === "optimized"
+              lineWidth: (hasAllocation
+                ? s.key !== "portfolio" && s.key !== "benchmark"
                   ? 4
                   : 1
                 : 2) as 1 | 2 | 4,
@@ -132,7 +167,7 @@ function PerformanceView({
               })),
             }))
         : [],
-    [ready],
+    [ready, hasAllocation],
   );
   return (
     <>
@@ -189,22 +224,15 @@ function PerformanceView({
                 · {date(ready.start)} — {date(ready.end)}
               </span>
               <Tooltip label="Méthode de comparaison">
-                Simulation de vos pondérations actuelles, rééquilibrées à chaque
-                séance observée. Les courbes et les cinq optimisations utilisent
-                toutes les observations journalières communes, sans regroupement
-                mensuel. Ce n’est pas l’historique de votre compte : les dates
-                d’achat ne sont pas connues. Actions et S&P 500 à dividendes
-                réinvestis ; matières premières selon leur série de prix. Hors
-                frais et fiscalité. Sharpe : rendement simple moyen annualisé
-                divisé par la volatilité annuelle, taux de référence fixé à 0 %.
-                Drawdown : baisse maximale depuis le plus haut de chaque courbe,
-                capital initial inclus, affiché en amplitude positive dans le
-                tableau. CAGR : croissance composée annualisée sur la durée
-                calendaire réelle. Sortino : rendement moyen annualisé rapporté
-                à la déviation des rendements sous 0 %, calculée sur toutes les
-                observations. Calmar : CAGR divisé par l’amplitude du drawdown
-                maximal. Annualisation : 252 séances. Un ratio sans dénominateur
-                mesurable est affiché « — ».
+                Les pondérations actuelles et optimisées sont simulées sur les
+                mêmes dates journalières, en EUR, avec dividendes réinvestis.
+                L’équipondération évolue entre deux rééquilibrages annuels et
+                inclut les frais d’achat et de vente choisis, y compris l’achat
+                initial, sans vente fictive à la fin. Les autres allocations
+                gardent des poids constants, hors frais et fiscalité. Avant le
+                début d’un historique, la part correspondante reste en
+                liquidités. Les poids optimisés sont calculés et évalués sur la
+                même période. Un ratio non mesurable est affiché « — ».
               </Tooltip>
             </div>
           </div>
@@ -225,7 +253,9 @@ function PerformanceView({
                   Optimiser la répartition{" "}
                   <Tooltip label="Méthode d’optimisation">
                     {modes.find((m) => m.key === mode)?.description}
-                    Les quantités verrouillées sont conservées, même en dehors
+                    {mode === "equal"
+                      ? " Tous les actifs ont le même poids ; déverrouillez les quantités incompatibles. Les seuils de 3 % et 35 % ne s’appliquent pas à l’équipondération."
+                      : ` Les quantités verrouillées sont conservées, même en dehors
                     des seuils de pondération. Les seuils s’appliquent aux
                     positions libres. Des contraintes incompatibles empêchent le
                     calcul. Au moins la moitié des actifs détenus, arrondie au
@@ -237,17 +267,24 @@ function PerformanceView({
                     référence de 0 %. Chaque mode peut sacrifier un autre
                     indicateur. Les poids sont calculés et évalués sur le même
                     historique : simulation rétrospective, sans prévision des
-                    performances futures.
+                    performances futures.`}
                   </Tooltip>
                 </h2>
                 <p>
                   Choisissez l’objectif de votre simulation sur la période
-                  affichée. Au moins {Math.ceil(ready.positions.length / 2)}{" "}
-                  {ready.positions.length <= 2 ? "actif" : "actifs"} sur{" "}
-                  {ready.positions.length} · 3 % minimum par position retenue ·
-                  plafond de 35 % dès trois actifs.{" "}
-                  {JSON.parse(locks).length > 0 &&
-                    `${JSON.parse(locks).length} quantité(s) verrouillée(s), prioritaires sur ces seuils.`}
+                  affichée.{" "}
+                  {mode === "equal" ? (
+                    "Tous les actifs sont équipondérés, avec rééquilibrage annuel."
+                  ) : (
+                    <>
+                      Au moins {Math.ceil(ready.positions.length / 2)}{" "}
+                      {ready.positions.length <= 2 ? "actif" : "actifs"} sur{" "}
+                      {ready.positions.length} · 3 % minimum par position
+                      retenue · plafond de 35 % dès trois actifs.{" "}
+                      {JSON.parse(locks).length > 0 &&
+                        `${JSON.parse(locks).length} quantité(s) verrouillée(s), prioritaires sur ces seuils.`}
+                    </>
+                  )}
                 </p>
               </div>
             </div>
@@ -276,7 +313,7 @@ function PerformanceView({
               </fieldset>
               <button
                 className="primary-button"
-                disabled={loading || !!ready.metrics.optimized}
+                disabled={loading || calculated}
                 onClick={() => {
                   setOptimize(mode);
                   retry();
@@ -284,11 +321,78 @@ function PerformanceView({
               >
                 {loading && optimize
                   ? "Optimisation en cours…"
-                  : ready.metrics.optimized
+                  : calculated
                     ? "Optimisation calculée"
                     : "Optimiser les poids"}
               </button>
             </div>
+            {mode === "equal" && (
+              <label className="portfolio-period">
+                Frais par achat et par vente (%)
+                <input
+                  type="number"
+                  aria-label="Frais par achat et par vente (%)"
+                  min="0"
+                  max="10"
+                  step="0.1"
+                  value={Number((feeRate * 100).toFixed(4))}
+                  onChange={(e) => {
+                    const value = Number(e.target.value);
+                    if (Number.isFinite(value) && value >= 0 && value <= 10)
+                      setFeeRate(value / 100);
+                  }}
+                />
+              </label>
+            )}
+            {Object.entries(ready.unavailable ?? {}).map(([key, message]) => (
+              <p className="fine-print" role="status" key={key}>
+                {series.find((s) => s.key === key)?.title} : {message}
+              </p>
+            ))}
+            {ready.allocations && Object.keys(ready.allocations).length > 0 && (
+              <div className="table-scroll">
+                <table className="positions-table performance-weights">
+                  <thead>
+                    <tr>
+                      <th>Actif</th>
+                      <th>Poids actuel</th>
+                      {series
+                        .filter((s) => s.key in ready.allocations!)
+                        .map((s) => (
+                          <th key={s.key}>{s.title}</th>
+                        ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ready.positions.map((p, i) => (
+                      <tr key={p.id}>
+                        <th>{p.name}</th>
+                        <td>{percent(p.weight)}</td>
+                        {series
+                          .filter((s) => s.key in ready.allocations!)
+                          .map(({ key }) => {
+                            const weights =
+                              ready.allocations![
+                                key as keyof typeof ready.allocations
+                              ]!;
+                            return (
+                              <td key={key} className="recommended-weight">
+                                <span className="allocation-recommendation">
+                                  {percent(weights[i])}
+                                  <AllocationSignal
+                                    current={p.weight}
+                                    recommended={weights[i]}
+                                  />
+                                </span>
+                              </td>
+                            );
+                          })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {ready.metrics.optimized && (
               <>
                 <div className="table-scroll">
@@ -327,6 +431,17 @@ function PerformanceView({
                     </tbody>
                   </table>
                 </div>
+
+                <p className="fine-print">
+                  Deux chevrons : écart d’au moins 5 points de pourcentage.
+                  Quantités indicatives calculées à valeur totale constante, aux
+                  derniers cours de l’onglet Positions ; fractions d’actif
+                  incluses. Une pondération nulle est possible.
+                </p>
+              </>
+            )}
+            {hasAllocation && (
+              <>
                 <div
                   className="allocation-legend"
                   aria-label="Légende des recommandations"
@@ -355,12 +470,12 @@ function PerformanceView({
                     Conserver
                   </span>
                 </div>
-                <p className="fine-print">
-                  Deux chevrons : écart d’au moins 5 points de pourcentage.
-                  Quantités indicatives calculées à valeur totale constante, aux
-                  derniers cours de l’onglet Positions ; fractions d’actif
-                  incluses. Une pondération nulle est possible.
-                </p>
+                {mode === "beta_sharpe" && (
+                  <p className="fine-print">
+                    Deux chevrons : écart d’au moins 5 points de pourcentage par
+                    rapport au poids actuel.
+                  </p>
+                )}
               </>
             )}
           </div>

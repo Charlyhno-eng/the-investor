@@ -19,7 +19,7 @@ function useCategoryScores(assets: Asset[], category: MomentumCategory) {
   const revision = JSON.stringify(
     assets
       .filter((a) => a.category === category)
-      .map((a) => [a.id, a.last_date, a.last_value, a.points]),
+      .map((a) => [a.id, a.data_revision, a.last_date, a.last_value, a.points]),
   );
   useEffect(() => {
     const controller = new AbortController();

@@ -192,9 +192,9 @@ def test_alpha_beta_unavailable_for_flat_benchmark(client):
         )
         c.execute("UPDATE reference_observations SET value=1 WHERE symbol='EURUSD=X'")
     result = request(http, holdings=[{"asset_id": "a", "quantity": 1}])
-    for metrics in result["metrics"].values():
+    for key, metrics in result["metrics"].items():
         assert metrics["alpha"] is None
-        assert metrics["beta"] is None
+        assert metrics["beta"] == (1.0 if key == "benchmark" else None)
 
 
 @pytest.mark.parametrize("history", ["common", "extended"])

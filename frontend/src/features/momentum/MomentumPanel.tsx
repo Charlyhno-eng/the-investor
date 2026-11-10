@@ -62,7 +62,7 @@ export function MomentumPanel({
   const historyRevision = JSON.stringify(
     assets
       .filter((a) => a.category === category)
-      .map((a) => [a.id, a.last_date, a.last_value, a.points]),
+      .map((a) => [a.id, a.data_revision, a.last_date, a.last_value, a.points]),
   );
   useEffect(() => {
     const controller = new AbortController();
@@ -101,6 +101,7 @@ export function MomentumPanel({
     };
   }, [
     asset.id,
+    asset.data_revision,
     asset.last_date,
     asset.last_value,
     asset.points,

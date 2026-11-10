@@ -3,7 +3,7 @@
 L’onglet **Performance**, avant Corrélations, reprend les titres et sous-titres des
 onglets du portfolio. Deux courbes comparent le portefeuille actuel et le S&P 500
 sur la même période et dans la même devise (base 100 EUR). Le bouton
-« Optimiser les poids » ajoute une troisième courbe et un tableau comparant les
+« Optimiser les poids » ajoute une courbe (cinq pour les bêtas cibles) et un tableau comparant les
 poids et quantités actuels aux poids et quantités indicatives. Aucune position
 ni quantité enregistrée n’est modifiée.
 
@@ -23,8 +23,7 @@ d’optimisation. Les distributions figurant dans la table `dividends` ne sont
 pas ajoutées aux rendements ajustés : elles y sont déjà prises en compte.
 Les quantités et poids actuels restent valorisés aux cours non ajustés, et
 ne sont pas augmentés par la simulation. La légende sous la courbe affiche
-explicitement « Dividendes réinvestis ». Il s’agit d’un rendement avant frais
-et fiscalité, sans retenue à la source propre à l’investisseur.
+explicitement « Dividendes réinvestis ». Les allocations à poids constants sont avant frais et fiscalité. L’équipondération annuelle inclut les frais choisis, sans fiscalité.
 
 Deux conventions sont disponibles :
 
@@ -52,8 +51,7 @@ mensuelles. Les matières premières restent des séries de prix, sans rendement
 Pour une allocation constante `w`, chaque variation est `r_t @ w` ; la courbe
 est `100 × produit(1 + r_t @ w)`. Les poids sont rééquilibrés à chaque observation.
 Ce n’est pas l’historique réel du compte : les dates d’achat et les flux ne sont
-pas connus. Frais, fiscalité et coûts de rééquilibrage ne sont pas inclus dans
-cet onglet. La convention étendue peut favoriser les actifs récents ayant passé
+pas connus. Seule l’équipondération annuelle inclut les frais de transaction. La convention étendue peut favoriser les actifs récents ayant passé
 une partie de la période en liquidités ; le mode dates communes permet une
 comparaison sur leur historique conjoint effectif.
 
@@ -67,8 +65,7 @@ initial inclus. Sharpe = moyenne des variations simples / écart-type empirique
 volatilité quasi nulle, le ratio est indisponible (`null`, affiché « — »).
 
 Le tableau pliable affiche CAGR, volatilité annualisée, drawdown maximal,
-Sharpe, Sortino et Calmar. L’alpha et le bêta restent calculés dans la réponse
-technique mais ne sont plus affichés dans l’interface.
+Sharpe, Sortino, Calmar et bêta. Le bêta du S&P 500 est fixé à 1 ; les autres sont mesurés par régression sur les rendements du S&P 500 en EUR. Le bêta reste neutre dans les couleurs de comparaison : plus élevé ne signifie pas meilleur. Chaque indicateur possède un petit « ? » accessible au survol, au clavier et au toucher, avec une définition simple sans formule. L’alpha reste disponible dans l’API.
 
 ## Portefeuilles simulés
 
@@ -78,7 +75,7 @@ L’espace Stratégie permet de créer plusieurs simulations vides, de leur ajou
 
 Les modes partent des actifs détenus et valorisés du portefeuille ou de la
 simulation. Une position à quantité nulle n’est pas ajoutée à cet univers.
-Tous les modes imposent :
+Les objectifs de ratios imposent (l’équipondération conserve tous les actifs sans seuil de 3 % / 35 %) :
 
 - budget de 100 %, sans levier ni vente à découvert ;
 - au moins `ceil(n / 2)` positions parmi les `n` actifs disponibles ;
@@ -91,23 +88,13 @@ ces limites ; aucune quantité enregistrée n’est modifiée. Le minimum de 3 %
 limite à 33 positions retenues : à partir de 67 actifs disponibles, la règle de
 la moitié devient impossible et une erreur explicite est retournée.
 
-1. **Équilibre** : maximiser le Sharpe historique, avec taux de référence de 0 %.
-   La transformation homogène du Sharpe positif encode le plancher et le plafond
-   comme contraintes linéaires avant normalisation. Pour des moyennes toutes
-   non positives, les sommets du simplexe borné sont comparés.
-2. **Volatilité minimale** : minimiser `wᵀΣw`.
-3. **Performance maximale** : maximiser la performance composée sur la période,
-   via la moyenne de `log(1 + r_t @ w)`.
-4. **Drawdown minimal** : minimiser la perte composée entre un sommet et un creux,
-   par contraintes successives sur les intervalles les plus défavorables.
-5. **Corrélations minimales** (`correlation`, remplace `diversification`) :
-   minimiser `wᵀCw`, où `C` est la matrice des corrélations des rendements
-   journaliers en EUR. Les rendements sont standardisés à variance unitaire :
-   l’objectif dépend des corrélations et des poids, pas des niveaux de volatilité
-   ni des moyennes. Les corrélations faibles et négatives réduisent ce critère ;
-   la diagonale pénalise la concentration. Cela ne force pas artificiellement les
-   corrélations observées à zéro. Une volatilité nulle rend les corrélations
-   indéfinies et produit une erreur explicite pour cet objectif.
+1. **Équipondération annuelle** (`equal`, défaut) : tous les actifs ont le même poids initial. Les poids dérivent entre deux rééquilibrages, au premier jour observé à partir de chaque anniversaire du début de simulation. Les frais par achat et vente sont réglables de 0 à 10 %, avec **0,5 %** par défaut. Ils portent sur chaque montant effectivement acheté ou vendu, achat initial inclus. Le capital net réinvesti tient compte des deux côtés des transactions, sans vente finale fictive. Les liquidités réservées avant cotation ne supportent les frais d’achat qu’à l’entrée effective de l’actif. Des quantités verrouillées incompatibles empêchent l’équipondération.
+2. **Sortino maximal** (`sortino`) : rendement moyen rapporté au risque de baisse sous 0 %, sans pénaliser la volatilité à la hausse.
+3. **Volatilité à la baisse minimale** (`downside`) : minimiser la moyenne des carrés des rendements négatifs du portefeuille, sous une cible de 0 %. Les rendements positifs contribuent zéro et ne sont pas pénalisés. Cet objectif minimise le risque de baisse seul, tandis que Sortino maximise un ratio rendement / risque de baisse. Le tableau affiche aussi cette volatilité à la baisse, annualisée sur 252 séances.
+4. **Drawdown minimal** (`drawdown`) : minimiser la plus forte baisse composée entre un sommet et un creux, capital initial inclus.
+5. **Sharpe à bêta cible** (`beta_sharpe`) : cinq optimisations indépendantes pour des bêtas de **0,3, 0,4, 0,5, 0,6 et 0,7**. Chaque cible est une contrainte d’égalité, vérifiée à 1e-7. Les cinq courbes, colonnes d’indicateurs et répartitions sont affichées simultanément. Chaque cible non obtenue a son propre message ; les autres résultats et les comparateurs restent disponibles. Aucun levier ni actif supplémentaire n’est ajouté pour atteindre une cible.
+
+Pour un rendement moyen positif réalisable, Sortino et Sharpe à bêta cible utilisent une transformation homogène : minimiser le risque au carré sous un rendement normalisé fixé à 1. Ce problème convexe, résolu avec des gradients analytiques, évite les divisions par un risque quasi nul et conserve les bornes, les verrous et le bêta cible. Les égalités redondantes après verrouillage sont supprimées ; une allocation entièrement déterminée par les contraintes est retournée directement. Pour les rendements non positifs et pour Calmar, SLSQP utilise plusieurs points de départ, sans garantie d’optimum global. Le Sharpe positif libre conserve aussi sa transformation homogène. Les anciens modes (`balanced`, `sharpe`, `calmar`, `volatility`, `performance`, `correlation`) restent acceptés par l’API pour compatibilité, mais ne sont plus proposés dans l’interface.
 
 Les contraintes de cardinalité et de plancher rendent le choix des positions
 discret ([formulation avec variables de sélection](https://docs.mosek.com/MOSEKPortfolioCookbook/transaction.html)).
@@ -217,4 +204,6 @@ et les vues partagées avec le Portfolio, sans les contrôles de composition.
 
 Dans une stratégie, le cadenas de chaque ligne de Positions conserve exactement sa quantité dans les cinq objectifs d’optimisation. Il désactive la saisie et le retrait jusqu’au déverrouillage. Les cadenas sont enregistrés avec la stratégie dans le navigateur ; les stratégies existantes sont lues sans cadenas par défaut. L’API reçoit `locked_asset_ids` et fixe le poids courant correspondant, à budget et prix de valorisation constants ; la quantité indicative retournée est exactement la quantité initiale. Les bornes de 3 % / 35 % s’appliquent aux positions libres, les positions verrouillées sont prioritaires. La cardinalité minimale reste applicable. Des contraintes incompatibles produisent une erreur explicite, sans modifier un verrou. Lorsque toutes les positions sont verrouillées, l’allocation reste identique.
 
-Les frontières d’efficience utilisent aussi les poids fixes : chaque allocation admissible conserve les positions verrouillées, et seul le budget restant est réparti. Tous les actifs verrouillés réduisent la frontière au point du portefeuille. Les courbes historiques conservent leur convention de pondérations constantes rééquilibrées ; le cadenas fixe les quantités recommandées aux cours de valorisation, pas un historique de transactions.
+Les frontières d’efficience utilisent aussi les poids fixes : chaque allocation admissible conserve les positions verrouillées, et seul le budget restant est réparti. Tous les actifs verrouillés réduisent la frontière au point du portefeuille. Les courbes des objectifs de ratios conservent leur convention de pondérations constantes rééquilibrées ; le cadenas fixe les quantités recommandées aux cours de valorisation, pas un historique de transactions. L’équipondération annuelle exige de déverrouiller toute quantité incompatible avec des poids égaux.
+
+Les nouveaux calculs sont couverts par `backend/tests/unit/test_new_allocations.py` : recherche dense indépendante pour les trois ratios, frais d’achat et vente, dérive et rééquilibrage annuel, bêtas exacts et objectifs inaccessibles. Chaque poids recommandé des cinq bêtas porte les mêmes flèches de renforcement, allègement, sortie ou conservation que les autres répartitions, avec la même légende. Les tests navigateur `frontend/tests/e2e/performance.spec.ts` couvrent aussi les cinq courbes, les colonnes, les définitions et le réglage des frais sur ordinateur et mobile.

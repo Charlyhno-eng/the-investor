@@ -33,13 +33,15 @@ export function AssetDetail({
     [tab, setTab] = useState<"chart" | "reversion" | "volatility" | "momentum">(
       "chart",
     );
+  const distributes = asset.category === "stock" || asset.category === "etf";
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    api<Point[]>(`/assets/${encodeURIComponent(asset.id)}/history`, {
-      signal: controller.signal,
-    })
+    api<Point[]>(
+      `/assets/${encodeURIComponent(asset.id)}/history?reinvest=true`,
+      { signal: controller.signal },
+    )
       .then(setPoints)
       .catch((e) => {
         if (e.name !== "AbortError") setError(e.message);
@@ -48,10 +50,15 @@ export function AssetDetail({
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [asset.id, asset.last_date, asset.points, asset.last_value]);
+  }, [
+    asset.data_revision,
+    asset.id,
+    asset.last_date,
+    asset.points,
+    asset.last_value,
+  ]);
   const dividends = useDividends(asset);
   const [compareMarket, setCompareMarket] = useState(false);
-  const [reinvest, setReinvest] = useState(false);
   const supportsRegression = ["stock", "crypto", "etf", "currency"].includes(
     asset.category,
   );
@@ -61,14 +68,15 @@ export function AssetDetail({
   const visible = points.filter(
     (p) => p.time >= cutoff.toISOString().slice(0, 10),
   );
-  const start = visible[0]?.value;
+  const start = (range ? visible : points)[0]?.value;
+  const lastValue = points.at(-1)?.value ?? asset.last_value;
   const difference =
     start == null
       ? null
       : asset.metric === "yield"
-        ? asset.last_value - start
+        ? lastValue - start
         : start > 0
-          ? asset.last_value / start - 1
+          ? lastValue / start - 1
           : null;
   return (
     <div className="asset-detail">
@@ -127,7 +135,9 @@ export function AssetDetail({
                   ? "Prix & indices mensuels"
                   : asset.category === "commodity"
                     ? "Clôture quotidienne · contrat à terme"
-                    : "Clôture quotidienne ajustée"}
+                    : distributes && tab === "chart"
+                      ? "Clôture ajustée · dividendes réinvestis"
+                      : "Clôture quotidienne ajustée"}
             </span>
           </div>
         </div>
@@ -227,9 +237,7 @@ export function AssetDetail({
                 </div>
               )}
               <div className="quote">
-                <strong>
-                  {number(asset.last_value, asset.last_value < 1 ? 4 : 2)}
-                </strong>
+                <strong>{number(lastValue, lastValue < 1 ? 4 : 2)}</strong>
                 <span>{asset.unit}</span>
               </div>
               <div
@@ -262,7 +270,7 @@ export function AssetDetail({
                         : "Dividendes"}
                 <Tooltip label="Repères de dividendes">
                   {dividends.error ||
-                    "Survolez ou touchez un repère D : date de détachement et dividende brut en pourcentage de la clôture de la séance précédente, hors ajustement des dividendes. Pourcentage par versement, non annualisé. Les prix du graphique sont ajustés. Un pourcentage absent attend la prochaine actualisation."}
+                    "Survolez ou touchez un repère D : date de détachement et dividende brut en pourcentage de la clôture de la séance précédente, hors ajustement des dividendes. Pourcentage par versement, non annualisé. Ces repères sont informatifs et n’ajoutent aucun versement à la courbe. Un pourcentage absent attend la prochaine actualisation."}
                 </Tooltip>
               </div>
             )}
@@ -279,15 +287,6 @@ export function AssetDetail({
             </div>
           </div>
           <div className="market-chart-actions">
-            {compareMarket && (
-              <button
-                className="secondary-button"
-                aria-pressed={reinvest}
-                onClick={() => setReinvest((v) => !v)}
-              >
-                Dividendes réinvestis
-              </button>
-            )}
             <button
               className="secondary-button"
               disabled={asset.metric === "yield"}
@@ -304,7 +303,7 @@ export function AssetDetail({
           </div>
           {compareMarket && !loading && !error && points.length ? (
             <MarketComparison
-              reinvest={reinvest}
+              reinvest={true}
               asset={asset}
               start={range ? cutoff.toISOString().slice(0, 10) : undefined}
               end={asset.last_date}

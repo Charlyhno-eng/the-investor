@@ -1,4 +1,4 @@
-"""On-demand Yahoo histories. Only the independent worker calls this provider."""
+"""Market histories downloaded by background queue consumers."""
 
 import argparse
 import hashlib
@@ -40,7 +40,7 @@ def import_symbol(symbol: str, category: str) -> str:
         )
     if frame.empty:
         raise ValueError("Aucun historique disponible pour ce symbole.")
-    if category == "stock" and "Adj Close" not in frame:
+    if category in ("stock", "etf") and "Adj Close" not in frame:
         raise ValueError("Clôtures ajustées absentes ; données précédentes conservées.")
     commodity = COMMODITY_FUTURES.get(symbol) if category == "commodity" else None
     asset_id = commodity[0] if commodity else "yf-" + symbol.lower()
@@ -200,6 +200,10 @@ def process_one() -> bool:
 
             import_reference(job["symbol"])
             asset_id = None
+        elif job["category"] == "sovereign":
+            from investor.ingest import import_country
+
+            asset_id = import_country(job["symbol"])
         else:
             asset_id = import_symbol(job["symbol"], job["category"])
         status, error = "completed", None

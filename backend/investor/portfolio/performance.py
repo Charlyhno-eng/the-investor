@@ -1,17 +1,18 @@
 """Observed portfolio comparison and constrained, retrospective allocation.
 
-Both allocations use constant weights on observed dates, optionally reserving
-cash before inception. Objectives: Sharpe, variance, compounded performance,
-exact compounded maximum drawdown and standardized correlation risk. No forecast is generated.
+Constant-weight ratio allocations and an annually rebalanced equal allocation.
+Legacy objectives remain accepted for API compatibility. No forecast is generated.
 """
 
+import calendar
 import itertools
 from datetime import date, timedelta
 from typing import Literal
 
 import numpy as np
 from fastapi import HTTPException
-from scipy.optimize import minimize
+from pydantic import Field
+from scipy.optimize import linprog, minimize
 from threadpoolctl import threadpool_limits
 
 from investor.db import connect
@@ -21,9 +22,20 @@ from investor.portfolio.volatility import load_histories
 
 class PerformanceRequest(PortfolioRequest):
     mode: Literal[
-        "balanced", "volatility", "performance", "drawdown", "correlation"
-    ] = "balanced"
+        "equal",
+        "sortino",
+        "sharpe",
+        "calmar",
+        "beta_sharpe",
+        "balanced",
+        "volatility",
+        "downside",
+        "performance",
+        "drawdown",
+        "correlation",
+    ] = "equal"
     history: Literal["common", "extended"] = "common"
+    fee_rate: float = Field(default=0.005, ge=0, le=0.1)
 
 
 def factor_regression(returns, factor_returns, periods):
@@ -40,15 +52,30 @@ def factor_regression(returns, factor_returns, periods):
     return 0.0 if abs(alpha) < 1e-12 else alpha, float(slope)
 
 
-def optimize_weights(returns, current, mode="balanced", locked=None):
+def optimize_weights(
+    returns,
+    current,
+    mode="balanced",
+    locked=None,
+    *,
+    betas=None,
+    target_beta=None,
+    elapsed_years=None,
+):
     """Select positions and solve each support with hard 3% / cardinality bounds.
 
     Exhaust all supports up to eight assets. Larger universes use deterministic
     ranked supports and bounded exchange search; no global optimality claim.
     """
+    if mode == "sharpe":
+        mode = "balanced"
     count = len(current)
     locked = dict(locked or {})
     if len(locked) == count:
+        if target_beta is not None and abs(float(betas @ current) - target_beta) > 1e-7:
+            raise HTTPException(
+                422, "Bêta cible incompatible avec les quantités verrouillées."
+            )
         return current.copy()
     cap = 0.35 if count >= 3 else 1.0
     floor = 0.03
@@ -69,6 +96,8 @@ def optimize_weights(returns, current, mode="balanced", locked=None):
             "Corrélations non mesurables : un actif a une volatilité nulle sur cette période.",
         )
     if count == 1:
+        if target_beta is not None and abs(float(betas[0]) - target_beta) > 1e-7:
+            raise HTTPException(422, "Bêta cible inaccessible avec cet actif.")
         return np.ones(1)
     covariance = np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
     means = returns.mean(axis=0)
@@ -78,6 +107,10 @@ def optimize_weights(returns, current, mode="balanced", locked=None):
         correlation = covariance / np.outer(deviations, deviations)
 
     def objective(w):
+        if mode in {"sortino", "calmar", "beta_sharpe"}:
+            return ratio_objective(returns @ w, mode, elapsed_years)
+        if mode == "downside":
+            return float(np.mean(np.minimum(returns @ w, 0) ** 2))
         if mode == "volatility":
             return float(w @ covariance @ w)
         if mode == "correlation":
@@ -118,6 +151,9 @@ def optimize_weights(returns, current, mode="balanced", locked=None):
                 cap,
                 floor,
                 fixed=fixed,
+                betas=betas[selected] if betas is not None else None,
+                target_beta=target_beta,
+                elapsed_years=elapsed_years,
             )
         except HTTPException as error:
             if error.status_code != 503:
@@ -135,6 +171,10 @@ def optimize_weights(returns, current, mode="balanced", locked=None):
                 if i not in locked
             )
             or any(abs(full[i] - value) > 1e-8 for i, value in locked.items())
+            or (
+                target_beta is not None
+                and abs(float(betas @ full) - target_beta) > 1e-7
+            )
         ):
             raise HTTPException(
                 503, "Les contraintes de pondération n’ont pas été respectées."
@@ -149,7 +189,15 @@ def optimize_weights(returns, current, mode="balanced", locked=None):
         relaxed = (
             current
             if locked
-            else _optimize_support(returns, np.full(count, 1 / count), mode, cap)
+            else _optimize_support(
+                returns,
+                np.full(count, 1 / count),
+                mode,
+                cap,
+                betas=betas,
+                target_beta=target_beta,
+                elapsed_years=elapsed_years,
+            )
         )
         rankings = [
             np.argsort(-relaxed, kind="stable"),
@@ -187,10 +235,23 @@ def optimize_weights(returns, current, mode="balanced", locked=None):
     return weights
 
 
-def _optimize_support(returns, current, mode, cap, floor=0.0, fixed=None):
+def _optimize_support(
+    returns,
+    current,
+    mode,
+    cap,
+    floor=0.0,
+    fixed=None,
+    *,
+    betas=None,
+    target_beta=None,
+    elapsed_years=None,
+):
     """Long-only historical objectives; compounded drawdown uses convex cuts."""
     count = len(current)
     if count == 1:
+        if target_beta is not None and abs(float(betas[0]) - target_beta) > 1e-7:
+            raise HTTPException(503, "Bêta inaccessible sur cette sélection.")
         return current.copy()
     fixed = dict(fixed or {})
     lower = np.array([fixed.get(i, floor) for i in range(count)])
@@ -238,7 +299,131 @@ def _optimize_support(returns, current, mode, cap, floor=0.0, fixed=None):
     def minimum_variance():
         return solve(lambda w: float(w @ scaled @ w), lambda w: 2 * scaled @ w)
 
-    if mode == "volatility":
+    if mode in {"sortino", "calmar", "beta_sharpe"}:
+        constraints = [budget]
+        free = np.flatnonzero(upper - lower > 1e-12)
+        independent_beta = (
+            target_beta is not None and len(free) > 1 and np.ptp(betas[free]) >= 1e-10
+        )
+        if target_beta is not None:
+            # Fixed quantities can make the beta equality redundant even when
+            # the full vector of asset betas is not constant.
+            if independent_beta:
+                constraints.append(
+                    {
+                        "type": "eq",
+                        "fun": lambda w: float(betas @ w - target_beta),
+                        "jac": lambda w: betas,
+                    }
+                )
+        matrix = np.ones((1, count))
+        rhs = [1.0]
+        if target_beta is not None:
+            matrix = np.vstack((matrix, betas))
+            rhs.append(target_beta)
+        feasible = linprog(
+            -means,
+            A_eq=matrix,
+            b_eq=rhs,
+            bounds=list(zip(lower, upper, strict=True)),
+            method="highs",
+        )
+        if not feasible.success:
+            raise HTTPException(503, "Contraintes incompatibles sur cette sélection.")
+        if len(free) <= 1 or (independent_beta and len(free) == 2):
+            # The equalities already determine the only possible allocation.
+            return feasible.x
+
+        if mode != "calmar" and means @ feasible.x > 1e-12:
+            # Positive Sortino / Sharpe: y=w/(normalized_mean @ w).
+            # Minimize squared risk with normalized_mean @ y=1. This convex
+            # problem avoids dividing by nearly zero downside or volatility.
+            normalized = means / max(float(np.max(np.abs(means))), 1e-12)
+            equalities = [normalized]
+            targets = [1.0]
+            rows = [np.eye(count)[i] - lower[i] for i in range(count) if i not in free]
+            if independent_beta:
+                rows.append(betas - target_beta)
+            for row in rows:
+                if np.linalg.matrix_rank(np.vstack([*equalities, row])) > len(
+                    equalities
+                ):
+                    equalities.append(row)
+                    targets.append(0.0)
+            equality_matrix = np.array(equalities)
+            bound_matrix = np.vstack(
+                [
+                    np.eye(count)[free] - lower[free, None],
+                    upper[free, None] - np.eye(count)[free],
+                ]
+            )
+            scale = max(float(np.max(np.mean(returns**2, axis=0))), 1e-12)
+
+            def risk(y):
+                if mode == "sortino":
+                    return float(np.mean(np.minimum(returns @ y, 0) ** 2)) / scale
+                return float(y @ scaled @ y)
+
+            def risk_gradient(y):
+                if mode == "sortino":
+                    return (
+                        2
+                        * returns.T
+                        @ np.minimum(returns @ y, 0)
+                        / len(returns)
+                        / scale
+                    )
+                return 2 * scaled @ y
+
+            allocation = solve(
+                risk,
+                risk_gradient,
+                initial=feasible.x / (normalized @ feasible.x),
+                constraints=[
+                    {
+                        "type": "eq",
+                        "fun": lambda y: equality_matrix @ y - targets,
+                        "jac": lambda y: equality_matrix,
+                    },
+                    {
+                        "type": "ineq",
+                        "fun": lambda y: bound_matrix @ y,
+                        "jac": lambda y: bound_matrix,
+                    },
+                ],
+                bounds=[(0, None)] * count,
+            )
+            weights = allocation / allocation.sum()
+        else:
+
+            def objective(w):
+                return ratio_objective(returns @ w, mode, elapsed_years)
+
+            candidates = []
+            for seed in [feasible.x, initial_weights, np.full(count, 1 / count)]:
+                try:
+                    candidate = solve(
+                        objective, None, initial=seed, constraints=constraints
+                    )
+                    if abs(candidate.sum() - 1) < 1e-8 and (
+                        target_beta is None
+                        or abs(float(betas @ candidate) - target_beta) < 1e-7
+                    ):
+                        candidates.append(candidate)
+                except HTTPException:
+                    continue
+            if not candidates:
+                raise HTTPException(503, "L’optimisation du ratio n’a pas convergé.")
+            weights = min(candidates, key=objective)
+    elif mode == "downside":
+        # Minimize shortfalls below zero, not dispersion around a negative mean.
+        # Scaling preserves the optimum while keeping SLSQP tolerances meaningful.
+        scale = max(float(np.max(np.mean(returns**2, axis=0))), 1e-12)
+        weights = solve(
+            lambda w: float(np.mean(np.minimum(returns @ w, 0) ** 2)) / scale,
+            lambda w: 2 * returns.T @ np.minimum(returns @ w, 0) / len(returns) / scale,
+        )
+    elif mode == "volatility":
         weights = minimum_variance()
     elif mode == "correlation":
         deviations = np.sqrt(np.diag(covariance))
@@ -415,6 +600,62 @@ def _minimum_drawdown(returns, current, solve, cap=1.0, floor=0.0, bounds=None):
     )
 
 
+def ratio_objective(changes, mode, elapsed_years=None):
+    """Same ratio conventions as the displayed metrics; finite solver utility."""
+    mean = float(changes.mean())
+    if mode == "sortino":
+        denominator = float(np.sqrt(np.mean(np.minimum(changes, 0) ** 2)))
+        numerator = mean * np.sqrt(252)
+    elif mode == "calmar":
+        logs = np.r_[0.0, np.cumsum(np.log1p(changes))]
+        denominator = float(-np.expm1(np.min(logs - np.maximum.accumulate(logs))))
+        numerator = float(np.expm1(logs[-1] / (elapsed_years or len(changes) / 252)))
+    else:
+        denominator = float(changes.std(ddof=1))
+        numerator = mean * np.sqrt(252)
+    return -numerator / max(denominator, 1e-10)
+
+
+def annual_equal_returns(returns, dates, fee_rate=0.005, first_dates=None):
+    """Buy equal stakes, let them drift, then rebalance on each anniversary.
+
+    Fees apply to both traded legs. Solve the self-financing target value,
+    including the initial purchase; no fictional sale at the final observation.
+    """
+    count = returns.shape[1]
+    first_dates = first_dates or [dates[0]] * count
+    active = np.array([first <= dates[0] for first in first_dates])
+    values = np.full(count, 1 / count) / (1 + fee_rate * active)
+    start = date.fromisoformat(dates[0])
+    next_year = start.year + 1
+    changes = []
+    for i, row in enumerate(returns):
+        previous = 1.0 if i == 0 else float(values.sum())
+        values *= 1 + row
+        day = date.fromisoformat(dates[i + 1])
+        available = np.array([first <= dates[i + 1] for first in first_dates])
+        values[available & ~active] /= 1 + fee_rate
+        active = available
+        anniversary = date(
+            next_year,
+            start.month,
+            min(start.day, calendar.monthrange(next_year, start.month)[1]),
+        )
+        if day >= anniversary and i < len(returns) - 1:
+            wealth = float(values.sum())
+            low, high = 0.0, wealth
+            for _ in range(50):
+                net = (low + high) / 2
+                if net + fee_rate * np.abs(net / count - values)[active].sum() > wealth:
+                    high = net
+                else:
+                    low = net
+            values[:] = (low + high) / 2 / count
+            next_year = day.year + 1
+        changes.append(float(values.sum()) / previous - 1)
+    return np.array(changes)
+
+
 def comparison_data(
     assets,
     histories,
@@ -425,6 +666,7 @@ def comparison_data(
     mode="balanced",
     history="common",
     locked_asset_ids=(),
+    fee_rate=0.005,
 ):
     non_daily = [a for a in assets if a["frequency"] != "daily"]
     if non_daily:
@@ -497,12 +739,60 @@ def comparison_data(
         for i, p in enumerate(positions)
         if p.get("id") in locked_asset_ids
     }
-    recommended = (
-        optimize_weights(returns[:, :-1], current, mode, locked) if optimize else None
-    )
+    recommended = None
+    allocations, unavailable = {}, {}
     strategies = {"portfolio": returns[:, :-1] @ current, "benchmark": returns[:, -1]}
-    if recommended is not None:
-        strategies["optimized"] = returns[:, :-1] @ recommended
+    elapsed_years = (
+        date.fromisoformat(common[-1]) - date.fromisoformat(common[0])
+    ).days / 365.25
+    if optimize:
+        if mode == "equal":
+            recommended = np.full(len(current), 1 / len(current))
+            if any(abs(recommended[i] - value) > 1e-8 for i, value in locked.items()):
+                raise HTTPException(
+                    422,
+                    "L’équipondération est incompatible avec les quantités verrouillées. Déverrouillez les actifs concernés.",
+                )
+            strategies["optimized"] = annual_equal_returns(
+                returns[:, :-1], common, fee_rate, first_dates
+            )
+        elif mode == "beta_sharpe":
+            betas = np.array(
+                [
+                    factor_regression(returns[:, i], returns[:, -1], periods)[1]
+                    for i in range(len(current))
+                ]
+            )
+            for digit in (3, 4, 5, 6, 7):
+                key = f"beta_0{digit}"
+                try:
+                    if any(value is None for value in betas):
+                        raise HTTPException(
+                            422,
+                            "Bêta non mesurable : le S&P 500 ne varie pas sur cette période.",
+                        )
+                    weights = optimize_weights(
+                        returns[:, :-1],
+                        current,
+                        mode,
+                        locked,
+                        betas=betas.astype(float),
+                        target_beta=digit / 10,
+                        elapsed_years=elapsed_years,
+                    )
+                    allocations[key] = weights.tolist()
+                    strategies[key] = returns[:, :-1] @ weights
+                except HTTPException as error:
+                    unavailable[key] = (
+                        "Cible non obtenue : contraintes incompatibles ou optimisation sans convergence."
+                        if error.status_code == 503
+                        else error.detail
+                    )
+        else:
+            recommended = optimize_weights(
+                returns[:, :-1], current, mode, locked, elapsed_years=elapsed_years
+            )
+            strategies["optimized"] = returns[:, :-1] @ recommended
     benchmark_returns = returns[:, -1]
     curves, metrics = {}, {}
     for key, changes in strategies.items():
@@ -520,11 +810,12 @@ def comparison_data(
         drawdown = float(np.min(curve / np.maximum.accumulate(curve) - 1))
         alpha, beta = factor_regression(changes, benchmark_returns, periods)
         metrics[key] = {
-            "beta": beta,
+            "beta": 1.0 if key == "benchmark" else beta,
             "alpha": alpha,
             "total_return": float(curve[-1] / 100 - 1),
             "cagr": cagr,
             "volatility": float(np.std(changes, ddof=1) * np.sqrt(periods)),
+            "downside_volatility": downside * float(np.sqrt(periods)),
             "max_drawdown": drawdown,
             "sortino": float(changes.mean() / downside * np.sqrt(periods))
             if downside > 1e-12
@@ -555,6 +846,9 @@ def comparison_data(
             for i, d in enumerate(common)
         ],
         "metrics": metrics,
+        "allocations": allocations,
+        "unavailable": unavailable,
+        "fee_rate": fee_rate if mode == "equal" and optimize else None,
         "positions": [
             {
                 **p,
@@ -615,4 +909,5 @@ def portfolio_performance(request: PerformanceRequest, optimize=False):
         mode=request.mode,
         history=request.history,
         locked_asset_ids=request.locked_asset_ids,
+        fee_rate=request.fee_rate,
     )

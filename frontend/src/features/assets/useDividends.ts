@@ -29,6 +29,6 @@ export function useDividends(asset: Asset) {
       controller.abort();
       clearInterval(timer);
     };
-  }, [asset.id, asset.last_date, asset.category]);
+  }, [asset.data_revision, asset.id, asset.last_date, asset.category]);
   return { history, error };
 }

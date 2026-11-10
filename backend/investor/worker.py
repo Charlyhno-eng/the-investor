@@ -1,61 +1,17 @@
-"""Single independent worker: queued imports first, scheduled refreshes between jobs."""
+"""Optional extra consumer; the API also refreshes existing market data."""
 
 import logging
-import time
+from threading import Event
 
-from investor import db
-from investor.imports.catalog import COMMODITY_FUTURES, CRYPTO, CURRENCIES, ETF
-from investor.imports.service import import_symbol, process_one
-from investor.ingest import fred
-
-log = logging.getLogger(__name__)
+from investor.imports.runner import consume_imports
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    scheduled = []
-    next_refresh = 0.0
-    while True:
-        try:
-            if process_one():
-                continue
-            if not scheduled and time.monotonic() >= next_refresh:
-                with db.connect() as connection:
-                    imported = [
-                        (row["id"][3:].upper(), row["category"])
-                        for row in connection.execute(
-                            "SELECT id,category FROM assets WHERE source='yahoo'"
-                        )
-                        if row["category"] != "commodity"
-                        and (
-                            row["category"] != "crypto"
-                            or row["id"][3:].upper() in CRYPTO
-                        )
-                    ]
-                symbols = {s: "crypto" for s in CRYPTO}
-                symbols.update(dict(imported))
-                symbols.update({s: "etf" for s in ETF})
-                symbols.update({s: "currency" for s in CURRENCIES})
-                symbols.update({s: "commodity" for s in COMMODITY_FUTURES})
-                scheduled = [fred] + [
-                    lambda s=s, c=c: import_symbol(s, c) for s, c in symbols.items()
-                ]
-                next_refresh = time.monotonic() + 86400
-            if scheduled:
-                task = scheduled.pop(0)
-                try:
-                    task()
-                except Exception:
-                    log.exception(
-                        "Actualisation incomplète ; données précédentes conservées"
-                    )
-            else:
-                time.sleep(2)
-        except KeyboardInterrupt:
-            return
-        except Exception:
-            log.exception("Erreur du worker")
-            time.sleep(2)
+    try:
+        consume_imports(Event(), seed=True)
+    except KeyboardInterrupt:
+        return
 
 
 if __name__ == "__main__":

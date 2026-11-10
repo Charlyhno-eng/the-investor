@@ -167,3 +167,56 @@ test("watchlist groups classes in rail order and only computes stock and crypto 
   ).toHaveCount(0);
   await expect(page.locator(".portfolio-summary")).toHaveCount(0);
 });
+
+test("an open chart reloads corrected history after the catalogue refresh", async ({
+  page,
+}) => {
+  const { historyRequests } = await mockApi(page);
+  let revision = "first";
+  await page.route("**/api/assets", (route) =>
+    route.fulfill({ json: [{ ...stock, data_revision: revision }] }),
+  );
+  await page.clock.install();
+  await page.goto(`/assets/${stock.id}`);
+  await expect(page.locator(".history-chart")).toBeVisible();
+  const initial = historyRequests.length;
+  revision = "corrected";
+  await page.clock.fastForward(15000);
+  await expect.poll(() => historyRequests.length).toBe(initial + 1);
+  // An unchanged catalogue must not trigger another full history download.
+  await page.clock.fastForward(15000);
+  expect(historyRequests).toHaveLength(initial + 1);
+});
+
+test("portfolio analytics refresh when provider data changes without a quantity edit", async ({
+  page,
+}) => {
+  await mockApi(page);
+  let revision = "first";
+  let analyticsRequests = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/portfolio/analytics")
+      analyticsRequests++;
+  });
+  await page.route("**/api/assets", (route) =>
+    route.fulfill({ json: [{ ...stock, data_revision: revision }] }),
+  );
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "investor-favorites",
+      JSON.stringify({ "yf-test": "gold" }),
+    );
+    localStorage.setItem(
+      "investor-quantities",
+      JSON.stringify({ "yf-test": 1 }),
+    );
+  });
+  await page.clock.install();
+  await page.goto("/markets/portfolio");
+  await expect.poll(() => analyticsRequests).toBeGreaterThan(0);
+  await expect(page.locator(".portfolio-total strong")).not.toHaveText("—");
+  const previous = analyticsRequests;
+  revision = "updated";
+  await page.clock.fastForward(15000);
+  await expect.poll(() => analyticsRequests).toBeGreaterThan(previous);
+});

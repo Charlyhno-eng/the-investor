@@ -144,7 +144,7 @@ def compare(
             "start": aligned[0][0],
             "end": aligned[-1][0],
             "converted": currency != "USD",
-            "dividends_reinvested": reinvest and asset["category"] == "stock",
+            "dividends_reinvested": reinvest and asset["category"] in ("stock", "etf"),
             "reinvest": reinvest,
             "price_proxy": asset["category"] == "commodity",
         }
@@ -154,7 +154,7 @@ def ensure_references(connection, symbols):
     pending = False
     for symbol in symbols:
         available = connection.execute(
-            "SELECT 1 FROM reference_imports WHERE symbol=? AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now','-1 day')",
+            "SELECT 1 FROM reference_imports WHERE symbol=? AND updated_at > strftime('%Y-%m-%dT%H:%M:%SZ','now','-1 hour')",
             (symbol,),
         ).fetchone()
         if available:

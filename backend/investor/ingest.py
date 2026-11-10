@@ -181,38 +181,43 @@ def brazil():
     )
 
 
+def import_country(code):
+    if code == "BR":
+        brazil()
+        return "br-tesouro-prefixado"
+    symbol = series_for(code)
+    payload = download(
+        f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={symbol}&cosd=1900-01-01",
+        "csv",
+    )
+    points = parse_fred(payload, symbol)
+    save(
+        [
+            (
+                symbol,
+                COUNTRIES[code],
+                "bond",
+                "yield",
+                "%",
+                "monthly",
+                "oecd-fred",
+                f"https://fred.stlouisfed.org/series/{symbol}",
+            )
+        ],
+        points,
+        f"fred:{symbol}",
+        country_code=code,
+        benchmark_years=10,
+    )
+    log.info("%s (%s) : %d observations", COUNTRIES[code], symbol, len(points))
+    return symbol
+
+
 def fred():
     failures = []
     for code, country in COUNTRIES.items():
-        if code == "BR":
-            brazil()
-            continue
-        symbol = series_for(code)
         try:
-            payload = download(
-                f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={symbol}&cosd=1900-01-01",
-                "csv",
-            )
-            points = parse_fred(payload, symbol)
-            save(
-                [
-                    (
-                        symbol,
-                        country,
-                        "bond",
-                        "yield",
-                        "%",
-                        "monthly",
-                        "oecd-fred",
-                        f"https://fred.stlouisfed.org/series/{symbol}",
-                    )
-                ],
-                points,
-                f"fred:{symbol}",
-                country_code=code,
-                benchmark_years=10,
-            )
-            log.info("%s (%s) : %d observations", country, symbol, len(points))
+            import_country(code)
         except Exception:
             log.exception("Échec %s ; historique existant conservé", country)
             failures.append(country)

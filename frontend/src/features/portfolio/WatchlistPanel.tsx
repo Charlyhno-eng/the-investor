@@ -23,7 +23,7 @@ export function WatchlistPanel({ assets }: { assets: Asset[] }) {
   const revision = JSON.stringify(
     assets
       .filter(supportsDeviation)
-      .map((a) => [a.id, a.last_date, a.last_value]),
+      .map((a) => [a.id, a.data_revision, a.last_date, a.last_value]),
   );
   useEffect(() => {
     const controller = new AbortController();

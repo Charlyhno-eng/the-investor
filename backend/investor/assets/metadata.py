@@ -3,7 +3,24 @@
 from datetime import date
 
 from investor.countries import COUNTRIES
-from investor.imports.catalog import COMMODITIES
+from investor.imports.catalog import COMMODITIES, COMMODITY_FUTURES
+
+
+def history_revision(db, row):
+    asset = dict(row)
+    source = asset["source"]
+    if source == "yahoo":
+        symbol = next(
+            (s for s, values in COMMODITY_FUTURES.items() if values[0] == asset["id"]),
+            asset["id"][3:].upper(),
+        )
+        source = f"yahoo:{symbol}"
+    elif source == "oecd-fred":
+        source = f"fred:{asset['id']}"
+    imported = db.execute(
+        "SELECT completed_at FROM imports WHERE source=?", (source,)
+    ).fetchone()
+    return f"{imported[0] if imported else ''}:{asset.pop('reference_updated_at', None) or ''}"
 
 
 def enrich_asset(db, row):

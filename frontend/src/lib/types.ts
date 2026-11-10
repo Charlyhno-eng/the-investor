@@ -13,6 +13,7 @@ export type Asset = {
   first_date: string;
   last_date: string;
   last_value: number;
+  data_revision?: string;
   country_code: string | null;
   country?: string | null;
   sector?: string | null;

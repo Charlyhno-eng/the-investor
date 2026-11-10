@@ -4,11 +4,12 @@ import type { PerformanceResult } from "../../src/features/portfolio/performance
 
 function model(
   optimized = false,
-  mode: PerformanceResult["mode"] = "balanced",
+  mode: PerformanceResult["mode"] = "equal",
 ): PerformanceResult {
   return {
     status: "ready",
     mode: optimized ? mode : null,
+    fee_rate: optimized && mode === "equal" ? 0.005 : null,
     currency: "EUR",
     frequency: "daily",
     observations: 119,
@@ -29,6 +30,7 @@ function model(
         sortino: 0.8,
         calmar: 0.4,
         volatility: 0.2,
+        downside_volatility: 0.12,
         max_drawdown: -0.25,
         sharpe: 0.6,
       },
@@ -40,6 +42,7 @@ function model(
         sortino: 0.8,
         calmar: 0.53,
         volatility: 0.16,
+        downside_volatility: 0.09,
         max_drawdown: -0.15,
         sharpe: 0.56,
       },
@@ -53,6 +56,7 @@ function model(
               sortino: null,
               calmar: 1.2,
               volatility: 0.1,
+              downside_volatility: 0.05,
               max_drawdown: -0.1,
               sharpe: 1.4,
             },
@@ -308,7 +312,7 @@ test("all optimization modes, risk metrics and extended history remain explicit"
   );
   await expect(panel.locator(".performance-history-note")).toHaveCount(0);
   const metrics = panel.locator(".performance-metrics");
-  await expect(metrics.locator("tbody tr")).toHaveCount(6);
+  await expect(metrics.locator("tbody tr")).toHaveCount(8);
   await panel.getByText("Indicateurs de performance", { exact: true }).click();
   await expect(metrics).not.toBeVisible();
   await panel.getByText("Indicateurs de performance", { exact: true }).click();
@@ -323,7 +327,8 @@ test("all optimization modes, risk metrics and extended history remain explicit"
   await expect(
     metrics.getByRole("row", { name: /^Alpha annualisé/ }),
   ).toHaveCount(0);
-  await expect(metrics.getByRole("row", { name: /^Bêta/ })).toHaveCount(0);
+  await expect(metrics.getByRole("row", { name: /^Bêta/ })).toHaveCount(1);
+  await expect(cell("Bêta", 0)).toContainText("1");
   await expect(cell("CAGR", 1)).toHaveAttribute("data-comparison", "better");
   await expect(cell("Volatilité annualisée", 1)).toHaveAttribute(
     "data-comparison",
@@ -340,11 +345,10 @@ test("all optimization modes, risk metrics and extended history remain explicit"
   );
   await expect(cell("CAGR", 2)).toContainText("—");
   for (const [label, mode] of [
-    ["Équilibre", "balanced"],
-    ["Volatilité minimale", "volatility"],
-    ["Performance maximale", "performance"],
+    ["Équipondération annuelle", "equal"],
+    ["Sortino maximal", "sortino"],
+    ["Volatilité à la baisse minimale", "downside"],
     ["Drawdown minimal", "drawdown"],
-    ["Corrélations minimales", "correlation"],
   ]) {
     await panel.getByRole("radio", { name: new RegExp(label) }).check();
     await panel
@@ -438,8 +442,18 @@ test("allocation icons cover increases, reductions, exit and unchanged weights",
     );
   }
   const cards = page.locator(".optimization-modes label");
-  for (const card of await cards.all())
-    expect((await card.boundingBox())!.height).toBe(42);
+  for (const card of await cards.all()) {
+    const bounds = (await card.boundingBox())!;
+    const textBounds = (await card.locator("strong").boundingBox())!;
+    expect(bounds.height).toBeGreaterThanOrEqual(42);
+    expect(textBounds.y).toBeGreaterThanOrEqual(bounds.y);
+    expect(textBounds.y + textBounds.height).toBeLessThanOrEqual(
+      bounds.y + bounds.height,
+    );
+    expect(textBounds.x + textBounds.width).toBeLessThanOrEqual(
+      bounds.x + bounds.width,
+    );
+  }
   expect(
     (await page
       .getByRole("button", { name: "Optimisation calculée", exact: true })
@@ -512,4 +526,115 @@ test("optimized metric markers independently compare benchmark and base strategy
   await page
     .locator(".performance-metrics-panel")
     .screenshot({ path: testInfo.outputPath("double-metric-markers.png") });
+});
+
+test("five beta targets have separate curves, metrics and allocation signals", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route("**/api/portfolio/performance", (r) =>
+    r.fulfill({ json: model() }),
+  );
+  await page.route("**/api/portfolio/optimize", (r) => {
+    const data = model(true, "beta_sharpe");
+    const metrics = data.metrics.optimized!;
+    delete data.metrics.optimized;
+    data.allocations = {};
+    for (const [index, digit] of [3, 4, 5, 6, 7].entries()) {
+      const key = `beta_0${digit}` as
+        "beta_03" | "beta_04" | "beta_05" | "beta_06" | "beta_07";
+      data.metrics[key] = { ...metrics, beta: digit / 10 };
+      data.allocations[key] = [0.2 + index * 0.1, 0.8 - index * 0.1];
+      for (const [i, point] of data.equity.entries()) {
+        delete point.optimized;
+        point[key] = 100 + i * (0.06 + index * 0.02);
+      }
+    }
+    return r.fulfill({ json: data });
+  });
+  await page.goto("/markets/portfolio");
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
+  const panel = page.locator(".portfolio-performance");
+  await expect(panel.getByRole("radio")).toHaveCount(5);
+  await panel.getByRole("radio", { name: "Sharpe à bêta cible" }).check();
+  await panel
+    .getByRole("button", { name: "Optimiser les poids", exact: true })
+    .click();
+  await expect(panel.locator(".performance-series-summary > div")).toHaveCount(
+    7,
+  );
+  const table = panel.getByRole("table", {
+    name: "Indicateurs de comparaison",
+  });
+  await expect(table.locator("thead th")).toHaveCount(8);
+  const row = table.getByRole("row", { name: /^Bêta/ });
+  for (const [index, value] of ["0,3", "0,4", "0,5", "0,6", "0,7"].entries()) {
+    await expect(row.locator("td").nth(index + 2)).toContainText(value);
+  }
+  await expect(panel.locator(".performance-weights thead th")).toHaveCount(7);
+  const weights = panel.locator(".performance-weights");
+  await expect(
+    weights
+      .locator("tbody tr")
+      .first()
+      .getByRole("img", { name: "Alléger fortement la position", exact: true }),
+  ).toHaveCount(5);
+  await expect(
+    weights.locator("tbody tr").nth(1).getByRole("img", {
+      name: "Renforcer fortement la position",
+      exact: true,
+    }),
+  ).toHaveCount(5);
+  await expect(panel.getByLabel("Légende des recommandations")).toBeVisible();
+  await panel.getByRole("radio", { name: "Sortino maximal" }).check();
+  await expect(panel.locator(".performance-series-summary > div")).toHaveCount(
+    2,
+  );
+  await expect(panel.locator(".performance-weights")).toHaveCount(0);
+});
+
+test("metric question marks explain ratios and equal fees can be changed", async ({
+  page,
+  isMobile,
+}) => {
+  await setup(page);
+  await page.route("**/api/portfolio/performance", (r) =>
+    r.fulfill({ json: model() }),
+  );
+  let fee = 0;
+  await page.route("**/api/portfolio/optimize", (r) => {
+    fee = r.request().postDataJSON().fee_rate;
+    return r.fulfill({ json: { ...model(true), fee_rate: fee } });
+  });
+  await page.goto("/markets/portfolio");
+  await page
+    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .click();
+  const panel = page.locator(".portfolio-performance");
+  const tip = panel.getByRole("button", {
+    name: "Définition : Ratio de Sortino",
+    exact: true,
+  });
+  if (isMobile) await tip.tap();
+  else await tip.hover();
+  await expect(
+    page
+      .getByRole("tooltip")
+      .filter({ hasText: "La volatilité à la hausse n’est pas pénalisée" }),
+  ).toBeVisible();
+  await tip.press("Escape");
+  const fees = panel.getByRole("spinbutton", {
+    name: "Frais par achat et par vente (%)",
+  });
+  await expect(fees).toHaveValue("0.5");
+  await fees.fill("0.8");
+  await panel
+    .getByRole("button", { name: "Optimiser les poids", exact: true })
+    .click();
+  await expect(
+    panel.getByRole("button", { name: "Optimisation calculée", exact: true }),
+  ).toBeDisabled();
+  expect(fee).toBe(0.008);
 });

@@ -5,7 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException
 
-from investor.assets.metadata import enrich_asset, visible_asset
+from investor.assets.metadata import enrich_asset, history_revision, visible_asset
 from investor.db import connect
 from investor.imports.catalog import REMOVED_CRYPTO
 
@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api", tags=["assets"])
 def assets():
     with connect() as db:
         return [
-            enrich_asset(db, row)
+            enrich_asset(db, row) | {"data_revision": history_revision(db, row)}
             for row in db.execute(
                 """
           WITH ranking AS (
@@ -29,6 +29,7 @@ def assets():
             GROUP BY o.asset_id
           )
           SELECT a.*, COUNT(o.date) AS points,
+            (SELECT MAX(updated_at) FROM reference_imports) AS reference_updated_at,
             MIN(o.date) AS first_date, MAX(o.date) AS last_date,
             (SELECT value FROM observations WHERE asset_id=a.id ORDER BY date DESC LIMIT 1) AS last_value,
             y.average_yield AS year_average_yield, COALESCE(y.samples,0) AS year_yield_samples,
@@ -73,18 +74,39 @@ def dividends(asset_id: str):
 
 
 @router.get("/assets/{asset_id}/history")
-def history(asset_id: str, start: date | None = None, end: date | None = None):
+def history(
+    asset_id: str,
+    start: date | None = None,
+    end: date | None = None,
+    reinvest: bool = True,
+):
     if start and end and start > end:
         raise HTTPException(422, "La date de début doit précéder la date de fin")
     start_value = start.isoformat() if start else None
     end_value = end.isoformat() if end else None
     with connect() as db:
-        if not db.execute("SELECT 1 FROM assets WHERE id=?", (asset_id,)).fetchone():
+        asset = db.execute("SELECT * FROM assets WHERE id=?", (asset_id,)).fetchone()
+        if not asset:
             raise HTTPException(404, "Actif introuvable")
+        # Preserve adjusted histories for analytics; price charts request Close
+        # explicitly. Never substitute adjusted prices when Close is missing.
+        table = "observations"
+        if asset["category"] in ("stock", "etf") and not reinvest:
+            from investor.assets.comparison import ensure_prices
+
+            pending = ensure_prices(db, asset)
+            if pending:
+                # Commit the queued import before returning the error response.
+                db.commit()
+                raise HTTPException(
+                    503,
+                    "Import des cours hors dividendes en cours. Réessayez dans un instant.",
+                )
+            table = "price_observations"
         return [
             dict(row)
             for row in db.execute(
-                "SELECT date AS time,value FROM observations WHERE asset_id=? AND (? IS NULL OR date>=?) AND (? IS NULL OR date<=?) ORDER BY date",
+                f"SELECT date AS time,value FROM {table} WHERE asset_id=? AND (? IS NULL OR date>=?) AND (? IS NULL OR date<=?) ORDER BY date",
                 (asset_id, start_value, start_value, end_value, end_value),
             )
         ]

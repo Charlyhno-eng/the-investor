@@ -66,7 +66,15 @@ export function MarketComparison({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [asset.id, asset.last_value, start, end, revision, reinvest]);
+  }, [
+    asset.data_revision,
+    asset.id,
+    asset.last_value,
+    start,
+    end,
+    revision,
+    reinvest,
+  ]);
   return (
     <section className="market-comparison" aria-label="Comparaison au S&P 500">
       {error ? (
@@ -98,7 +106,13 @@ export function MarketComparison({
               <strong>{percent(result.index_return, true)}</strong>
             </span>
           </div>
-          <HistoryChart comparison={result.equity} comparisonLabels={labels} />
+          <HistoryChart
+            comparison={result.equity}
+            comparisonLabels={{
+              ...labels,
+              benchmark: `S&P 500 · ${reinvest ? "dividendes réinvestis" : "hors dividendes"}`,
+            }}
+          />
           <p className="comparison-caption">
             Base 100 en USD · du {date(result.start)} au {date(result.end)} ·
             dates communes observées, sans interpolation · hors frais et
