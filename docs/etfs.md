@@ -21,3 +21,23 @@ Sources :
 - [iShares : part EXA1, ISIN et cotation EXA1.AS](https://www.ishares.com/uk/individual/en/products/325273/?siteEntryPassthrough=true&switchLocale=y).
 - [Bourse Direct : part EXA1 et indication PEA](https://www.boursedirect.fr/fr/marche/euronext-amsterdam/ishares-euro-stoxx-banks-30-15-DE000A2QP372-EXA1-EUR-XAMS/seance).
 - [Invesco : SPMO, ISIN, indice et rebalancement](https://www.invesco.com/us/en/financial-products/etfs/invesco-sp-500-momentum-etf.html).
+
+## ETF inverses ajoutés le 11 novembre 2026
+
+| Fonds Amundi UCITS, capitalisation | Symbole importé | ISIN | Devise de cotation |
+|---|---|---|---|
+| Nasdaq-100 Daily (-1x) Inverse · PEA | DSP5.PA | LU1327051279 | EUR |
+| CAC 40 Daily (-1x) Inverse | SHC.PA | FR0010591362 | EUR |
+| CAC 40 Daily (-2x) Inverse | BX4.PA | FR0010411884 | EUR |
+| EURO STOXX 50 Daily (-1x) Inverse | BSX.PA | FR0010424135 | EUR |
+| EURO STOXX 50 Daily (-2x) Inverse | BXX.PA | FR0010424143 | EUR |
+
+L’éligibilité PEA de DSP5 est confirmée par Amundi. Sa part est libellée en USD, tandis que sa cotation retenue à Paris est en EUR. Son historique ancien peut correspondre à d’autres noms et indices (S&P 500 puis MSCI USA) : il ne faut pas interpréter toute la série comme un historique homogène de Nasdaq inverse. Les expositions −1× et −2× sont rééquilibrées **chaque jour** : elles ne garantissent pas l’opposé simple ou double du rendement cumulé sur plusieurs mois.
+
+Références émetteur :
+
+- [DSP5 : Nasdaq inverse, ISIN, PEA et cotation Paris](https://www.amundietf.lu/en/professional/products/equity/amundi-nasdaq100-daily-1x-inverse-ucits-etf-acc/lu1327051279).
+- [SHC : CAC 40 inverse −1× et cotation Paris](https://www.amundietf.be/fr/professionnels/produits/equity/amundi-cac-40-daily-1x-inverse-ucits-etf-acc/fr0010591362).
+- [BX4 : CAC 40 inverse −2×](https://www.amundietf.fr/fr/professionnels/produits/equity/amundi-cac-40-daily-2x-inverse-ucits-etf-acc/fr0010411884).
+- [BSX : Euro Stoxx 50 inverse −1× et cotation Paris](https://www.amundietf.nl/en/professional/products/equity/amundi-euro-stoxx-50-daily-1x-inverse-ucits-etf-acc/fr0010424135).
+- [BXX : Euro Stoxx 50 inverse −2×](https://www.amundietf.nl/en/professional/products/equity/amundi-euro-stoxx-50-daily-2x-inverse-ucits-etf-acc/fr0010424143).

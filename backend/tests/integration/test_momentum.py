@@ -86,7 +86,7 @@ def test_all_currencies_use_native_returns_and_common_benchmark(client):
     etf = api.get("/api/assets/airbus/momentum?benchmark=europe").json()
     assert etf["benchmark_name"] == "europe"
     assert api.get("/api/assets/airbus/momentum?benchmark=us").status_code == 422
-    assert api.get("/api/assets/europe/momentum").status_code == 422
+    assert api.get("/api/assets/europe/momentum").status_code == 200
     assert api.get("/api/assets/missing/momentum").status_code == 404
 
 
@@ -179,7 +179,7 @@ def test_crypto_uses_separate_universe_daily_dates_and_local_bitcoin(client):
     crashed = api.get("/api/assets/yf-eth-usd/momentum").json()
     assert crashed["universe"] == data["universe"]
     assert crashed["recent_return"] < data["recent_return"]
-    assert api.get("/api/momentum?category=etf").status_code == 422
+    assert api.get("/api/momentum?category=etf").status_code == 200
 
 
 def test_crypto_missing_bitcoin_queues_reference_and_never_uses_sp500(client):
@@ -260,3 +260,39 @@ def test_bitcoin_reference_import_accepts_crypto_provider_type(client, monkeypat
             ).fetchone()[0]
             == 1
         )
+
+
+def test_etf_matches_stock_math_and_has_its_own_universe_and_partial_scores(client):
+    api, _ = client
+    days = setup_history()
+    seed(days, "etf-peer", "etf")
+    seed(days[-707:], "etf-short", "etf")
+    with db.connect() as c:
+        c.execute(
+            "UPDATE observations SET value=100 * exp((julianday(date)-julianday('2024-08-31')) * 0.001) WHERE asset_id='europe'"
+        )
+        c.execute("INSERT INTO observations VALUES ('airbus','2026-11-10',100)")
+    response = api.get("/api/assets/europe/momentum")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["category"] == "etf"
+    assert data["as_of"] == "2026-11-09"
+    assert data["benchmark_name"] == "S&P 500 · dividendes réinvestis"
+    assert {s["id"] for s in data["universe"]} == {"europe", "etf-peer", "etf-short"}
+    assert all("score" in h for h in data["horizons"])
+    assert api.get("/api/momentum?category=etf").json()["universe"] == data["universe"]
+    short = next(s for s in data["universe"] if s["id"] == "etf-short")
+    assert short["scores"][0] is None and short["partial"]
+    assert short["available_horizons"] == [12, 6]
+    # Align dates again to compare the exact same formula and adjusted series.
+    with db.connect() as c:
+        c.execute(
+            "DELETE FROM observations WHERE asset_id='airbus' AND date='2026-11-10'"
+        )
+    stock = api.get("/api/assets/airbus/momentum").json()
+    assert data["horizons"] == stock["horizons"]
+    alternate = api.get("/api/assets/europe/momentum?benchmark=etf-peer").json()
+    assert alternate["benchmark_name"] == "etf-peer"
+    assert api.get("/api/assets/europe/momentum?benchmark=airbus").status_code == 422
+    own = api.get("/api/assets/europe/momentum?benchmark=europe").json()
+    assert all(h["relative_performance"] == pytest.approx(0) for h in own["horizons"])

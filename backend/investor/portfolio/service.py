@@ -22,6 +22,7 @@ class PortfolioRequest(BaseModel):
     holdings: list[Holding] = Field(max_length=1000)
     years: int = Field(default=3, ge=1, le=20)
     include_benchmark: bool = False
+    include_correlation: bool = True
     currency: Literal["EUR"] = "EUR"
 
 
@@ -62,48 +63,47 @@ def portfolio(request: PortfolioRequest):
             assets.append((asset, holding.quantity, currency))
         if assets and request.currency != "USD":
             symbols.add(f"{request.currency}USD=X")
-        if assets and request.include_benchmark:
+        if assets and request.include_correlation and request.include_benchmark:
             symbols.add("^SP500TR")
-        pending = ensure_references(connection, sorted(symbols)) or pending
+        pending = (
+            ensure_references(connection, sorted(symbols), allow_cached=True) or pending
+        )
         if pending:
             return {"status": "pending"}
         positions, histories = [], []
         cutoff = (
             date.today() - timedelta(days=int(request.years * 365.25))
         ).isoformat()
+        exchange_histories = {}
         for asset, quantity, currency in assets:
-            fx = (
-                None
-                if currency == "USD"
-                else dict(
+            if (
+                request.include_correlation
+                and currency != "USD"
+                and currency not in exchange_histories
+            ):
+                exchange_histories[currency] = dict(
                     connection.execute(
                         "SELECT date,value FROM reference_observations WHERE symbol=?",
                         (f"{currency}USD=X",),
                     ).fetchall()
                 )
-            )
+            fx = exchange_histories.get(currency)
             multiplier = 0.01 if asset["unit"] == "GBp" else 1
-            adjusted = connection.execute(
-                "SELECT date,value FROM observations WHERE asset_id=? ORDER BY date",
-                (asset["id"],),
-            ).fetchall()
-            values = {
-                r["date"]: r["value"]
-                * multiplier
-                * (fx[r["date"]] if fx is not None else 1)
-                for r in adjusted
-                if r["value"] > 0 and (fx is None or r["date"] in fx)
-            }
-            histories.append(
-                (
-                    asset,
-                    {
-                        d: v
-                        for d, v in values.items()
-                        if d >= cutoff and math.isfinite(v)
-                    },
+            if request.include_correlation:
+                adjusted = connection.execute(
+                    "SELECT date,value FROM observations WHERE asset_id=? AND date>=? ORDER BY date",
+                    (asset["id"], cutoff),
+                ).fetchall()
+                values = {
+                    r["date"]: r["value"]
+                    * multiplier
+                    * (fx[r["date"]] if fx is not None else 1)
+                    for r in adjusted
+                    if r["value"] > 0 and (fx is None or r["date"] in fx)
+                }
+                histories.append(
+                    (asset, {d: v for d, v in values.items() if math.isfinite(v)})
                 )
-            )
             # A rate or index point is not a tradable unit and cannot be valued as shares.
             if asset["category"] == "commodity" and "2010=100" in asset["unit"]:
                 excluded.append(
@@ -132,18 +132,27 @@ def portfolio(request: PortfolioRequest):
                     }
                 )
                 continue
-            if fx is not None and row["date"] not in fx:
-                excluded.append(
-                    {
-                        "id": asset["id"],
-                        "name": asset["name"],
-                        "reason": "Change absent à la date du dernier prix.",
-                    }
-                )
-                continue
-            price = (
-                row["value"] * multiplier * (fx[row["date"]] if fx is not None else 1)
-            )
+            rate = 1.0
+            if currency != "USD":
+                fx_row = connection.execute(
+                    "SELECT value FROM reference_observations WHERE symbol=? AND date=?",
+                    (f"{currency}USD=X", row["date"]),
+                ).fetchone()
+                if (
+                    fx_row is None
+                    or not math.isfinite(fx_row["value"])
+                    or fx_row["value"] <= 0
+                ):
+                    excluded.append(
+                        {
+                            "id": asset["id"],
+                            "name": asset["name"],
+                            "reason": "Change absent à la date du dernier prix.",
+                        }
+                    )
+                    continue
+                rate = fx_row["value"]
+            price = row["value"] * multiplier * rate
             # Banque mondiale reports cents for some series.
             if asset["category"] == "commodity" and "cents" in asset["unit"]:
                 price /= 100
@@ -258,5 +267,7 @@ def portfolio(request: PortfolioRequest):
                 "frequency": "monthly" if monthly else "daily",
                 "start": common[0] if common else None,
                 "end": common[-1] if common else None,
-            },
+            }
+            if request.include_correlation
+            else None,
         }

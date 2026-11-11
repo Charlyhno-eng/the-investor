@@ -442,14 +442,6 @@ p {
   gap: 20px;
   margin-bottom: 28px;
 }
-.dividend-library-filter[aria-pressed="true"] {
-  color: #efbd88;
-  border-color: #efbd8870;
-  background: #efbd8812;
-}
-.dividend-library-filter {
-  margin: 0 20px 12px;
-}
 .dividend-list-badge {
   display: inline-flex;
   margin-left: 6px;
@@ -1023,10 +1015,6 @@ td {
     margin: 0;
     padding: 8px;
   }
-  .dividend-library-filter {
-    grid-column: 1/-1;
-    margin: 0;
-  }
   .list-heading {
     display: none;
   }
@@ -1244,8 +1232,7 @@ td {
 }
 
 /* Income data stays next to the price chart, with its own period controls. */
-.yield-caption,
-.ranking-note {
+.yield-caption {
   color: var(--text-muted, #929aab);
   font-size: 12px;
   display: flex;
@@ -1254,15 +1241,6 @@ td {
 }
 .yield-caption {
   margin-bottom: 10px;
-}
-.ranking-note {
-  padding: 0 20px 14px;
-  line-height: 1.5;
-}
-@media (max-width: 700px) {
-  .ranking-note {
-    padding-bottom: 10px;
-  }
 }
 .history-chart {
   position: relative;
@@ -3402,4 +3380,357 @@ td {
   font-size: 10px;
   font-weight: 400;
   line-height: 1.5;
+}
+
+.prediction-history-key {
+  color: #edb786;
+}
+.prediction-median-key {
+  color: #bda6ff;
+}
+.prediction-legend > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.prediction-swatch {
+  display: inline-block;
+  width: 16px;
+  height: 10px;
+  background: #a78bfa25;
+  border: 1px solid #a78bfa66;
+  border-radius: 2px;
+}
+.prediction-swatch.central {
+  background: #a78bfa65;
+}
+.prediction-chart {
+  margin-bottom: 24px;
+  border: 1px solid #ffffff12;
+  border-radius: 8px;
+  background: #0d1016;
+  overflow: hidden;
+}
+.prediction-chart svg {
+  display: block;
+  width: 100%;
+  min-height: 240px;
+}
+.prediction-chart text {
+  fill: #939cab;
+  font-size: 12px;
+}
+.prediction-readout {
+  min-height: 52px;
+  padding: 12px 16px;
+  font-size: 12px;
+  color: #b6bfce;
+  border-top: 1px solid #ffffff12;
+  line-height: 1.7;
+}
+.prediction-model-stats {
+  margin-top: 0;
+}
+.prediction-limit {
+  color: #b6bfce;
+  font-size: 12px;
+  line-height: 1.8;
+}
+@media (max-width: 700px) {
+  .prediction-chart svg {
+    min-height: 210px;
+  }
+}
+
+.portfolio-allocation {
+  border-top: 2px solid var(--border, #ffffff24);
+  margin-top: 32px;
+  padding-top: 32px;
+}
+
+/* Conditional stress laboratory */
+.simulation-page {
+  padding: 32px;
+  max-width: 1500px;
+  margin: auto;
+}
+.simulation-heading {
+  margin-bottom: 28px;
+}
+.simulation-heading h1 {
+  font-size: 32px;
+  margin: 8px 0;
+}
+.simulation-heading p,
+.simulation-intro p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.simulation-intro {
+  padding: 24px;
+}
+.simulation-box {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+}
+.simulation-box h2 {
+  font-size: 19px;
+  margin: 8px 0 20px;
+}
+.simulation-box h3 {
+  margin-top: 28px;
+}
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.scenario-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  text-align: left;
+  color: inherit;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+.scenario-card.selected {
+  border-color: var(--accent, #317d78);
+  background: #edb78609;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.scenario-card span {
+  line-height: 1.5;
+  font-size: 12px;
+  opacity: 0.8;
+}
+.scenario-card small,
+.simulation-page .eyebrow {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+.simulation-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 16px 0;
+}
+.simulation-actions h2 {
+  margin: 0 auto 0 0;
+}
+.simulation-actions [aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.simulation-horizon {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.simulation-page input,
+.simulation-page select {
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 8px;
+  color: inherit;
+  background: transparent;
+  max-width: 100%;
+}
+.simulation-table {
+  overflow-x: auto;
+  margin: 18px 0;
+}
+.simulation-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.simulation-table th,
+.simulation-table td {
+  padding: 12px 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+.simulation-table th:first-child,
+.simulation-table td:first-child {
+  text-align: left;
+}
+.simulation-table td small {
+  display: block;
+  opacity: 0.65;
+  margin-top: 4px;
+}
+.simulation-table input {
+  width: 130px;
+}
+.simulation-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.simulation-stats div {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+}
+.simulation-stats span {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+  margin-bottom: 12px;
+}
+.simulation-stats strong {
+  font-size: 20px;
+}
+.simulation-warning {
+  background: #b7771512;
+  border-left: 3px solid #b77715;
+  padding: 16px;
+  margin: 20px 0;
+}
+.stress-chart {
+  margin: 24px 0;
+}
+.stress-chart svg {
+  width: 100%;
+}
+.stress-chart text {
+  fill: currentColor;
+  font-size: 11px;
+}
+.stress-chart figcaption {
+  font-size: 11px;
+  text-align: center;
+  opacity: 0.7;
+}
+.simulation-box details {
+  margin-top: 20px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.simulation-box summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+@media (max-width: 760px) {
+  .simulation-page {
+    padding: 16px;
+  }
+  .simulation-box {
+    padding: 16px;
+  }
+}
+.simulation-heading {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.simulation-title-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  color: var(--accent);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #edb78609;
+}
+.simulation-intro {
+  padding: 0;
+}
+.simulation-scenario-list {
+  padding: 8px;
+  overflow-y: auto;
+}
+.simulation-scenario-list button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  text-align: left;
+  padding: 16px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+.simulation-scenario-list button.selected {
+  background: #edb7860b;
+  border-color: #edb78635;
+}
+.simulation-scenario-list button.selected strong {
+  color: var(--accent);
+}
+.simulation-scenario-list small {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+}
+.simulation-scenario-list span {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.simulation-result-section {
+  border-top: 1px solid #ffffff20;
+  margin-top: 32px;
+  padding-top: 8px;
+}
+.simulation-result-section h3 {
+  font-size: 17px;
+  margin-bottom: 12px;
+}
+.simulation-result-section > p {
+  color: var(--muted);
+  line-height: 1.7;
+  font-size: 12px;
+}
+.simulation-neutral {
+  color: var(--accent);
+}
+.beta-direct {
+  color: var(--accent);
+}
+.beta-inverse {
+  color: var(--blue);
+}
+.simulation-beta-legend {
+  margin-top: 10px;
+}
+.stress-readout {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-size: 13px;
+}
+.stress-readout strong {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.simulation-chart-target {
+  scroll-margin-top: 20px;
+}
+.watchlist-resistance > p {
+  color: var(--muted);
+  line-height: 1.7;
+  margin: 14px 0;
+}
+.watchlist-resistance h3 {
+  margin: 24px 0 12px;
+}
+.watchlist-resistance [aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--accent);
 }

@@ -11,11 +11,11 @@ export function MomentumHeading() {
       <Tooltip floating label="Score pondéré de Momentum">
         Score sur 100 combinant les horizons 36, 12 et 6 mois, dernier mois
         exclu. Les poids et la référence sont ceux choisis dans l’onglet
-        Momentum pour chaque catégorie (40 / 35 / 25 ; S&P 500 pour les actions,
-        Bitcoin pour les cryptomonnaies par défaut). Toutes les devises sont
-        incluses, sans effet de change. 50 : neutre. Actions et cryptomonnaies :
-        si un horizon manque, les poids des horizons disponibles sont recalculés
-        et le score est signalé comme partiel.
+        Momentum pour chaque catégorie (40 / 35 / 25 ; S&P 500 pour les actions
+        et ETF, Bitcoin pour les cryptomonnaies par défaut). Toutes les devises
+        sont incluses, sans effet de change. 50 : neutre. Actions, ETF et
+        cryptomonnaies : si un horizon manque, les poids des horizons
+        disponibles sont recalculés et le score est signalé comme partiel.
       </Tooltip>
     </>
   );
@@ -27,8 +27,13 @@ export function MomentumCell({
   asset: Asset;
   momentum: ReturnType<typeof useMomentumScores>;
 }) {
-  if (asset.category !== "stock" && asset.category !== "crypto") return <>—</>;
-  const scores = asset.category === "crypto" ? momentum.crypto : momentum;
+  if (!["stock", "crypto", "etf"].includes(asset.category)) return <>—</>;
+  const scores =
+    asset.category === "crypto"
+      ? momentum.crypto
+      : asset.category === "etf"
+        ? momentum.etf
+        : momentum;
   const stock = scores.stocks.find((s) => s.id === asset.id);
   const score = weightedScore(stock?.scores ?? null, scores.weights);
   const partial = partialHistory(stock?.scores ?? null);

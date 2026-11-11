@@ -1,13 +1,20 @@
 import { test, expect } from "@playwright/test";
-import { mockApi } from "./fixtures";
+import { mockApi, stock } from "./fixtures";
 
-for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
+for (const id of ["yf-test", "yf-btc-usd", "wb-gold", "yf-etf"]) {
   test(`market comparison follows selected duration for ${id}`, async ({
     page,
   }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     const { comparisonRequests } = await mockApi(page);
+    if (id === "yf-etf") {
+      await page.route("**/api/assets", (route) =>
+        route.fulfill({
+          json: [{ ...stock, id, name: "ETF test", category: "etf" }],
+        }),
+      );
+    }
     await page.goto(`/assets/${id}`);
     await expect(page.locator(".chart-panel canvas").first()).toBeVisible();
     expect(comparisonRequests).toHaveLength(0);
@@ -21,6 +28,38 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
         name: "Performance de l’actif et du S&P 500, base 100 en dollars",
       }),
     ).toBeVisible();
+    const table = region.getByRole("table", {
+      name: "Indicateurs de comparaison",
+    });
+    await expect(table.getByRole("columnheader")).toHaveText([
+      "Indicateur",
+      "S&P 500",
+      id === "yf-test"
+        ? "Action test"
+        : id === "yf-btc-usd"
+          ? "Bitcoin"
+          : id === "yf-etf"
+            ? "ETF test"
+            : "Or",
+    ]);
+    await expect(table.locator("tbody tr")).toHaveCount(8);
+    await expect(table).toContainText("30,98 %");
+    await expect(table).toContainText("21,33 %");
+    await expect(table.getByRole("row", { name: /^Bêta/ })).toContainText(
+      "0,61",
+    );
+    await expect(region).not.toContainText("Ma stratégie");
+    const cagr = table.getByRole("row", { name: /^CAGR/ });
+    await expect(cagr.locator("td").last()).toHaveAttribute(
+      "data-comparison",
+      "better",
+    );
+    await expect(
+      table
+        .getByRole("row", { name: /^Volatilité annualisée/ })
+        .locator("td")
+        .last(),
+    ).toHaveAttribute("data-comparison", "worse");
     await expect(region).toContainText("+20 %");
     await expect(region).toContainText("+10 %");
     await expect(region).toContainText("dividendes réinvestis");
@@ -32,8 +71,9 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold"]) {
         new URL(comparisonRequests.at(-1)!).searchParams.get("reinvest"),
       )
       .toBe("true");
-    if (id === "yf-test")
-      await expect(region).toContainText("sans double comptage");
+    await expect(
+      region.locator(".comparison-caption, .metric-signals-legend"),
+    ).toHaveCount(0);
     await page.getByRole("button", { name: "1A", exact: true }).click();
     await expect
       .poll(() => new URL(comparisonRequests.at(-1)!).searchParams.get("start"))
@@ -64,6 +104,7 @@ test("market tabs keep regression and bond yields cannot masquerade as returns",
     "Vue du marché",
     "Régression",
     "Momentum",
+    "Prédiction",
     "Frontières d’efficience",
   ]);
   await page.goto("/assets/bond-fr");

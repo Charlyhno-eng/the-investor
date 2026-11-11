@@ -1,3 +1,7 @@
+import {
+  SimulationPanel,
+  type Scenario,
+} from "./features/simulation/SimulationPanel";
 import { useStrategies } from "./features/portfolio/useStrategies";
 import {
   StrategyLibrary,
@@ -26,6 +30,20 @@ import {
 } from "./features/portfolio/quantities";
 export function App() {
   const strategies = useStrategies();
+  const [simulationScenarios, setSimulationScenarios] = useState<Scenario[]>(
+    [],
+  );
+  const [simulationScenario, setSimulationScenario] = useState("covid");
+  const [simulationError, setSimulationError] = useState("");
+  useEffect(() => {
+    const controller = new AbortController();
+    api<Scenario[]>("/simulation/scenarios", { signal: controller.signal })
+      .then(setSimulationScenarios)
+      .catch((e: Error) => {
+        if (!controller.signal.aborted) setSimulationError(e.message);
+      });
+    return () => controller.abort();
+  }, []);
   const { id, categoryId } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -33,9 +51,9 @@ export function App() {
   const [assets, setAssets] = useState<Asset[]>([]),
     [loading, setLoading] = useState(true),
     [error, setError] = useState("");
-  const [category, setCategory] = useState<Category | Library | "strategy">(
-      isLibrary(library) ? library : id ? "stock" : "portfolio",
-    ),
+  const [category, setCategory] = useState<
+      Category | Library | "strategy" | "simulation"
+    >(isLibrary(library) ? library : id ? "stock" : "portfolio"),
     [adding, setAdding] = useState(false),
     [revision, setRevision] = useState(0);
   const [favorites, setFavorites] = useState<Favorites>(readFavorites);
@@ -144,13 +162,14 @@ export function App() {
   useEffect(() => {
     if (
       categoryId === "strategy" ||
+      categoryId === "simulation" ||
       isLibrary(categoryId) ||
       categories.some((c) => c.id === categoryId)
     )
-      setCategory(categoryId as Category | Library | "strategy");
+      setCategory(categoryId as Category | Library | "strategy" | "simulation");
     else if (!id) setCategory("portfolio");
   }, [categoryId, id]);
-  function choose(value: Category | Library | "strategy") {
+  function choose(value: Category | Library | "strategy" | "simulation") {
     setCategory(value);
     navigate(`/markets/${value}`);
   }
@@ -207,6 +226,16 @@ export function App() {
             <span>Stratégie</span>
             <span className="rail-count">{strategies.strategies.length}</span>
           </button>
+          <button
+            aria-label="Simulation"
+            title="Simulation"
+            className={category === "simulation" ? "active" : ""}
+            aria-pressed={category === "simulation"}
+            onClick={() => choose("simulation")}
+          >
+            <Icon name="simulation" size={21} />
+            <span>Simulation</span>
+          </button>
           <div className="rail-divider" role="separator" />
           {categories.map((c) => (
             <button
@@ -225,7 +254,37 @@ export function App() {
             </button>
           ))}
         </nav>
-        {category === "strategy" ? (
+        {category === "simulation" ? (
+          <aside className="asset-library simulation-intro">
+            <div className="library-heading">
+              <h2>Scénarios</h2>
+            </div>
+            {simulationError && (
+              <p role="alert" className="error">
+                {simulationError}
+              </p>
+            )}
+            <div className="simulation-scenario-list">
+              {simulationScenarios.map((scenario) => (
+                <button
+                  key={scenario.id}
+                  className={
+                    simulationScenario === scenario.id ? "selected" : ""
+                  }
+                  aria-pressed={simulationScenario === scenario.id}
+                  onClick={() => setSimulationScenario(scenario.id)}
+                >
+                  <small>
+                    {scenario.tone === "positive" ? "REPRISE" : "STRESS"} ·{" "}
+                    {scenario.start}
+                  </small>
+                  <strong>{scenario.name}</strong>
+                  <span>{scenario.description}</span>
+                </button>
+              ))}
+            </div>
+          </aside>
+        ) : category === "strategy" ? (
           <StrategyLibrary store={strategies} />
         ) : (
           <AssetLibrary
@@ -246,7 +305,22 @@ export function App() {
               {favoriteError}
             </p>
           )}
-          {category === "strategy" && !selected ? (
+          {category === "simulation" ? (
+            <SimulationPanel
+              key={simulationScenario}
+              watchlistIds={visibleAssets
+                .filter((a) => favorites[a.id] === "silver")
+                .map((a) => a.id)}
+              scenarios={simulationScenarios}
+              scenario={simulationScenario}
+              assets={visibleAssets}
+              portfolioIds={visibleAssets
+                .filter((a) => favorites[a.id] === "gold")
+                .map((a) => a.id)}
+              quantities={quantities}
+              onImport={() => setAdding(true)}
+            />
+          ) : category === "strategy" && !selected ? (
             <StrategyWorkspace
               store={strategies}
               eligibleAssetIds={visibleAssets

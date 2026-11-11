@@ -3,7 +3,7 @@ import { number } from "../../lib/format";
 import { correlationColor } from "./correlationColor";
 import type { PortfolioResult } from "./types";
 
-type Correlation = PortfolioResult["correlation"];
+type Correlation = NonNullable<PortfolioResult["correlation"]>;
 export function CorrelationHeatmap({
   correlation,
 }: {

@@ -17,7 +17,7 @@ export function WatchlistPanel({ assets }: { assets: Asset[] }) {
       categories.findIndex((c) => c.id === b.category),
   );
   const supportsDeviation = (a: Asset) =>
-    a.category === "stock" || a.category === "crypto";
+    ["stock", "crypto", "etf"].includes(a.category);
   const [rows, setRows] = useState<Row[]>([]);
   const [error, setError] = useState("");
   const revision = JSON.stringify(

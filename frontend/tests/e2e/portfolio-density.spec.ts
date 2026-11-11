@@ -63,7 +63,9 @@ for (const count of [9, 500]) {
       { assets },
     );
     await page.goto("/markets/portfolio");
-    await page.getByRole("tab", { name: "Répartition", exact: true }).click();
+    await page
+      .getByRole("region", { name: "Répartition du portefeuille", exact: true })
+      .scrollIntoViewIfNeeded();
     const slices = page.locator(".allocation-slice");
     await expect(slices).toHaveCount(count);
     const colors = await slices.evaluateAll((items) =>

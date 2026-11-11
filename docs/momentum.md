@@ -1,4 +1,4 @@
-# Momentum des actions et des cryptomonnaies
+# Momentum des actions, ETF et cryptomonnaies
 
 L’onglet Momentum combine trois fenêtres terminées un mois avant l’analyse : de t−36 à t−1, t−12 à t−1 et t−6 à t−1 mois. Le dernier mois est exclu du rendement, de la régression et de la force relative pour les trois horizons. Les mois sont calendaires, avec écrêtage au dernier jour du mois. Le rendement à 12 mois couvre donc environ onze mois. Poids initiaux : 40 %, 35 %, 25 %. Les poids modifiables sont normalisés ; une somme nulle ne produit aucun score.
 
@@ -41,6 +41,12 @@ L’univers affiché correspond à toutes les actions visibles dans la biblioth�
 La variation du dernier mois et l’écart entre le dernier cours et le plus haut cours ajusté des 36 derniers mois restent visibles. Les prix du dernier mois ne participent pas aux trois scores ; ces deux mesures restent des diagnostics séparés. Ainsi, une forte hausse ancienne peut coexister avec un horizon court négatif et une correction récente. La combinaison peut encore donner un score élevé : elle ne constitue pas un filtre de retournement.
 
 Le R² et les résidus décrivent le passé et ne prédisent pas la poursuite d’une tendance. Le classement de la bibliothèque actuelle comporte un biais de survivance et ne constitue pas un backtest.
+
+## ETF
+
+Les ETF proposent le même onglet Momentum que les actions : fenêtres de 36, 12 et 6 mois, exclusion du dernier mois, poids initiaux de 40/35/25, régression logarithmique, résidus et force relative. La référence par défaut est le S&P 500 ; le CAC 40 et les ETF locaux sont aussi disponibles. `GET /api/momentum?category=etf` renvoie uniquement les ETF, avec leur propre date d’analyse et leur propre classement. Les réglages sont enregistrés séparément de ceux des actions et des cryptomonnaies.
+
+Le Portfolio et la Watchlist affichent les scores ETF avec ces mêmes réglages, y compris la mention d’historique partiel et la renormalisation des poids disponibles. Ils affichent également leur écart normalisé à la régression logarithmique, calculé comme pour les actions. L’onglet Régression reste accessible dans chaque fiche ETF.
 
 ## Cryptomonnaies
 

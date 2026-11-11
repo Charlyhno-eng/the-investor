@@ -1,5 +1,11 @@
 import type { CSSProperties } from "react";
 const paths: Record<string, React.ReactNode> = {
+  simulation: (
+    <>
+      <path d="M9 3h6m-5 0v6L4 19a1.3 1.3 0 0 0 1 2h14a1.3 1.3 0 0 0 1-2L14 9V3M7 15h10" />
+      <path d="m9 18 2-2 2 2 2-1" />
+    </>
+  ),
   allocation: (
     <>
       <circle cx="12" cy="12" r="9" />

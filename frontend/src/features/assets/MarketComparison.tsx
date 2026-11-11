@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { HistoryChart } from "../../components/HistoryChart";
 import { api } from "../../lib/api";
-import { date, percent } from "../../lib/format";
+import { percent } from "../../lib/format";
 import type { ComparisonEquity, Asset } from "../../lib/types";
+import { PerformanceMetrics } from "../portfolio/PerformanceMetrics";
+import type { PerformanceResult } from "../portfolio/performanceTypes";
 
 type Comparison = {
+  metrics: PerformanceResult["metrics"];
+  annualization: number;
   status: "ready";
   equity: ComparisonEquity;
   asset_return: number;
@@ -113,23 +117,7 @@ export function MarketComparison({
               benchmark: `S&P 500 · ${reinvest ? "dividendes réinvestis" : "hors dividendes"}`,
             }}
           />
-          <p className="comparison-caption">
-            Base 100 en USD · du {date(result.start)} au {date(result.end)} ·
-            dates communes observées, sans interpolation · hors frais et
-            fiscalité.{" "}
-            {result.dividends_reinvested &&
-              "Action : dividendes réinvestis via les clôtures ajustées, sans double comptage. "}
-            {result.converted &&
-              "Prix de l’actif convertis en USD au taux de chaque date. "}
-            {result.price_proxy &&
-              "Matière première : variation du prix ou de l’indice, sans roulement de contrats futures. "}
-            {!reinvest && "Comparaison des prix hors dividendes. "}
-            Le S&P 500 est représenté par{" "}
-            {reinvest
-              ? "son indice de rendement total (^SP500TR)"
-              : "son indice de prix (^GSPC)"}
-            .
-          </p>
+          <PerformanceMetrics result={result} assetName={asset.name} />
         </>
       )}
     </section>

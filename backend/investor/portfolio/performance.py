@@ -17,6 +17,7 @@ from threadpoolctl import threadpool_limits
 
 from investor.db import connect
 from investor.portfolio.service import PortfolioRequest, portfolio
+from investor.portfolio.statistics import curve_metrics, factor_regression
 from investor.portfolio.volatility import load_histories
 
 
@@ -36,20 +37,6 @@ class PerformanceRequest(PortfolioRequest):
     ] = "equal"
     history: Literal["common", "extended"] = "common"
     fee_rate: float = Field(default=0.005, ge=0, le=0.1)
-
-
-def factor_regression(returns, factor_returns, periods):
-    """OLS intercept (annual decimal return) and slope (dimensionless).
-
-    Both series are synchronous EUR simple returns. The reference rate is
-    explicitly zero, as for the other risk-adjusted metrics in this panel.
-    """
-    if float(np.var(factor_returns, ddof=1)) <= 1e-16:
-        return None, None
-    design = np.column_stack((np.ones(len(factor_returns)), factor_returns))
-    intercept, slope = np.linalg.lstsq(design, returns, rcond=None)[0]
-    alpha = float(intercept * periods)
-    return 0.0 if abs(alpha) < 1e-12 else alpha, float(slope)
 
 
 def optimize_weights(
@@ -805,26 +792,14 @@ def comparison_data(
         elapsed_years = (
             date.fromisoformat(common[-1]) - date.fromisoformat(common[0])
         ).days / 365.25
-        cagr = float((curve[-1] / 100) ** (1 / elapsed_years) - 1)
-        downside = float(np.sqrt(np.mean(np.minimum(changes, 0) ** 2)))
-        drawdown = float(np.min(curve / np.maximum.accumulate(curve) - 1))
-        alpha, beta = factor_regression(changes, benchmark_returns, periods)
-        metrics[key] = {
-            "beta": 1.0 if key == "benchmark" else beta,
-            "alpha": alpha,
-            "total_return": float(curve[-1] / 100 - 1),
-            "cagr": cagr,
-            "volatility": float(np.std(changes, ddof=1) * np.sqrt(periods)),
-            "downside_volatility": downside * float(np.sqrt(periods)),
-            "max_drawdown": drawdown,
-            "sortino": float(changes.mean() / downside * np.sqrt(periods))
-            if downside > 1e-12
-            else None,
-            "calmar": float(cagr / abs(drawdown)) if drawdown < -1e-12 else None,
-            "sharpe": float(changes.mean() / changes.std(ddof=1) * np.sqrt(periods))
-            if changes.std(ddof=1) > 1e-12
-            else None,
-        }
+        metrics[key] = curve_metrics(
+            curve,
+            changes,
+            benchmark_returns,
+            elapsed_years,
+            periods,
+            benchmark=key == "benchmark",
+        )
     total = sum(p["value"] for p in positions)
     return {
         "status": "ready",
@@ -874,7 +849,7 @@ def portfolio_performance(request: PerformanceRequest, optimize=False):
         {h.asset_id for h in request.holdings}
     ):
         raise HTTPException(422, "Un actif verrouillé doit figurer dans les positions.")
-    valuation = portfolio(request)
+    valuation = portfolio(request.model_copy(update={"include_correlation": False}))
     if valuation["status"] == "pending":
         return valuation
     # Never silently optimize a subset and redistribute an excluded holding's value.

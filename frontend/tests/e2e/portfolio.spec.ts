@@ -19,7 +19,9 @@ test("quantities persist and drive allocation and correlations", async ({
   await expect(
     page.getByLabel("Quantité Action test", { exact: true }),
   ).toHaveValue("2.5");
-  await page.getByRole("tab", { name: "Répartition", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Répartition du portefeuille", exact: true })
+    .scrollIntoViewIfNeeded();
   await expect(page.locator(".portfolio-total")).toContainText(/280,00\s*€/);
   const slice = page.locator(".allocation-slice").first();
   await expect(slice).toHaveAttribute("aria-label", /Action test/);
@@ -299,4 +301,46 @@ test("regression column tooltip escapes the table clipping and stays on screen",
   });
   await button.press("Escape");
   await expect(tooltip).toHaveCount(0);
+});
+
+test("positions load without requesting correlations or the benchmark", async ({
+  page,
+}) => {
+  await mockApi(page);
+  const requests: {
+    include_correlation: boolean;
+    include_benchmark: boolean;
+    years: number;
+  }[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/portfolio/analytics")
+      requests.push(request.postDataJSON());
+  });
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      "investor-favorites",
+      JSON.stringify({ "yf-test": "gold" }),
+    );
+    localStorage.setItem(
+      "investor-quantities",
+      JSON.stringify({ "yf-test": 2 }),
+    );
+  });
+  await page.goto("/markets/portfolio");
+  await expect(page.locator(".portfolio-total")).toContainText(/160,00\s*€/);
+  expect(requests.length).toBeGreaterThan(0);
+  expect(
+    requests.every(
+      (request) => !request.include_correlation && !request.include_benchmark,
+    ),
+  ).toBe(true);
+  await page.getByRole("tab", { name: "Corrélations", exact: true }).click();
+  await expect.poll(() => requests.at(-1)?.include_correlation).toBe(true);
+  expect(requests.at(-1)?.include_benchmark).toBe(true);
+  await expect(page.locator(".correlation-table")).toBeVisible();
+  await page.getByRole("tab", { name: "Positions", exact: true }).click();
+  await expect.poll(() => requests.at(-1)?.include_correlation).toBe(false);
+  await expect(
+    page.getByText("Actualisation des valeurs du portefeuille…"),
+  ).toHaveCount(0);
 });

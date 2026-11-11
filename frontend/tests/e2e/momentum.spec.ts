@@ -414,3 +414,135 @@ test("Hyperliquid uses available horizons with recalculated weights and partial 
   await expect(cell).toContainText("61,7 / 100");
   await expect(cell).toContainText("Historique partiel");
 });
+
+for (const library of ["portfolio", "watchlist"]) {
+  test(`ETF regression and momentum share settings with ${library}`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await mockApi(page);
+    const etf = { ...stock, id: "etf-test", name: "ETF test", category: "etf" };
+    await page.route("**/api/assets", (route) =>
+      route.fulfill({ json: [stock, etf] }),
+    );
+    const etfReady = {
+      ...ready,
+      category: "etf",
+      universe: [
+        { id: etf.id, name: etf.name, scores: [null, 70, 20], partial: true },
+      ],
+    };
+    await page.route("**/api/assets/etf-test/momentum*", (route) =>
+      route.fulfill({ json: etfReady }),
+    );
+    const requests: string[] = [];
+    await page.route("**/api/momentum*", (route) => {
+      requests.push(route.request().url());
+      return route.fulfill({
+        json:
+          new URL(route.request().url()).searchParams.get("category") === "etf"
+            ? etfReady
+            : ready,
+      });
+    });
+    const regressionRequests: string[][] = [];
+    await page.route("**/api/portfolio/regression", (route) => {
+      const ids = route.request().postDataJSON().asset_ids as string[];
+      regressionRequests.push(ids);
+      return route.fulfill({
+        json: {
+          positions: ids.map((id) => ({
+            id,
+            z: -1.8,
+            start: "2020-01-01",
+            end: "2022-03-10",
+          })),
+        },
+      });
+    });
+    await page.addInitScript(
+      ({ library }) => {
+        localStorage.setItem(
+          "investor-favorites",
+          JSON.stringify({
+            "etf-test": library === "portfolio" ? "gold" : "silver",
+            "yf-test": library === "portfolio" ? "gold" : "silver",
+          }),
+        );
+      },
+      { library },
+    );
+    await page.goto("/assets/etf-test");
+    await page.getByRole("tab", { name: "Régression", exact: true }).click();
+    await expect(
+      page
+        .getByRole("region", { name: "Retour à la tendance" })
+        .locator("canvas")
+        .first(),
+    ).toBeVisible();
+    await page.getByRole("tab", { name: "Momentum", exact: true }).click();
+    const panel = page.getByRole("region", { name: "Momentum de l’ETF" });
+    await expect(panel).toContainText("Tous les ETF");
+    await expect(panel.getByLabel("Synthèse momentum")).toContainText(
+      "49,2 / 100",
+    );
+    await expect(panel.getByLabel("Synthèse momentum")).toContainText(
+      "Historique partiel",
+    );
+    await expect(
+      panel.getByRole("img", {
+        name: "Momentum : prix et régression logarithmique",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(
+      panel.getByRole("img", {
+        name: "Momentum : résidus logarithmiques autour de zéro",
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.getByLabel("Poids 12 mois (%)", { exact: true }).fill("100");
+    await page.getByLabel("Poids 6 mois (%)", { exact: true }).fill("0");
+    await page.getByLabel("Référence momentum").selectOption("^FCHI");
+    await expect(panel.getByLabel("Synthèse momentum")).toContainText(
+      "70 / 100",
+    );
+    await page.goto(`/markets/${library}`);
+    const etfRow = page
+      .locator(".positions-table tbody tr")
+      .filter({ hasText: "ETF test" });
+    await expect(etfRow.locator(".momentum-cell")).toContainText("70 / 100");
+    await expect(etfRow.locator(".momentum-cell")).toContainText(
+      "Historique partiel",
+    );
+    await expect(etfRow.locator(".regression-deviation")).toHaveAttribute(
+      "data-z",
+      "-1.8",
+    );
+    await expect
+      .poll(() => regressionRequests.some((ids) => ids.includes("etf-test")))
+      .toBe(true);
+    await expect
+      .poll(() =>
+        requests.some(
+          (url) =>
+            url.includes("category=etf") && url.includes("benchmark=%5EFCHI"),
+        ),
+      )
+      .toBe(true);
+    await expect(
+      page
+        .locator(".positions-table tbody tr")
+        .filter({ hasText: "Action test" })
+        .locator(".momentum-cell"),
+    ).toContainText("65,5 / 100");
+    await page.reload();
+    await expect(etfRow.locator(".momentum-cell")).toContainText("70 / 100");
+    await expect(etfRow.locator(".regression-deviation")).toHaveAttribute(
+      "data-z",
+      "-1.8",
+    );
+    expect(errors).toEqual([]);
+  });
+}

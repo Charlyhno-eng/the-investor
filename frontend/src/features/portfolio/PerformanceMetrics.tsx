@@ -24,7 +24,7 @@ const metricRows: {
     label: "Volatilité annualisée",
     lower: true,
     explanation:
-      "L’ampleur des variations du portefeuille, à la hausse comme à la baisse. Une valeur élevée indique un parcours plus mouvementé.",
+      "L’ampleur des variations de l’investissement, à la hausse comme à la baisse. Une valeur élevée indique un parcours plus mouvementé.",
   },
   {
     key: "downside_volatility",
@@ -45,7 +45,7 @@ const metricRows: {
     label: "Ratio de Sharpe",
     ratio: true,
     explanation:
-      "Le rendement obtenu par rapport aux variations du portefeuille, à la hausse comme à la baisse. Plus il est élevé, mieux le risque est rémunéré. Le taux de référence est fixé à 0 %.",
+      "Le rendement obtenu par rapport aux variations de l’investissement, à la hausse comme à la baisse. Plus il est élevé, mieux le risque est rémunéré. Le taux de référence est fixé à 0 %.",
   },
   {
     key: "sortino",
@@ -66,19 +66,21 @@ const metricRows: {
     label: "Bêta",
     ratio: true,
     explanation:
-      "La sensibilité aux mouvements du S&P 500, dont le bêta vaut 1. Un bêta de 0,5 indique des mouvements en moyenne deux fois moins marqués face au marché. Ce n’est pas une mesure de toutes les variations du portefeuille.",
+      "La sensibilité aux mouvements du S&P 500, dont le bêta vaut 1. Un bêta de 0,5 indique des mouvements en moyenne deux fois moins marqués face au marché. Ce n’est pas une mesure de toutes les variations de l’investissement.",
   },
 ];
 
 export function PerformanceMetrics({
   result: ready,
+  assetName,
 }: {
-  result: PerformanceResult;
+  result: Pick<PerformanceResult, "metrics">;
+  assetName?: string;
 }) {
   const columns = series.filter(
     (s) => s.key !== "optimized" && ready.metrics[s.key],
   );
-  if (!columns.some((s) => s.key.startsWith("beta_")))
+  if (!assetName && !columns.some((s) => s.key.startsWith("beta_")))
     columns.push(series.find((s) => s.key === "optimized")!);
   columns.sort((a, b) =>
     a.key === "benchmark" ? -1 : b.key === "benchmark" ? 1 : 0,
@@ -97,7 +99,7 @@ export function PerformanceMetrics({
               {columns.map((s) => (
                 <th scope="col" key={s.key}>
                   {s.key === "portfolio"
-                    ? "Ma stratégie"
+                    ? (assetName ?? "Ma stratégie")
                     : s.key === "optimized"
                       ? "Ma stratégie optimisée"
                       : s.title}
@@ -209,11 +211,13 @@ export function PerformanceMetrics({
           </tbody>
         </table>
       </div>
-      <p className="metric-signals-legend">
-        Allocation optimisée : premier trait comparé au S&amp;P 500, second à la
-        stratégie de base. Vert : meilleur · Rouge : moins bon · Gris : égal ou
-        indisponible.
-      </p>
+      {!assetName && (
+        <p className="metric-signals-legend">
+          Allocation optimisée : premier trait comparé au S&amp;P 500, second à
+          la stratégie de base. Vert : meilleur · Rouge : moins bon · Gris :
+          égal ou indisponible.
+        </p>
+      )}
     </details>
   );
 }

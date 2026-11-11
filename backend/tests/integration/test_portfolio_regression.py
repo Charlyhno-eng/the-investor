@@ -7,12 +7,15 @@ from support import seed
 from investor import db
 
 
-def test_five_year_deviation_matches_ols_of_log_prices_and_ignores_older_data(client):
+@pytest.mark.parametrize("category", ["stock", "etf"])
+def test_five_year_deviation_matches_ols_of_log_prices_and_ignores_older_data(
+    client, category
+):
     http, _ = client
     days = [
         (date.today() - timedelta(days=3000 - i * 10)).isoformat() for i in range(300)
     ]
-    values = seed(days)
+    values = seed(days, category=category)
     result = http.post("/api/portfolio/regression", json={"asset_ids": ["a"]}).json()[
         "positions"
     ][0]

@@ -22,5 +22,5 @@ export type PortfolioResult = {
     frequency: string;
     start: string | null;
     end: string | null;
-  };
+  } | null;
 };

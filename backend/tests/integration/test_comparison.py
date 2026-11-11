@@ -148,3 +148,91 @@ def test_price_and_reinvested_modes_are_distinct(local):
     assert not prices["dividends_reinvested"]
     assert reinvested["asset_return"] == 0
     assert reinvested["index_return"] == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize("category", ["stock", "crypto", "etf", "commodity"])
+def test_comparison_metrics_use_the_same_selected_dates_and_currency(local, category):
+    import numpy as np
+
+    seed("EUR" if category in ("stock", "etf") else "USD", category)
+    days = ["2020-01-02", "2020-01-03", "2020-01-06"]
+    reference(INDEX, list(zip(days, [1000, 900, 990], strict=True)))
+    if category in ("stock", "etf"):
+        reference("EURUSD=X", list(zip(days, [1.1, 1.2, 1.15], strict=True)))
+    response = local.get("/api/assets/test/comparison?start=2020-01-02&end=2020-01-06")
+    assert response.status_code == 200
+    result = response.json()
+    assert result["annualization"] == 252
+    assert result["observations"] == 2
+    # Independent formulas applied to the displayed base-100 curve, including FX.
+    prices = np.array([point["strategy"] for point in result["equity"]])
+    changes = prices[1:] / prices[:-1] - 1
+    market = np.array([-0.1, 0.1])
+    mean = float(sum(changes) / 2)
+    deviation = float(np.sqrt(sum((changes - mean) ** 2)))
+    downside = float(np.sqrt(sum(min(r, 0) ** 2 for r in changes) / 2))
+    cagr = float((prices[-1] / prices[0]) ** (365.25 / 4) - 1)
+    drawdown = min(prices / np.maximum.accumulate(prices) - 1)
+    metrics = result["metrics"]["portfolio"]
+    assert metrics["cagr"] == pytest.approx(cagr)
+    assert metrics["volatility"] == pytest.approx(deviation * np.sqrt(252))
+    assert metrics["downside_volatility"] == pytest.approx(downside * np.sqrt(252))
+    assert metrics["max_drawdown"] == pytest.approx(drawdown)
+    assert metrics["sharpe"] == pytest.approx(mean / deviation * np.sqrt(252))
+    assert metrics["sortino"] == (
+        pytest.approx(mean / downside * np.sqrt(252)) if downside else None
+    )
+    assert metrics["calmar"] == (
+        pytest.approx(cagr / abs(drawdown)) if drawdown else None
+    )
+    assert metrics["beta"] == pytest.approx(
+        sum((changes - mean) * (market - market.mean()))
+        / sum((market - market.mean()) ** 2)
+    )
+    assert result["metrics"]["benchmark"]["beta"] == 1
+    # Changing the period also changes the metric sample, never the whole history.
+    short = local.get("/api/assets/test/comparison?end=2020-01-03").json()
+    assert short["observations"] == 1
+    assert short["metrics"]["portfolio"]["volatility"] is None
+    assert short["metrics"]["portfolio"]["sharpe"] is None
+    assert short["metrics"]["portfolio"]["beta"] is None
+    assert short["metrics"]["portfolio"]["cagr"] != metrics["cagr"]
+
+
+def test_constant_comparison_has_no_undefined_ratios_in_json(local):
+    seed()
+    with db.connect() as connection:
+        connection.execute("UPDATE observations SET value=100")
+    reference(INDEX, [("2020-01-02", 1000), ("2020-01-03", 1000), ("2020-01-06", 1000)])
+    result = local.get("/api/assets/test/comparison").json()
+    for metrics in result["metrics"].values():
+        assert metrics["cagr"] == 0
+        assert metrics["volatility"] == 0
+        assert metrics["downside_volatility"] == 0
+        assert metrics["max_drawdown"] == 0
+        assert metrics["sharpe"] is None
+        assert metrics["sortino"] is None
+        assert metrics["calmar"] is None
+
+
+def test_monthly_commodity_metrics_use_twelve_observations_per_year(local):
+    import math
+
+    seed(category="commodity")
+    days = ["2020-01-02", "2020-02-03", "2020-03-02"]
+    with db.connect() as connection:
+        connection.execute("UPDATE assets SET frequency='monthly'")
+        connection.execute("DELETE FROM observations")
+        connection.executemany(
+            "INSERT INTO observations VALUES ('test',?,?)",
+            list(zip(days, [100, 110, 99], strict=True)),
+        )
+    reference(INDEX, list(zip(days, [1000, 1050, 997.5], strict=True)))
+    result = local.get("/api/assets/test/comparison").json()
+    assert result["frequency"] == "monthly"
+    assert result["annualization"] == 12
+    assert result["metrics"]["portfolio"]["volatility"] == pytest.approx(
+        math.sqrt(0.02) * math.sqrt(12)
+    )
+    assert result["metrics"]["portfolio"]["max_drawdown"] == pytest.approx(-0.1)
+    assert result["metrics"]["portfolio"]["beta"] == pytest.approx(2)

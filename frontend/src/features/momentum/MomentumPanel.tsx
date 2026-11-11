@@ -48,7 +48,8 @@ export function MomentumPanel({
   assets: Asset[];
 }) {
   const isCrypto = asset.category === "crypto";
-  const category = isCrypto ? "crypto" : "stock";
+  const isEtf = asset.category === "etf";
+  const category = isCrypto ? "crypto" : isEtf ? "etf" : "stock";
   const { benchmark, weights, update } = useMomentumSettings(category);
   const [horizon, setHorizon] = useState(12);
   const [result, setResult] = useState<Result | null>(null);
@@ -178,7 +179,11 @@ export function MomentumPanel({
     <section
       className="analysis-panel momentum-panel"
       aria-label={
-        isCrypto ? "Momentum de la cryptomonnaie" : "Momentum de l’action"
+        isCrypto
+          ? "Momentum de la cryptomonnaie"
+          : isEtf
+            ? "Momentum de l’ETF"
+            : "Momentum de l’action"
       }
     >
       <div
@@ -247,8 +252,11 @@ export function MomentumPanel({
         <>
           <p className="fine-print">
             Au {date(result.as_of)} · référence : {result.benchmark_name}.
-            Toutes les {isCrypto ? "cryptomonnaies" : "actions"} de la liste ·
-            variations en devise de cotation, hors effet de change.
+            {isEtf
+              ? "Tous les ETF"
+              : `Toutes les ${isCrypto ? "cryptomonnaies" : "actions"}`}{" "}
+            de la liste · variations en devise de cotation, hors effet de
+            change.
           </p>
           <div className="reversion-summary" aria-label="Synthèse momentum">
             <div>
@@ -272,7 +280,9 @@ export function MomentumPanel({
                 {universe.length - ranking.length}{" "}
                 {isCrypto
                   ? "crypto(s) non classée(s)"
-                  : "action(s) non classée(s)"}{" "}
+                  : isEtf
+                    ? "ETF non classé(s)"
+                    : "action(s) non classée(s)"}{" "}
                 · horizons disponibles
               </small>
             </div>
@@ -326,7 +336,7 @@ export function MomentumPanel({
                       "Force relative",
                       isCrypto
                         ? "Ratio de la progression de la cryptomonnaie à celle de Bitcoin ou de la référence choisie, moins 1, sur les mêmes dates, week-ends compris lorsque disponibles. Comparaison en pourcentage sans conversion de devise."
-                        : "Ratio de la progression de l’action à celle de la référence, moins 1, sur les mêmes dates. Comparaison des variations en pourcentage sans conversion de devise. S&P 500 : dividendes réinvestis ; CAC 40 : hors dividendes.",
+                        : "Ratio de la progression de l’actif à celle de la référence, moins 1, sur les mêmes dates. Comparaison des variations en pourcentage sans conversion de devise. S&P 500 : dividendes réinvestis ; CAC 40 : hors dividendes.",
                     ],
                     [
                       "Score / 100",

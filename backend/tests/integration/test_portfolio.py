@@ -323,3 +323,68 @@ def test_five_hundred_holdings_are_valued_and_correlated(local):
     assert len(result["correlation"]["matrix"]) == 500
     assert all(len(row) == 500 for row in result["correlation"]["matrix"])
     assert result["correlation"]["matrix"][0][-1] == pytest.approx(1)
+
+
+def test_positions_skip_histories_and_benchmark_until_correlations_are_requested(
+    local, monkeypatch
+):
+    from contextlib import contextmanager
+
+    from investor.portfolio import service
+
+    seed("a", raw=20)
+    statements = []
+
+    @contextmanager
+    def traced_connection():
+        with db.connect() as connection:
+            connection.set_trace_callback(statements.append)
+            yield connection
+
+    monkeypatch.setattr(service, "connect", traced_connection)
+    body = {
+        "holdings": [{"asset_id": "a", "quantity": 2}],
+        "include_correlation": False,
+        "include_benchmark": True,
+    }
+    result = local.post("/api/portfolio/analytics", json=body).json()
+    assert result["status"] == "ready"
+    assert result["total"] == 32
+    assert result["correlation"] is None
+    assert not any("FROM observations" in query for query in statements)
+    assert not any("^SP500TR" in query for query in statements)
+    with db.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM import_jobs").fetchone()[0] == 0
+    body["include_correlation"] = True
+    assert local.post("/api/portfolio/analytics", json=body).json() == {
+        "status": "pending"
+    }
+
+
+@pytest.mark.parametrize("job_status", [None, "queued", "running", "failed"])
+def test_cached_fx_serves_positions_while_refresh_is_queued_or_failing(
+    local, job_status
+):
+    seed("a", raw=20)
+    with db.connect() as connection:
+        connection.execute(
+            "UPDATE reference_imports SET updated_at='2000-01-01T00:00:00Z'"
+        )
+        if job_status:
+            connection.execute(
+                "INSERT INTO import_jobs(symbol,category,status) VALUES ('EURUSD=X','reference',?)",
+                (job_status,),
+            )
+    body = {
+        "holdings": [{"asset_id": "a", "quantity": 2}],
+        "include_correlation": False,
+    }
+    for _ in range(2):
+        result = local.post("/api/portfolio/analytics", json=body).json()
+        assert result["status"] == "ready"
+        assert result["total"] == 32
+    with db.connect() as connection:
+        jobs = connection.execute("SELECT symbol,status FROM import_jobs").fetchall()
+    assert len(jobs) == 1
+    assert jobs[0]["symbol"] == "EURUSD=X"
+    assert jobs[0]["status"] == (job_status or "queued")

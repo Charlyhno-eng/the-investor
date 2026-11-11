@@ -148,7 +148,6 @@ test("simulated portfolio sends its own holdings to the comparison", async ({
   expect(holdings).toEqual([{ asset_id: "yf-test", quantity: 4 }]);
   for (const name of [
     "Comparaison & optimisation",
-    "Répartition",
     "Corrélations",
     "Frontières d’efficience",
   ]) {
@@ -167,12 +166,7 @@ test("simulated portfolio sends its own holdings to the comparison", async ({
     page.getByLabel("Actifs de la stratégie", { exact: true }),
   ).toBeVisible();
   await expect(page.locator(".positions-table input").first()).toHaveValue("4");
-  for (const name of [
-    "Positions",
-    "Répartition",
-    "Corrélations",
-    "Frontières d’efficience",
-  ]) {
+  for (const name of ["Positions", "Corrélations", "Frontières d’efficience"]) {
     await expect(page.getByRole("tab", { name, exact: true })).toBeVisible();
   }
 });

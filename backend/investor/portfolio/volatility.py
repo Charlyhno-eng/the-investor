@@ -235,7 +235,7 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
     }
 
 
-def load_histories(connection, assets):
+def load_histories(connection, assets, *, include_benchmark=True):
     """Shared EUR total-return histories, with no interpolation or future FX.
 
     Stocks use observations (Yahoo Adj Close, distributions reinvested), never
@@ -246,7 +246,9 @@ def load_histories(connection, assets):
         for a in assets
     ]
     currencies = ["GBP" if c == "GBp" else c for c in currencies]
-    symbols = {INDEX, "EURUSD=X"} | {f"{c}USD=X" for c in currencies if c != "USD"}
+    symbols = {"EURUSD=X"} | {f"{c}USD=X" for c in currencies if c != "USD"}
+    if include_benchmark:
+        symbols.add(INDEX)
     if ensure_references(connection, sorted(symbols)):
         return None
     euro = reference(connection, "EURUSD=X")
@@ -258,7 +260,10 @@ def load_histories(connection, assets):
         )
         for a, c in zip(assets, currencies, strict=True)
     ]
-    return histories, converted(reference(connection, INDEX), None, euro)
+    benchmark = (
+        converted(reference(connection, INDEX), None, euro) if include_benchmark else {}
+    )
+    return histories, benchmark
 
 
 def load_map(connection, assets, years, *, portfolio_view=False, locked=None):
@@ -300,7 +305,7 @@ def asset_volatility(asset_id, years=3):
 
 
 def portfolio_volatility(request: PortfolioRequest):
-    valuation = portfolio(request)
+    valuation = portfolio(request.model_copy(update={"include_correlation": False}))
     if valuation["status"] == "pending":
         return valuation
     positions = valuation["positions"]

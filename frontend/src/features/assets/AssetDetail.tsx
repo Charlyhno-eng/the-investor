@@ -13,6 +13,7 @@ import { MarketComparison } from "./MarketComparison";
 import { ReversionPanel } from "../reversion/ReversionPanel";
 import { favoriteLabel, type Favorite } from "../../lib/favorites";
 import { MomentumPanel } from "../momentum/MomentumPanel";
+import { PredictionPanel } from "../prediction/PredictionPanel";
 export function AssetDetail({
   asset,
   assets,
@@ -30,9 +31,9 @@ export function AssetDetail({
     [error, setError] = useState(""),
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
-    [tab, setTab] = useState<"chart" | "reversion" | "volatility" | "momentum">(
-      "chart",
-    );
+    [tab, setTab] = useState<
+      "chart" | "reversion" | "volatility" | "momentum" | "prediction"
+    >("chart");
   const distributes = asset.category === "stock" || asset.category === "etf";
   useEffect(() => {
     const controller = new AbortController();
@@ -181,7 +182,7 @@ export function AssetDetail({
             Régression
           </button>
         )}
-        {(asset.category === "stock" || asset.category === "crypto") && (
+        {["stock", "crypto", "etf"].includes(asset.category) && (
           <button
             role="tab"
             aria-selected={tab === "momentum"}
@@ -189,6 +190,16 @@ export function AssetDetail({
           >
             <Icon name="stock" size={16} />
             Momentum
+          </button>
+        )}
+        {(asset.category === "stock" || asset.category === "crypto") && (
+          <button
+            role="tab"
+            aria-selected={tab === "prediction"}
+            onClick={() => setTab("prediction")}
+          >
+            <Icon name="analysis" size={16} />
+            Prédiction
           </button>
         )}
         <button
@@ -200,8 +211,21 @@ export function AssetDetail({
           Frontières d’efficience
         </button>
       </div>
-      {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
       {(asset.category === "stock" || asset.category === "crypto") &&
+        tab === "prediction" &&
+        (loading ? (
+          <div className="chart-placeholder" role="status">
+            Chargement de l’historique
+          </div>
+        ) : error ? (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        ) : (
+          <PredictionPanel key={asset.id} asset={asset} points={points} />
+        ))}
+      {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
+      {["stock", "crypto", "etf"].includes(asset.category) &&
         tab === "momentum" && (
           <MomentumPanel key={asset.id} asset={asset} assets={assets} />
         )}

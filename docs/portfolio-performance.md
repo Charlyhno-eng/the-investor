@@ -201,9 +201,45 @@ Le bandeau de composition d’une stratégie et les pastilles de retrait d’act
 s’affichent uniquement dans Positions. Les autres onglets conservent l’en-tête
 et les vues partagées avec le Portfolio, sans les contrôles de composition.
 
-
 Dans une stratégie, le cadenas de chaque ligne de Positions conserve exactement sa quantité dans les cinq objectifs d’optimisation. Il désactive la saisie et le retrait jusqu’au déverrouillage. Les cadenas sont enregistrés avec la stratégie dans le navigateur ; les stratégies existantes sont lues sans cadenas par défaut. L’API reçoit `locked_asset_ids` et fixe le poids courant correspondant, à budget et prix de valorisation constants ; la quantité indicative retournée est exactement la quantité initiale. Les bornes de 3 % / 35 % s’appliquent aux positions libres, les positions verrouillées sont prioritaires. La cardinalité minimale reste applicable. Des contraintes incompatibles produisent une erreur explicite, sans modifier un verrou. Lorsque toutes les positions sont verrouillées, l’allocation reste identique.
 
 Les frontières d’efficience utilisent aussi les poids fixes : chaque allocation admissible conserve les positions verrouillées, et seul le budget restant est réparti. Tous les actifs verrouillés réduisent la frontière au point du portefeuille. Les courbes des objectifs de ratios conservent leur convention de pondérations constantes rééquilibrées ; le cadenas fixe les quantités recommandées aux cours de valorisation, pas un historique de transactions. L’équipondération annuelle exige de déverrouiller toute quantité incompatible avec des poids égaux.
 
 Les nouveaux calculs sont couverts par `backend/tests/unit/test_new_allocations.py` : recherche dense indépendante pour les trois ratios, frais d’achat et vente, dérive et rééquilibrage annuel, bêtas exacts et objectifs inaccessibles. Chaque poids recommandé des cinq bêtas porte les mêmes flèches de renforcement, allègement, sortie ou conservation que les autres répartitions, avec la même légende. Les tests navigateur `frontend/tests/e2e/performance.spec.ts` couvrent aussi les cinq courbes, les colonnes, les définitions et le réglage des frais sur ordinateur et mobile.
+
+## Chargement de Positions et comparaison individuelle
+
+L’interface demande `include_correlation=false` à l’ouverture : seuls les derniers
+prix non ajustés et les changes nécessaires à leur valorisation sont lus. Le
+S&P 500, les historiques ajustés et la matrice de corrélation ne sont demandés
+qu’à l’ouverture de Corrélations. L’API conserve `include_correlation=true` par
+défaut pour ses clients existants ; en mode valorisation seule, `correlation`
+vaut `null`. Les calculs de performance, de frontières et de prédiction utilisent
+aussi cette valorisation légère avant de charger leurs propres historiques.
+Les historiques de corrélation sont filtrés dans SQLite sur la période choisie,
+et chaque historique de change n’est chargé qu’une fois par requête.
+
+Un change déjà archivé reste utilisable pendant son actualisation en arrière-plan,
+y compris après un échec du fournisseur. La file conserve sa déduplication et son
+délai de cinq minutes après échec. La règle de fraîcheur du taux appliqué au prix
+reste inchangée : date exacte pour convertir le prix en USD, dernier taux EUR
+connu dans les sept jours précédents pour afficher sa valeur en euros. Une
+référence absente attend toujours son import. Le délai initial de 450 ms côté
+interface est supprimé.
+
+Mesure indicative sur une copie de la base locale (53 actions, ETF et cryptos,
+quantité unitaire, références déjà présentes, médiane de quatre appels directs) :
+427 ms avant contre 1,5 ms en valorisation seule. Cela ne mesure ni le réseau ni
+le rendu du navigateur ; les premiers imports restent dépendants du fournisseur.
+
+Dans chaque fiche action, crypto, ETF ou matière première, « Comparer au S&P 500 »
+affiche les huit mêmes indicateurs que Portfolio, avec uniquement les colonnes
+S&P 500 et nom de l’actif. Les métriques sont calculées sur les dates communes
+exactes de la courbe sélectionnée, dans la même devise USD. Les dividendes sont
+réinvestis pour les actions et ETF. Le CAGR utilise les jours calendaires ;
+les autres mesures sont annualisées sur 252 séances (12 pour une série mensuelle).
+Les cryptos utilisent ici les dates communes avec le marché, pas les 365 jours
+cryptos. Les ratios indéfinis sont affichés « — » ; une seule variation ne permet
+pas d’estimer la volatilité empirique, le Sharpe ou le bêta de l’actif.
+Les matières premières restent des comparaisons de prix, sans rendement de
+roulement inventé. Calculs et infobulles sont partagés avec le tableau Portfolio.

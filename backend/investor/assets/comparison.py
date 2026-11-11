@@ -4,17 +4,24 @@ import math
 import re
 from datetime import date
 
+import numpy as np
 import yfinance as yf
 from fastapi import HTTPException
 
 from investor import db
+from investor.portfolio.statistics import curve_metrics
 
 INDEX = "^SP500TR"
 
+# Total-return factor proxies used by the conditional stress model.
+STRESS_ETFS = {"SPY", "EFA", "TLT", "HYG", "GLD", "USO", "QQQ"}
+
 
 def import_reference(symbol):
-    if symbol not in (INDEX, "^GSPC", "^FCHI", "BTC-USD") and not re.fullmatch(
-        r"[A-Z]{3}USD=X", symbol
+    if (
+        symbol not in STRESS_ETFS
+        and symbol not in (INDEX, "^GSPC", "^FCHI", "BTC-USD")
+        and not re.fullmatch(r"[A-Z]{3}USD=X", symbol)
     ):
         raise ValueError("Référence non prise en charge")
     yf.set_tz_cache_location(str(db.DATA_DIR / "provider-cache"))
@@ -22,7 +29,9 @@ def import_reference(symbol):
     frame = ticker.history(period="max", interval="1d", auto_adjust=False, timeout=30)
     metadata = ticker.get_history_metadata()
     expected = (
-        "CRYPTOCURRENCY"
+        "ETF"
+        if symbol in STRESS_ETFS
+        else "CRYPTOCURRENCY"
         if symbol == "BTC-USD"
         else "INDEX"
         if symbol in (INDEX, "^GSPC", "^FCHI")
@@ -32,7 +41,9 @@ def import_reference(symbol):
         raise ValueError("Référence absente ou de type incorrect")
     rows = [
         (symbol, stamp.date().isoformat(), float(value))
-        for stamp, value in frame["Close"].items()
+        for stamp, value in frame[
+            "Adj Close" if symbol in STRESS_ETFS else "Close"
+        ].items()
         if math.isfinite(float(value)) and value > 0
     ]
     if not rows:
@@ -128,9 +139,30 @@ def compare(
                 422, "La comparaison nécessite des prix strictement positifs."
             )
         base_asset, base_index = aligned[0][1:]
+        prices = np.array([[a, b] for _, a, b in aligned])
+        changes = prices[1:] / prices[:-1] - 1
+        elapsed_years = (
+            date.fromisoformat(aligned[-1][0]) - date.fromisoformat(aligned[0][0])
+        ).days / 365.25
+        periods = 12 if asset["frequency"] == "monthly" else 252
+        metrics = {
+            key: curve_metrics(
+                prices[:, i],
+                changes[:, i],
+                changes[:, 1],
+                elapsed_years,
+                periods,
+                benchmark=i == 1,
+            )
+            for i, key in enumerate(("portfolio", "benchmark"))
+        }
         return {
             "status": "ready",
             "currency": "USD",
+            "metrics": metrics,
+            "frequency": asset["frequency"],
+            "annualization": periods,
+            "observations": len(aligned) - 1,
             "equity": [
                 {
                     "time": day,
@@ -150,7 +182,7 @@ def compare(
         }
 
 
-def ensure_references(connection, symbols):
+def ensure_references(connection, symbols, *, allow_cached=False):
     pending = False
     for symbol in symbols:
         available = connection.execute(
@@ -159,6 +191,14 @@ def ensure_references(connection, symbols):
         ).fetchone()
         if available:
             continue
+        cached = (
+            allow_cached
+            and connection.execute(
+                "SELECT 1 FROM reference_observations WHERE symbol=? AND value>0 LIMIT 1",
+                (symbol,),
+            ).fetchone()
+            is not None
+        )
         job = connection.execute(
             "SELECT status,updated_at FROM import_jobs WHERE symbol=? AND category='reference' ORDER BY id DESC LIMIT 1",
             (symbol,),
@@ -170,6 +210,8 @@ def ensure_references(connection, symbols):
                 (job["updated_at"],),
             ).fetchone()[0]
             if recent:
+                if cached:
+                    continue
                 raise HTTPException(
                     503,
                     "Une référence de marché ou un taux de change est indisponible. Réessayez dans quelques minutes.",
@@ -179,7 +221,7 @@ def ensure_references(connection, symbols):
                 "INSERT INTO import_jobs(symbol,category) SELECT ?, 'reference' WHERE NOT EXISTS (SELECT 1 FROM import_jobs WHERE symbol=? AND status IN ('queued','running'))",
                 (symbol, symbol),
             )
-        pending = True
+        pending = pending or not cached
     return pending
 
 

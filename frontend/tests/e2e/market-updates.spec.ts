@@ -93,7 +93,9 @@ test("sector colors, allocation and correlation metadata stay consistent", async
     badgeColor,
   );
   await page.getByRole("button", { name: "Portfolio", exact: true }).click();
-  await page.getByRole("tab", { name: "Répartition", exact: true }).click();
+  await page
+    .getByRole("region", { name: "Répartition du portefeuille", exact: true })
+    .scrollIntoViewIfNeeded();
   await page
     .getByRole("combobox", { name: "Répartition par", exact: true })
     .selectOption("sectors");
@@ -112,7 +114,7 @@ test("sector colors, allocation and correlation metadata stay consistent", async
   ).toBeVisible();
 });
 
-test("watchlist groups classes in rail order and only computes stock and crypto deviations", async ({
+test("watchlist groups classes in rail order and computes stock, ETF and crypto deviations", async ({
   page,
 }) => {
   await mockApi(page);
@@ -127,13 +129,14 @@ test("watchlist groups classes in rail order and only computes stock and crypto 
     if (!route.request().postDataJSON().asset_ids.length)
       return route.fulfill({ json: { positions: [] } });
     expect(route.request().postDataJSON().asset_ids.sort()).toEqual(
-      ["yf-btc-usd", stock.id].sort(),
+      ["yf-btc-usd", "yf-spy", stock.id].sort(),
     );
     return route.fulfill({
       json: {
         positions: [
           { id: stock.id, z: 1 },
           { id: "yf-btc-usd", z: -1 },
+          { id: "yf-spy", z: 0.5 },
         ],
       },
     });
@@ -155,13 +158,12 @@ test("watchlist groups classes in rail order and only computes stock and crypto 
   ]);
   await expect(
     page.locator(".positions-table .regression-deviation"),
-  ).toHaveCount(2);
+  ).toHaveCount(3);
   await expect(
     page
       .locator(".positions-table tr", { hasText: "ETF test" })
-      .locator("td")
-      .last(),
-  ).toHaveText("—");
+      .locator(".regression-deviation"),
+  ).toContainText("+0,5 σ");
   await expect(
     page.getByText("Vos actifs suivis", { exact: true }),
   ).toHaveCount(0);

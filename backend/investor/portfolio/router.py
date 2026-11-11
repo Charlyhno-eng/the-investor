@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query
 
 from investor.portfolio.performance import PerformanceRequest, portfolio_performance
+from investor.portfolio.prediction import prediction_history
 from investor.portfolio.regression import RegressionRequest, regression_deviations
 from investor.portfolio.service import PortfolioRequest, portfolio
 from investor.portfolio.volatility import asset_volatility, portfolio_volatility
@@ -38,3 +39,8 @@ def get_portfolio_performance(request: PerformanceRequest):
 @router.post("/portfolio/optimize")
 def optimize_portfolio(request: PerformanceRequest):
     return portfolio_performance(request, optimize=True)
+
+
+@router.post("/portfolio/prediction")
+def get_portfolio_prediction(request: PortfolioRequest):
+    return prediction_history(request)

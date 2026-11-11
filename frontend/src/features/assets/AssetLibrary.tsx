@@ -2,7 +2,6 @@ import { sectorInfo, currencyCountry } from "../../lib/sectors";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 import { stockCountry } from "../../lib/countries";
-import { Tooltip } from "../../components/Tooltip";
 import { Icon } from "../../components/Icon";
 import { categories, date, number } from "../../lib/format";
 import type { Asset, Category } from "../../lib/types";
@@ -35,7 +34,6 @@ export function AssetLibrary({
   onRetry: () => void;
 }) {
   const [query, setQuery] = useState("");
-  const [dividendOnly, setDividendOnly] = useState(false);
   const list = useRef<HTMLElement>(null);
   const search = useRef<HTMLInputElement>(null);
   useEffect(() => setQuery(""), [category]);
@@ -61,7 +59,6 @@ export function AssetLibrary({
         : category === "watchlist"
           ? favorites[a.id] === "silver"
           : a.category === category) &&
-      (category !== "stock" || !dividendOnly || !!a.is_dividend) &&
       `${a.name} ${a.id} ${a.country_code ?? ""}`
         .toLowerCase()
         .includes(query.toLowerCase()),
@@ -82,14 +79,12 @@ export function AssetLibrary({
         categories.findIndex((c) => c.id === a.category) -
         categories.findIndex((c) => c.id === b.category),
     );
-  const total = assets.filter(
-    (a) =>
-      (category !== "stock" || !dividendOnly || !!a.is_dividend) &&
-      (category === "portfolio"
-        ? favorites[a.id] === "gold"
-        : category === "watchlist"
-          ? favorites[a.id] === "silver"
-          : a.category === category),
+  const total = assets.filter((a) =>
+    category === "portfolio"
+      ? favorites[a.id] === "gold"
+      : category === "watchlist"
+        ? favorites[a.id] === "silver"
+        : a.category === category,
   ).length;
   return (
     <aside className="asset-library">
@@ -131,24 +126,6 @@ export function AssetLibrary({
         <span>ACTIF</span>
         <span>{category === "bond" ? "TAUX ACTUEL" : "DERNIER"}</span>
       </div>
-      {category === "stock" && (
-        <button
-          className="secondary-button dividend-library-filter"
-          aria-pressed={dividendOnly}
-          onClick={() => setDividendOnly((value) => !value)}
-        >
-          Dividendes uniquement
-        </button>
-      )}
-      {category === "bond" && (
-        <div className="ranking-note">
-          Dernier rendement annualisé décroissant{" "}
-          <Tooltip label="Classement des taux">
-            Dernier taux disponible, identique à la fiche de chaque obligation.
-            Les dates, devises et maturités peuvent différer.
-          </Tooltip>
-        </div>
-      )}
       <nav ref={list} aria-label="Actifs" className="asset-list">
         {filtered.map((a, index) => (
           <Fragment key={a.id}>
@@ -248,22 +225,18 @@ export function AssetLibrary({
           <div className="library-empty">
             <Icon name={category === "stock" ? "stock" : "search"} size={28} />
             <strong>
-              {query || (category === "stock" && dividendOnly)
-                ? "Aucun résultat"
-                : "Votre sélection commence ici"}
+              {query ? "Aucun résultat" : "Votre sélection commence ici"}
             </strong>
             <p>
-              {category === "stock" && dividendOnly
-                ? "Le rendement moyen des dividendes doit dépasser 4 % par an."
-                : query
-                  ? "Essayez un autre nom ou symbole."
-                  : isLibrary(category)
-                    ? category === "portfolio"
-                      ? "Une étoile or indique un actif détenu."
-                      : "Une étoile argent place un actif dans votre watchlist."
-                    : category === "stock"
-                      ? "Ajoutez les actions que vous souhaitez suivre."
-                      : "Lancez le worker pour importer les historiques."}
+              {query
+                ? "Essayez un autre nom ou symbole."
+                : isLibrary(category)
+                  ? category === "portfolio"
+                    ? "Une étoile or indique un actif détenu."
+                    : "Une étoile argent place un actif dans votre watchlist."
+                  : category === "stock"
+                    ? "Ajoutez les actions que vous souhaitez suivre."
+                    : "Lancez le worker pour importer les historiques."}
             </p>
             {category === "stock" && !query && (
               <button className="secondary-button" onClick={onAdd}>

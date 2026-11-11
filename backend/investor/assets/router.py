@@ -133,7 +133,7 @@ def asset_momentum(asset_id: str, benchmark: str | None = None):
 
 @router.get("/momentum")
 def momentum_scores(
-    benchmark: str | None = None, category: Literal["stock", "crypto"] = "stock"
+    benchmark: str | None = None, category: Literal["stock", "crypto", "etf"] = "stock"
 ):
     from investor.assets.momentum import momentum
 

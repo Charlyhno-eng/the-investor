@@ -1,4 +1,4 @@
-export type BetaKey = "beta_03" | "beta_04" | "beta_05" | "beta_06" | "beta_07";
+type BetaKey = "beta_03" | "beta_04" | "beta_05" | "beta_06" | "beta_07";
 export type SeriesKey = "portfolio" | "benchmark" | "optimized" | BetaKey;
 export type Mode =
   "equal" | "sortino" | "downside" | "drawdown" | "beta_sharpe";
@@ -38,10 +38,10 @@ export type Metrics = {
   alpha: number | null;
   beta: number | null;
   total_return: number;
-  cagr: number;
+  cagr: number | null;
   sortino: number | null;
   calmar: number | null;
-  volatility: number;
+  volatility: number | null;
   downside_volatility?: number;
   max_drawdown: number;
   sharpe: number | null;

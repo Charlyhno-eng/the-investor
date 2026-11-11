@@ -94,9 +94,10 @@ def momentum(asset_id=None, benchmark=None, category="stock"):
             ).fetchone()
             if not asset:
                 raise HTTPException(404, "Actif introuvable")
-            if asset["category"] not in ("stock", "crypto"):
+            if asset["category"] not in ("stock", "crypto", "etf"):
                 raise HTTPException(
-                    422, "Le momentum concerne les actions et les cryptomonnaies"
+                    422,
+                    "Le momentum concerne les actions, les ETF et les cryptomonnaies",
                 )
             category = asset["category"]
             if not db.execute(

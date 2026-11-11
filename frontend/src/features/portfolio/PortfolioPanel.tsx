@@ -1,3 +1,4 @@
+import { PortfolioPrediction } from "./PortfolioPrediction";
 import { PositionsTable } from "./PositionsTable";
 import { CorrelationPanel } from "./CorrelationPanel";
 import type { Quantities } from "./quantities";
@@ -78,6 +79,7 @@ export function PortfolioPanel({
       .filter((a) => (quantities[a.id] ?? 0) > 0)
       .map((a) => ({ asset_id: a.id, quantity: quantities[a.id] })),
   );
+  const includeCorrelation = tab === "correlation";
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -88,7 +90,12 @@ export function PortfolioPanel({
       try {
         const data = await post<Result | { status: "pending" }>(
           "/portfolio/analytics",
-          { holdings: JSON.parse(holdings), years, include_benchmark: true },
+          {
+            holdings: JSON.parse(holdings),
+            years: includeCorrelation ? years : 3,
+            include_benchmark: includeCorrelation,
+            include_correlation: includeCorrelation,
+          },
           controller.signal,
         );
         if (controller.signal.aborted) return;
@@ -109,12 +116,12 @@ export function PortfolioPanel({
         }
       }
     }
-    timer = setTimeout(load, 450);
+    void load();
     return () => {
       controller.abort();
       clearTimeout(timer);
     };
-  }, [holdings, years, revision, historyRevision]);
+  }, [holdings, years, revision, historyRevision, includeCorrelation]);
   const sectorPositions = Object.values(
     (result?.positions ?? []).reduce<
       Record<
@@ -194,7 +201,7 @@ export function PortfolioPanel({
         >
           {[
             ["positions", "Positions", "layers"],
-            ["allocation", "Répartition", "allocation"],
+            ["prediction", "Prédiction", "analysis"],
             ["performance", "Comparaison & optimisation", "stock"],
             ["correlation", "Corrélations", "analysis"],
             ["volatility", "Frontières d’efficience", "analysis"],
@@ -213,10 +220,10 @@ export function PortfolioPanel({
             </button>
           ))}
         </div>
-        {tab !== "recommendations" && loading && (
+        {tab !== "recommendations" && tab !== "prediction" && loading && (
           <p role="status">Actualisation des valeurs du portefeuille…</p>
         )}
-        {tab !== "recommendations" && error && (
+        {tab !== "recommendations" && tab !== "prediction" && error && (
           <p className="error" role="alert">
             {error}{" "}
             <button
@@ -233,6 +240,12 @@ export function PortfolioPanel({
               ? "Ajoutez des actifs à cette stratégie pour commencer."
               : "Ajoutez une étoile or à vos actifs détenus pour commencer."}
           </p>
+        )}
+        {tab === "prediction" && (
+          <PortfolioPrediction
+            holdings={holdings}
+            dataRevision={historyRevision}
+          />
         )}
         {tab === "volatility" && (
           <VolatilityPanel
@@ -287,9 +300,12 @@ export function PortfolioPanel({
             />
           </section>
         )}
-        {tab === "allocation" && (
+        {tab === "positions" && (
           <>
-            <section className="portfolio-content">
+            <section
+              className="portfolio-content portfolio-allocation"
+              aria-label="Répartition du portefeuille"
+            >
               <div className="portfolio-section-heading">
                 <div>
                   <h2>
@@ -328,14 +344,6 @@ export function PortfolioPanel({
                 </div>
               )}
             </section>
-            <p className="fine-print">
-              Quantité × dernier prix disponible, converti en euros. Le change
-              utilisé est celui du jour du cours, ou le dernier connu dans les 7
-              jours précédents. Les dates des prix figurent dans Positions. Les
-              actifs sans prix monétaire exploitable sont exclus du total ; les
-              quantités ne sont pas réajustées automatiquement lors des
-              divisions d’actions.
-            </p>
           </>
         )}
         {tab === "correlation" && (
@@ -347,6 +355,7 @@ export function PortfolioPanel({
         )}
         {tab !== "volatility" &&
           tab !== "recommendations" &&
+          tab !== "prediction" &&
           !!result?.excluded.length && (
             <div className="portfolio-exclusions">
               <p>Positions non valorisées :</p>

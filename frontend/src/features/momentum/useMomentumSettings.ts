@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 
-export type MomentumCategory = "stock" | "crypto";
+export type MomentumCategory = "stock" | "crypto" | "etf";
 const storageKey = (category: MomentumCategory) =>
-  `investor-momentum-settings${category === "crypto" ? "-crypto" : ""}`;
+  `investor-momentum-settings${category === "stock" ? "" : `-${category}`}`;
 const event = "investor-momentum-settings-change";
 type Settings = { weights: number[]; benchmark: string };
 const defaults: Settings = { weights: [40, 35, 25], benchmark: "" };

@@ -18,6 +18,11 @@ ETF = {
     "LQQ.PA": "Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc",
     "EXA1.AS": "iShares EURO STOXX Banks 30-15 UCITS ETF (DE) EUR (Acc)",
     "SPMO": "Invesco S&P 500 Momentum ETF · US",
+    "DSP5.PA": "Amundi Nasdaq-100 Daily (-1x) Inverse UCITS ETF Acc · PEA",
+    "SHC.PA": "Amundi CAC 40 Daily (-1x) Inverse UCITS ETF Acc",
+    "BX4.PA": "Amundi CAC 40 Daily (-2x) Inverse UCITS ETF Acc",
+    "BSX.PA": "Amundi EURO STOXX 50 Daily (-1x) Inverse UCITS ETF Acc",
+    "BXX.PA": "Amundi EURO STOXX 50 Daily (-2x) Inverse UCITS ETF Acc",
 }
 CURRENCIES = dict(
     zip(

@@ -62,5 +62,6 @@ function useCategoryScores(assets: Asset[], category: MomentumCategory) {
 export function useMomentumScores(assets: Asset[]) {
   const stocks = useCategoryScores(assets, "stock");
   const crypto = useCategoryScores(assets, "crypto");
-  return { ...stocks, crypto };
+  const etf = useCategoryScores(assets, "etf");
+  return { ...stocks, crypto, etf };
 }
