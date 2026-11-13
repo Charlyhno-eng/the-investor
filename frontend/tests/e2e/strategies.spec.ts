@@ -62,7 +62,29 @@ test("independent strategies persist, switch, remove assets and delete", async (
     .getByRole("button", { name: "Simulation A", exact: false })
     .click();
   await expect(quantity).toHaveValue("3");
+  const composer = page.getByRole("button", {
+    name: "Composer la stratégie",
+    exact: true,
+  });
+  await composer.click();
+  await expect(composer).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByLabel("Ajouter un actif", { exact: true }),
+  ).toBeHidden();
+  await page
+    .getByRole("tab", { name: "Volatilité minimale", exact: true })
+    .click();
+  await page.getByRole("tab", { name: "Positions", exact: true }).click();
+  await expect(composer).toHaveAttribute("aria-expanded", "false");
   await page.reload();
+  await expect(composer).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByLabel("Ajouter un actif", { exact: true }),
+  ).toBeHidden();
+  await composer.click();
+  await expect(
+    page.getByLabel("Ajouter un actif", { exact: true }),
+  ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Simulation A", exact: true }),
   ).toBeVisible();
@@ -110,13 +132,13 @@ test("independent strategies persist, switch, remove assets and delete", async (
   await expect(page.locator(".strategy-list button")).toHaveCount(0);
 });
 
-test("simulated portfolio sends its own holdings to the comparison", async ({
+test("simulated portfolio sends its own universe to validation", async ({
   page,
 }) => {
   await mockApi(page);
-  let holdings: unknown;
-  await page.route("**/api/portfolio/performance", async (route) => {
-    holdings = route.request().postDataJSON().holdings;
+  let assetIds: unknown;
+  await page.route("**/api/portfolio/validation", async (route) => {
+    assetIds = route.request().postDataJSON().asset_ids;
     await route.fulfill({
       json: { status: "insufficient", message: "Simulation reçue" },
     });
@@ -140,14 +162,17 @@ test("simulated portfolio sends its own holdings to the comparison", async ({
   await page.getByRole("button", { name: "Ajouter", exact: true }).click();
   await page.locator(".positions-table input").first().fill("4");
   await page
-    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
+    .getByRole("tab", { name: "Volatilité minimale", exact: true })
     .click();
+  await page.getByRole("button", { name: "Lancer la validation" }).click();
   await expect(
     page.getByText("Simulation reçue", { exact: true }),
   ).toBeVisible();
-  expect(holdings).toEqual([{ asset_id: "yf-test", quantity: 4 }]);
+  expect(assetIds).toEqual(["yf-test"]);
   for (const name of [
-    "Comparaison & optimisation",
+    "Volatilité minimale",
+    "Retour à la moyenne",
+    "Corrélation minimale",
     "Corrélations",
     "Frontières d’efficience",
   ]) {
@@ -235,17 +260,6 @@ test("locked quantities persist and are sent to every simulation", async ({
   await expect(
     page.getByRole("button", { name: "Déverrouiller Bitcoin" }),
   ).toHaveAttribute("aria-pressed", "true");
-  const comparison = page.waitForRequest(
-    (request) =>
-      request.url().endsWith("/portfolio/performance") &&
-      request.method() === "POST",
-  );
-  await page
-    .getByRole("tab", { name: "Comparaison & optimisation", exact: true })
-    .click();
-  expect((await comparison).postDataJSON().locked_asset_ids).toEqual([
-    "yf-btc-usd",
-  ]);
   const frontier = page.waitForRequest(
     (request) =>
       request.url().endsWith("/portfolio/volatility") &&

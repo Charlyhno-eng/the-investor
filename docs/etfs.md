@@ -41,3 +41,7 @@ Références émetteur :
 - [BX4 : CAC 40 inverse −2×](https://www.amundietf.fr/fr/professionnels/produits/equity/amundi-cac-40-daily-2x-inverse-ucits-etf-acc/fr0010411884).
 - [BSX : Euro Stoxx 50 inverse −1× et cotation Paris](https://www.amundietf.nl/en/professional/products/equity/amundi-euro-stoxx-50-daily-1x-inverse-ucits-etf-acc/fr0010424135).
 - [BXX : Euro Stoxx 50 inverse −2×](https://www.amundietf.nl/en/professional/products/equity/amundi-euro-stoxx-50-daily-2x-inverse-ucits-etf-acc/fr0010424143).
+
+## Remplacement du S&P 500 par sa version PEA — 13 novembre 2026
+
+SPY est remplacé dans la bibliothèque et les imports par **BNP Paribas Easy S&P 500 UCITS ETF EUR Capitalisation**, **ESE.PA**, ISIN **FR0011550185**, coté à Paris en EUR, capitalisant et éligible au PEA. Voir la [fiche BNP Paribas](https://docfinder.bnpparibas-am.com/api/files/fc6f344d-88bb-45fb-9839-4d714312df6f/512) et la [cotation Euronext Paris chez Bourse Direct avec indication PEA](https://www.boursedirect.fr/fr/marche/euronext-paris/bnp-paribas-easy-s-p-500-ucits-FR0011550185-ESE-EUR-XPAR/seance). L’historique propre à ESE est importé sans raccord avec SPY ou Amundi PSP5. Les anciennes données SPY et PSP5 restent consultables par identifiant, mais ne sont plus visibles dans la bibliothèque ni réactualisées. Le remplacement ne change pas la référence indicielle S&P 500 des simulations et ne transforme pas les anciennes quantités en parts ESE.

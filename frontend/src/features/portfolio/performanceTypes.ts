@@ -1,39 +1,6 @@
 type BetaKey = "beta_03" | "beta_04" | "beta_05" | "beta_06" | "beta_07";
 export type SeriesKey = "portfolio" | "benchmark" | "optimized" | BetaKey;
-export type Mode =
-  "equal" | "sortino" | "downside" | "drawdown" | "beta_sharpe";
-export const modes: { key: Mode; title: string; description: string }[] = [
-  {
-    key: "equal",
-    title: "Équipondération annuelle",
-    description:
-      "Le même poids pour chaque actif, réajusté chaque année. Frais appliqués aux achats et aux ventes.",
-  },
-  {
-    key: "sortino",
-    title: "Sortino maximal",
-    description:
-      "Maximiser le rendement par rapport aux variations à la baisse, sans pénaliser les hausses.",
-  },
-  {
-    key: "downside",
-    title: "Volatilité à la baisse minimale",
-    description:
-      "Réduire au maximum l’ampleur des rendements négatifs. Les hausses ne sont pas pénalisées.",
-  },
-  {
-    key: "drawdown",
-    title: "Drawdown minimal",
-    description:
-      "Réduire au maximum la plus forte baisse historique depuis un sommet.",
-  },
-  {
-    key: "beta_sharpe",
-    title: "Sharpe à bêta cible",
-    description:
-      "Cinq allocations maximisant le Sharpe, pour des bêtas de 0,3, 0,4, 0,5, 0,6 et 0,7 face au S&P 500.",
-  },
-];
+type Mode = "equal" | "sortino" | "downside" | "drawdown" | "beta_sharpe";
 export type Metrics = {
   alpha: number | null;
   beta: number | null;
@@ -84,13 +51,6 @@ export type PerformanceResult = {
     recommended_weight: number | null;
   }[];
 };
-export type PerformanceResponse =
-  | PerformanceResult
-  | {
-      status: "insufficient";
-      message: string;
-      excluded?: { id: string; name: string; reason: string }[];
-    };
 export const series: { key: SeriesKey; title: string; color: string }[] = [
   { key: "portfolio", title: "Portfolio actuel", color: "#edb786" },
   { key: "benchmark", title: "S&P 500", color: "#65b9ff" },

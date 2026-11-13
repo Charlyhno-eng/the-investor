@@ -95,6 +95,7 @@ def test_pending_reference_and_local_etf_fallback(client):
     setup_history()
     with db.connect() as c:
         c.execute("DELETE FROM reference_imports")
+        c.execute("DELETE FROM reference_observations WHERE symbol=?", (INDEX,))
     data = api.get("/api/assets/airbus/momentum").json()
     assert data["status"] == "pending"
     # A local reference works without waiting for the S&P 500 worker.
@@ -102,6 +103,65 @@ def test_pending_reference_and_local_etf_fallback(client):
         api.get("/api/assets/airbus/momentum?benchmark=europe").json()["status"]
         == "ready"
     )
+
+
+@pytest.mark.parametrize("asset_id,category", [("airbus", "stock"), ("europe", "etf")])
+@pytest.mark.parametrize("symbol", [INDEX, "^FCHI"])
+@pytest.mark.parametrize("job_status", ["queued", "running", "failed"])
+def test_cached_momentum_remains_available_during_reference_refresh(
+    client, asset_id, category, symbol, job_status
+):
+    api, _ = client
+    setup_history()
+    path = f"/api/assets/{asset_id}/momentum"
+    expected = api.get(path, params={"benchmark": symbol}).json()
+    with db.connect() as c:
+        c.execute(
+            "UPDATE reference_imports SET updated_at='2000-01-01T00:00:00Z' WHERE symbol=?",
+            (symbol,),
+        )
+        c.execute(
+            "INSERT INTO import_jobs(symbol,category,status) VALUES (?,'reference',?)",
+            (symbol, job_status),
+        )
+    response = api.get(path, params={"benchmark": symbol})
+    assert response.status_code == 200
+    assert response.json() == expected
+    batch = api.get("/api/momentum", params={"category": category, "benchmark": symbol})
+    assert batch.status_code == 200
+    assert batch.json()["status"] == "ready"
+    assert batch.json()["universe"] == expected["universe"]
+    with db.connect() as c:
+        assert (
+            c.execute(
+                "SELECT COUNT(*) FROM import_jobs WHERE symbol=?", (symbol,)
+            ).fetchone()[0]
+            == 1
+        )
+
+
+def test_cached_momentum_queues_refresh_and_still_checks_reference_dates(client):
+    api, _ = client
+    setup_history()
+    with db.connect() as c:
+        c.execute("DELETE FROM reference_imports WHERE symbol=?", (INDEX,))
+    data = api.get("/api/assets/airbus/momentum").json()
+    assert data["status"] == "ready"
+    assert all("score" in h for h in data["horizons"])
+    with db.connect() as c:
+        assert c.execute("SELECT symbol,status FROM import_jobs").fetchall()[0][:] == (
+            INDEX,
+            "queued",
+        )
+        # Cached does not mean usable: old endpoints must never invent a score.
+        c.execute(
+            "DELETE FROM reference_observations WHERE symbol=? AND date > '2026-09-01'",
+            (INDEX,),
+        )
+    old = api.get("/api/assets/airbus/momentum").json()
+    assert old["status"] == "ready"
+    assert all("error" in h for h in old["horizons"])
+    assert all(s["scores"] is None for s in old["universe"])
 
 
 def test_stale_stock_not_ranked(client):

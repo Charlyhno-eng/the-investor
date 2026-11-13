@@ -2,7 +2,13 @@
 
 from investor import db
 from investor.countries import COUNTRIES, series_for
-from investor.imports.catalog import COMMODITY_FUTURES, CRYPTO, CURRENCIES, ETF
+from investor.imports.catalog import (
+    COMMODITY_FUTURES,
+    CRYPTO,
+    CURRENCIES,
+    ETF,
+    REMOVED_ETF,
+)
 
 
 def schedule_refreshes(*, seed=False):
@@ -10,6 +16,9 @@ def schedule_refreshes(*, seed=False):
         connection.execute("BEGIN IMMEDIATE")
         symbols = {}
         for row in connection.execute("SELECT * FROM assets"):
+            if row["id"] in REMOVED_ETF:
+                symbols["ESE.PA"] = ("etf", "yahoo:ESE.PA", 1)
+                continue
             if row["source"] == "yahoo" and row["id"].startswith("yf-"):
                 symbol = row["id"][3:].upper()
                 if row["category"] != "crypto" or symbol in CRYPTO:

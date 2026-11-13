@@ -12,8 +12,10 @@ CRYPTO = {
 # Preserve archived histories while removing these assets from the library and refreshes.
 REMOVED_CRYPTO = ("yf-ada-usd", "yf-xrp-usd")
 
+REMOVED_ETF = ("yf-spy", "yf-psp5.pa")
+
 ETF = {
-    "SPY": "SPDR S&P 500 ETF",
+    "ESE.PA": "BNP Paribas Easy S&P 500 UCITS ETF EUR Capitalisation · PEA",
     "CAC.PA": "Amundi CAC 40 UCITS ETF Dist",
     "LQQ.PA": "Amundi Nasdaq-100 Daily (2x) Leveraged UCITS ETF Acc",
     "EXA1.AS": "iShares EURO STOXX Banks 30-15 UCITS ETF (DE) EUR (Acc)",

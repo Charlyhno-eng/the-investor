@@ -12,7 +12,6 @@ import type { PortfolioResult as Result } from "./types";
 import { sectorInfo } from "../../lib/sectors";
 import { useEffect, useState, type ReactNode } from "react";
 import { VolatilityPanel } from "../volatility/VolatilityPanel";
-import { PerformancePanel } from "./PerformancePanel";
 import { post } from "../../lib/api";
 import { money } from "../../lib/currency";
 import { categories } from "../../lib/format";
@@ -20,6 +19,7 @@ import type { Asset } from "../../lib/types";
 import { Icon } from "../../components/Icon";
 import { AllocationChart } from "./AllocationChart";
 import { RecommendationsPanel } from "../recommendations/RecommendationsPanel";
+import { ValidationPanel } from "./ValidationPanel";
 export function PortfolioPanel({
   assets,
   quantities,
@@ -30,6 +30,7 @@ export function PortfolioPanel({
   lockedAssetIds = [],
   onToggleLock,
   recommendationAssets = assets,
+  validationAssets = assets,
 }: {
   lockedAssetIds?: string[];
   onToggleLock?: (id: string) => void;
@@ -40,6 +41,7 @@ export function PortfolioPanel({
   quantities: Quantities;
   onQuantity: (id: string, quantity: number) => void;
   recommendationAssets?: Asset[];
+  validationAssets?: Asset[];
 }) {
   const [tab, setTab] = useState("positions");
   const [bankAccounts, setBankAccounts] = useState(readBankAccounts);
@@ -105,7 +107,9 @@ export function PortfolioPanel({
       .map((a) => ({ asset_id: a.id, quantity: quantities[a.id] })),
   );
   const includeCorrelation = tab === "correlation";
+  const validationActive = tab.startsWith("validation-");
   useEffect(() => {
+    if (validationActive) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
@@ -146,7 +150,14 @@ export function PortfolioPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [holdings, years, revision, historyRevision, includeCorrelation]);
+  }, [
+    holdings,
+    years,
+    revision,
+    historyRevision,
+    includeCorrelation,
+    validationActive,
+  ]);
   const sectorPositions = Object.values(
     (result?.positions ?? []).reduce<
       Record<
@@ -262,16 +273,23 @@ export function PortfolioPanel({
               ? [["bank-accounts", "Comptes bancaires", "layers"]]
               : []),
             ["prediction", "Prédiction", "analysis"],
-            ["performance", "Comparaison & optimisation", "stock"],
             ["correlation", "Corrélations", "analysis"],
             ["volatility", "Frontières d’efficience", "analysis"],
             ...(!simulation
               ? [["recommendations", "Recommandation action", "stock"]]
               : []),
+            ["validation-volatility", "Volatilité minimale", "analysis"],
+            ["validation-mean_reversion", "Retour à la moyenne", "analysis"],
+            ["validation-correlation", "Corrélation minimale", "analysis"],
           ].map(([key, title, icon]) => (
             <button
               key={key}
               role="tab"
+              className={
+                key === "validation-volatility"
+                  ? "portfolio-validation-tab"
+                  : undefined
+              }
               aria-selected={tab === key}
               onClick={() => setTab(key)}
             >
@@ -280,13 +298,15 @@ export function PortfolioPanel({
             </button>
           ))}
         </div>
-        {tab !== "bank-accounts" &&
+        {!validationActive &&
+          tab !== "bank-accounts" &&
           tab !== "recommendations" &&
           tab !== "prediction" &&
           loading && (
             <p role="status">Actualisation des valeurs du portefeuille…</p>
           )}
-        {tab !== "bank-accounts" &&
+        {!validationActive &&
+          tab !== "bank-accounts" &&
           tab !== "recommendations" &&
           tab !== "prediction" &&
           error && (
@@ -300,7 +320,8 @@ export function PortfolioPanel({
               </button>
             </p>
           )}
-        {tab !== "bank-accounts" &&
+        {!validationActive &&
+          tab !== "bank-accounts" &&
           tab !== "recommendations" &&
           !assets.length && (
             <p>
@@ -330,12 +351,24 @@ export function PortfolioPanel({
             lockedAssetIds={lockedAssetIds}
           />
         )}
-        {tab === "performance" && (
-          <PerformancePanel
-            dataRevision={historyRevision}
-            holdings={holdings}
-            lockedAssetIds={lockedAssetIds}
-          />
+        {(["volatility", "mean_reversion", "correlation"] as const).map(
+          (mode) => (
+            <div key={mode} hidden={tab !== `validation-${mode}`}>
+              <ValidationPanel
+                holdings={holdings}
+                mode={mode}
+                dataRevision={JSON.stringify(
+                  validationAssets.map((a) => [
+                    a.id,
+                    a.data_revision,
+                    a.last_date,
+                    a.last_value,
+                    a.points,
+                  ]),
+                )}
+              />
+            </div>
+          ),
         )}
         {tab === "recommendations" && !simulation && (
           <RecommendationsPanel
@@ -429,7 +462,8 @@ export function PortfolioPanel({
             onYearsChange={setYears}
           />
         )}
-        {tab !== "bank-accounts" &&
+        {!validationActive &&
+          tab !== "bank-accounts" &&
           tab !== "volatility" &&
           tab !== "recommendations" &&
           tab !== "prediction" &&

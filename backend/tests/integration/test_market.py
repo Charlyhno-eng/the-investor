@@ -355,3 +355,42 @@ def test_daily_commodities_replace_monthly_history_with_normalized_units(
         market.import_symbol(symbol, "commodity")
     assert local.get(f"/api/assets/{asset_id}/history").json() == history
     assert local.get("/api/assets").json()[0]["frequency"] == "daily"
+
+
+def test_sp500_pea_replaces_spy_without_overwriting_archived_prices(local):
+    from investor.imports.catalog import ETF
+    from investor.imports.refresh import schedule_refreshes
+
+    assert "ESE.PA" in ETF and "SPY" not in ETF and "PSP5.PA" not in ETF
+    for symbol, value, unit in [
+        ("SPY", 600.0, "USD"),
+        ("PSP5.PA", 60.0, "EUR"),
+        ("ESE.PA", 30.0, "EUR"),
+    ]:
+        identifier = "yf-" + symbol.lower()
+        db.save(
+            [
+                (
+                    identifier,
+                    symbol,
+                    "etf",
+                    "price",
+                    unit,
+                    "daily",
+                    "yahoo",
+                    "https://example.com",
+                )
+            ],
+            [(identifier, "2025-01-02", value)],
+            "yahoo:" + symbol,
+        )
+    assert [a["id"] for a in local.get("/api/assets").json()] == ["yf-ese.pa"]
+    assert local.get("/api/assets/yf-spy/history").json()[0]["value"] == 600
+    assert local.get("/api/assets/yf-psp5.pa/history").json()[0]["value"] == 60
+    with db.connect() as c:
+        c.execute("UPDATE imports SET completed_at='2000-01-01T00:00:00Z'")
+    schedule_refreshes()
+    with db.connect() as c:
+        assert [
+            (r["symbol"], r["category"]) for r in c.execute("SELECT * FROM import_jobs")
+        ] == [("ESE.PA", "etf")]

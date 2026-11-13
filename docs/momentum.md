@@ -12,6 +12,8 @@ Toutes les devises sont admises dans un seul classement. Chaque série est analy
 
 La référence par défaut reste le S&P 500 dividendes réinvestis (`^SP500TR`). Le CAC 40 (`^FCHI`, hors dividendes) est aussi disponible. La différence de traitement des dividendes est indiquée dans l’aide de la force relative. Les indices sont importés par le worker existant et conservés dans le cache local ; l’interface attend leur disponibilité pendant une minute. Un ETF local de n’importe quelle devise peut aussi servir de référence. L’ETF Amundi CAC 40 UCITS ETF Dist (`CAC.PA`) est ajouté au catalogue ETF et à la bibliothèque locale.
 
+Un historique de référence déjà présent reste utilisable pendant son actualisation en arrière-plan, y compris si le fournisseur échoue. L’expiration du délai d’actualisation d’une heure ne masque plus les scores locaux. Les contrôles de dates et de couverture de chaque horizon restent appliqués : un historique trop ancien ne produit pas de score artificiel. Seule l’absence de données locales impose d’attendre l’import initial.
+
 L’ajustement de chaque fenêtre utilise les dates communes effectivement observées, sans interpolation. Il exige 60 observations, des bornes à moins de 7 jours des dates théoriques et aucun trou supérieur à 14 jours (pour accepter les fermetures prolongées des places boursières). Un historique incomplet ne produit pas de score pour cet horizon.
 
 Les poids et la référence choisis sont conservés dans le navigateur et partagés entre la fiche action et les tableaux Portfolio/Watchlist. Les colonnes du tableau des horizons disposent d’aides au survol ou au focus. Les détails de méthode restent documentés ici.

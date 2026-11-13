@@ -3,7 +3,7 @@
 from datetime import date
 
 from investor.countries import COUNTRIES
-from investor.imports.catalog import COMMODITIES, COMMODITY_FUTURES
+from investor.imports.catalog import COMMODITIES, COMMODITY_FUTURES, REMOVED_ETF
 
 
 def history_revision(db, row):
@@ -50,6 +50,8 @@ def enrich_asset(db, row):
 
 
 def visible_asset(row):
+    if row["category"] == "etf" and row["id"] in REMOVED_ETF:
+        return False
     if row["category"] == "commodity":
         return row["id"] in COMMODITIES and row["frequency"] == "daily"
     if row["category"] == "bond":

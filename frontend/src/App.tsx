@@ -349,6 +349,7 @@ export function App() {
             />
           ) : category === "portfolio" ? (
             <PortfolioPanel
+              validationAssets={visibleAssets}
               recommendationAssets={visibleAssets.filter(
                 (a) =>
                   favorites[a.id] === "gold" || favorites[a.id] === "silver",

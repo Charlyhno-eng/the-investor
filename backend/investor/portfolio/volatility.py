@@ -235,7 +235,7 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
     }
 
 
-def load_histories(connection, assets, *, include_benchmark=True):
+def load_histories(connection, assets, *, include_benchmark=True, allow_cached=False):
     """Shared EUR total-return histories, with no interpolation or future FX.
 
     Stocks use observations (Yahoo Adj Close, distributions reinvested), never
@@ -249,7 +249,7 @@ def load_histories(connection, assets, *, include_benchmark=True):
     symbols = {"EURUSD=X"} | {f"{c}USD=X" for c in currencies if c != "USD"}
     if include_benchmark:
         symbols.add(INDEX)
-    if ensure_references(connection, sorted(symbols)):
+    if ensure_references(connection, sorted(symbols), allow_cached=allow_cached):
         return None
     euro = reference(connection, "EURUSD=X")
     histories = [

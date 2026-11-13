@@ -6,9 +6,15 @@ from investor.portfolio.performance import PerformanceRequest, portfolio_perform
 from investor.portfolio.prediction import prediction_history
 from investor.portfolio.regression import RegressionRequest, regression_deviations
 from investor.portfolio.service import PortfolioRequest, portfolio
+from investor.portfolio.validation import ValidationRequest, portfolio_validation
 from investor.portfolio.volatility import asset_volatility, portfolio_volatility
 
 router = APIRouter(prefix="/api", tags=["portfolio"])
+
+
+@router.post("/portfolio/validation")
+def validate_portfolio(request: ValidationRequest):
+    return portfolio_validation(request)
 
 
 @router.post("/portfolio/analytics")

@@ -127,7 +127,9 @@ def momentum(asset_id=None, benchmark=None, category="stock"):
             if local_btc:
                 symbol = local_btc["id"]
         if symbol in (INDEX, "^FCHI", "BTC-USD"):
-            if ensure_references(db, [symbol]):
+            # An hourly refresh must not hide an already usable local history.
+            # analyze() still checks the actual dates/coverage of each horizon.
+            if ensure_references(db, [symbol], allow_cached=True):
                 return {"status": "pending"}
             reference = {
                 date.fromisoformat(r["date"]): r["value"]

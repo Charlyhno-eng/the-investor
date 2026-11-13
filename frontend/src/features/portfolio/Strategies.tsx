@@ -65,6 +65,15 @@ export function StrategyWorkspace({
   eligibleAssetIds: string[];
   onImport: () => void;
 }) {
+  const [composerCollapsed, setComposerCollapsed] = useState(() => {
+    try {
+      return (
+        localStorage.getItem("investor-strategy-composer-collapsed") === "true"
+      );
+    } catch {
+      return false;
+    }
+  });
   const [assetId, setAssetId] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const strategy = store.selected;
@@ -100,6 +109,7 @@ export function StrategyWorkspace({
         <>
           <PortfolioPanel
             key={strategy.id}
+            validationAssets={assets}
             title={strategy.name}
             simulation
             positionsHeader={
@@ -107,11 +117,38 @@ export function StrategyWorkspace({
                 <div className="strategy-toolbar">
                   <div className="strategy-toolbar-heading">
                     <div>
-                      <h2>Composer la stratégie</h2>
-                      <p>
-                        Ajoutez les actifs de votre watchlist ou de votre
-                        portfolio, puis ajustez leurs quantités.
-                      </p>
+                      <button
+                        type="button"
+                        className="strategy-composer-toggle"
+                        aria-expanded={!composerCollapsed}
+                        aria-controls="strategy-composer-body"
+                        onClick={() => {
+                          const next = !composerCollapsed;
+                          setComposerCollapsed(next);
+                          try {
+                            localStorage.setItem(
+                              "investor-strategy-composer-collapsed",
+                              String(next),
+                            );
+                          } catch {
+                            /* Keep the toggle usable when storage is unavailable. */
+                          }
+                        }}
+                      >
+                        <Icon
+                          name={
+                            composerCollapsed ? "chevron-down" : "chevron-up"
+                          }
+                          size={16}
+                        />
+                        Composer la stratégie
+                      </button>
+                      {!composerCollapsed && (
+                        <p>
+                          Ajoutez les actifs de votre watchlist ou de votre
+                          portfolio, puis ajustez leurs quantités.
+                        </p>
+                      )}
                     </div>
                     <div className="strategy-management">
                       {confirmDelete === strategy.id ? (
@@ -147,105 +184,110 @@ export function StrategyWorkspace({
                       )}
                     </div>
                   </div>
-                  <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      const id = available.some((a) => a.id === assetId)
-                        ? assetId
-                        : available[0]?.id;
-                      if (id) {
-                        store.update({
-                          ...strategy,
-                          quantities: { ...strategy.quantities, [id]: 0 },
-                        });
-                        setAssetId("");
-                      }
-                    }}
-                  >
-                    <div className="strategy-watchlist-field">
-                      <label htmlFor="strategy-asset">
-                        <Icon name="star" size={14} /> Ajouter un actif{" "}
-                        <span>· Watchlist et portfolio</span>
-                      </label>
-                      <select
-                        id="strategy-asset"
-                        aria-label="Ajouter un actif"
-                        value={
-                          available.some((a) => a.id === assetId)
-                            ? assetId
-                            : (available[0]?.id ?? "")
-                        }
-                        onChange={(e) => setAssetId(e.target.value)}
-                        disabled={!available.length}
-                      >
-                        {!available.length && (
-                          <option value="">
-                            {eligibleAssetIds.length
-                              ? "Tous les actifs sont ajoutés"
-                              : "Aucun actif disponible"}
-                          </option>
-                        )}
-                        {available.map((asset) => (
-                          <option key={asset.id} value={asset.id}>
-                            {asset.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="strategy-add-actions">
-                      <button
-                        className="primary-button"
-                        disabled={!available.length}
-                      >
-                        <Icon name="plus" size={15} /> Ajouter
-                      </button>
-                      <button
-                        className="primary-button"
-                        type="button"
-                        onClick={onImport}
-                      >
-                        <Icon name="plus" size={15} /> Importer un actif
-                      </button>
-                    </div>
-                  </form>
-                  {!available.length && (
-                    <p className="strategy-watchlist-note">
-                      {eligibleAssetIds.length
-                        ? "Tous les actifs de votre watchlist et de votre portfolio sont déjà dans cette stratégie."
-                        : "Votre watchlist et votre portfolio sont vides. Ajoutez-y des actifs depuis la bibliothèque pour les retrouver ici."}
-                    </p>
-                  )}
-                </div>
-                {!!Object.keys(strategy.quantities).length && (
-                  <div
-                    className="strategy-assets"
-                    aria-label="Actifs de la stratégie"
-                  >
-                    {Object.keys(strategy.quantities).map((id) => (
-                      <button
-                        key={id}
-                        title="Retirer de la stratégie"
-                        disabled={strategy.lockedAssetIds.includes(id)}
-                        onClick={() => {
-                          const quantities = { ...strategy.quantities };
-                          delete quantities[id];
+                  <div id="strategy-composer-body" hidden={composerCollapsed}>
+                    <form
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        const id = available.some((a) => a.id === assetId)
+                          ? assetId
+                          : available[0]?.id;
+                        if (id) {
                           store.update({
                             ...strategy,
-                            quantities,
-                            lockedAssetIds: strategy.lockedAssetIds.filter(
-                              (lockedId) => lockedId !== id,
-                            ),
+                            quantities: { ...strategy.quantities, [id]: 0 },
                           });
-                        }}
-                      >
-                        {" "}
-                        {assets.find((a) => a.id === id)?.name ?? id}{" "}
-                        <span aria-hidden="true">×</span>
-                        <span className="sr-only">Retirer de la stratégie</span>
-                      </button>
-                    ))}
+                          setAssetId("");
+                        }
+                      }}
+                    >
+                      <div className="strategy-watchlist-field">
+                        <label htmlFor="strategy-asset">
+                          <Icon name="star" size={14} /> Ajouter un actif{" "}
+                          <span>· Watchlist et portfolio</span>
+                        </label>
+                        <select
+                          id="strategy-asset"
+                          aria-label="Ajouter un actif"
+                          value={
+                            available.some((a) => a.id === assetId)
+                              ? assetId
+                              : (available[0]?.id ?? "")
+                          }
+                          onChange={(e) => setAssetId(e.target.value)}
+                          disabled={!available.length}
+                        >
+                          {!available.length && (
+                            <option value="">
+                              {eligibleAssetIds.length
+                                ? "Tous les actifs sont ajoutés"
+                                : "Aucun actif disponible"}
+                            </option>
+                          )}
+                          {available.map((asset) => (
+                            <option key={asset.id} value={asset.id}>
+                              {asset.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="strategy-add-actions">
+                        <button
+                          className="primary-button"
+                          disabled={!available.length}
+                        >
+                          <Icon name="plus" size={15} /> Ajouter
+                        </button>
+                        <button
+                          className="primary-button"
+                          type="button"
+                          onClick={onImport}
+                        >
+                          <Icon name="plus" size={15} /> Importer un actif
+                        </button>
+                      </div>
+                    </form>
+                    {!available.length && (
+                      <p className="strategy-watchlist-note">
+                        {eligibleAssetIds.length
+                          ? "Tous les actifs de votre watchlist et de votre portfolio sont déjà dans cette stratégie."
+                          : "Votre watchlist et votre portfolio sont vides. Ajoutez-y des actifs depuis la bibliothèque pour les retrouver ici."}
+                      </p>
+                    )}
                   </div>
-                )}
+                </div>
+                {!composerCollapsed &&
+                  !!Object.keys(strategy.quantities).length && (
+                    <div
+                      className="strategy-assets"
+                      aria-label="Actifs de la stratégie"
+                    >
+                      {Object.keys(strategy.quantities).map((id) => (
+                        <button
+                          key={id}
+                          title="Retirer de la stratégie"
+                          disabled={strategy.lockedAssetIds.includes(id)}
+                          onClick={() => {
+                            const quantities = { ...strategy.quantities };
+                            delete quantities[id];
+                            store.update({
+                              ...strategy,
+                              quantities,
+                              lockedAssetIds: strategy.lockedAssetIds.filter(
+                                (lockedId) => lockedId !== id,
+                              ),
+                            });
+                          }}
+                        >
+                          {" "}
+                          {assets.find((a) => a.id === id)?.name ?? id}{" "}
+                          <span aria-hidden="true">×</span>
+                          <span className="sr-only">
+                            Retirer de la stratégie
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
               </>
             }
             assets={assets.filter((a) => a.id in strategy.quantities)}
