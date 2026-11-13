@@ -177,11 +177,13 @@ export function App() {
     <div className="app-shell">
       <header className="app-header">
         <Link to="/" className="brand">
-          <span className="brand-mark">
-            <i />
-            <i />
-            <i />
-          </span>
+          <img
+            className="brand-mark"
+            src="/logo.svg"
+            alt=""
+            width="32"
+            height="32"
+          />
           the investor<span className="brand-period">.</span>
         </Link>
         <div className="header-workspace">

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="320" viewBox="0 0 1280 320" role="img" aria-labelledby="title desc">
+  <title id="title">The Investor</title>
+  <desc id="desc">Logo aux courbes cuivre et bleu glacier. Finance quantitative, décisions éclairées.</desc>
+  <defs>
+    <radialGradient id="halo">
+      <stop stop-color="#edb786" stop-opacity=".07"/>
+      <stop offset="1" stop-color="#edb786" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="line">
+      <stop stop-color="#edb786" stop-opacity="0"/>
+      <stop offset=".5" stop-color="#edb786" stop-opacity=".3"/>
+      <stop offset="1" stop-color="#83b7da" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="320" rx="16" fill="#090b10"/>
+  <ellipse cx="245" cy="160" rx="290" ry="230" fill="url(#halo)"/>
+  <path d="M72 1H1208M72 319H1208" stroke="url(#line)"/>
+  <g transform="translate(142 64) scale(3)">
+  <rect x="2" y="2" width="60" height="60" rx="18" fill="#11151e" stroke="#edb786" stroke-opacity=".18"/>
+  <path d="M16 42C25 42 25 22 34 22S39 33 48 33" fill="none" stroke="#83b7da" stroke-width="5" stroke-linecap="round"/>
+  <path d="M16 32C25 32 25 44 34 44S40 20 48 20" fill="none" stroke="#edb786" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <path d="M395 104V216" stroke="#ffffff" stroke-opacity=".09"/>
+  <text x="456" y="167" fill="#e6e9ef" font-family="Georgia, 'Times New Roman', serif" font-size="76" letter-spacing="-2">The Investor<tspan fill="#edb786">.</tspan></text>
+  <text x="461" y="210" fill="#929bab" font-family="'Segoe UI', Arial, sans-serif" font-size="19" letter-spacing="1">Finance quantitative, décisions éclairées.</text>
+</svg>

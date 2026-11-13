@@ -14,6 +14,7 @@ import { ReversionPanel } from "../reversion/ReversionPanel";
 import { favoriteLabel, type Favorite } from "../../lib/favorites";
 import { MomentumPanel } from "../momentum/MomentumPanel";
 import { PredictionPanel } from "../prediction/PredictionPanel";
+import { EtfCorrelationPanel } from "./EtfCorrelationPanel";
 export function AssetDetail({
   asset,
   assets,
@@ -32,7 +33,12 @@ export function AssetDetail({
     [loading, setLoading] = useState(true);
   const [range, setRange] = useState(5),
     [tab, setTab] = useState<
-      "chart" | "reversion" | "volatility" | "momentum" | "prediction"
+      | "chart"
+      | "reversion"
+      | "volatility"
+      | "correlation"
+      | "momentum"
+      | "prediction"
     >("chart");
   const distributes = asset.category === "stock" || asset.category === "etf";
   useEffect(() => {
@@ -204,11 +210,17 @@ export function AssetDetail({
         )}
         <button
           role="tab"
-          aria-selected={tab === "volatility"}
-          onClick={() => setTab("volatility")}
+          aria-selected={
+            tab === (asset.category === "etf" ? "correlation" : "volatility")
+          }
+          onClick={() =>
+            setTab(asset.category === "etf" ? "correlation" : "volatility")
+          }
         >
           <Icon name="analysis" size={16} />
-          Frontières d’efficience
+          {asset.category === "etf"
+            ? "Corrélations"
+            : "Frontières d’efficience"}
         </button>
       </div>
       {(asset.category === "stock" || asset.category === "crypto") &&
@@ -225,6 +237,9 @@ export function AssetDetail({
           <PredictionPanel key={asset.id} asset={asset} points={points} />
         ))}
       {tab === "volatility" && <VolatilityPanel key={asset.id} asset={asset} />}
+      {tab === "correlation" && asset.category === "etf" && (
+        <EtfCorrelationPanel key={asset.id} asset={asset} assets={assets} />
+      )}
       {["stock", "crypto", "etf"].includes(asset.category) &&
         tab === "momentum" && (
           <MomentumPanel key={asset.id} asset={asset} assets={assets} />

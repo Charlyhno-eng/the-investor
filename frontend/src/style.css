@@ -136,25 +136,11 @@ p {
   margin-left: -10px;
 }
 .brand-mark {
-  display: flex;
-  gap: 3px;
-  align-items: end;
-  height: 24px;
+  display: block;
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
   margin-right: 3px;
-  transform: skew(-15deg);
-}
-.brand-mark i {
-  width: 4px;
-  height: 14px;
-  background: #edb786;
-  border-radius: 1px;
-}
-.brand-mark i:nth-child(2) {
-  height: 23px;
-}
-.brand-mark i:last-child {
-  height: 18px;
-  background: #9d7f68;
 }
 .header-workspace {
   display: flex;
@@ -1965,13 +1951,13 @@ td {
     #b2182b
   );
 }
-.portfolio-panel .correlation-table {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table {
   width: max-content;
   min-width: 100%;
   border-collapse: separate;
   border-spacing: 3px;
 }
-.portfolio-panel .correlation-table td {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table td {
   min-width: 90px;
   height: 76px;
   text-align: center;
@@ -1981,11 +1967,11 @@ td {
   border: none;
   border-radius: 3px;
 }
-.portfolio-panel .correlation-table td:hover {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table td:hover {
   outline: 2px solid #edb786;
   outline-offset: -2px;
 }
-.portfolio-panel .correlation-table th {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table th {
   font-size: 11px;
   font-weight: 500;
   color: #a9b2c1;
@@ -1996,7 +1982,7 @@ td {
   line-height: 1.6;
   padding: 16px 12px;
 }
-.portfolio-panel .correlation-table caption {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table caption {
   padding: 18px 16px;
   font-size: 11px;
   line-height: 1.8;
@@ -2061,7 +2047,7 @@ td {
   outline: none;
   filter: drop-shadow(0 0 5px #edb78699);
 }
-.portfolio-panel .correlation-table tbody th {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table tbody th {
   position: sticky;
   left: 0;
   z-index: 1;
@@ -3161,7 +3147,7 @@ td {
 }
 
 /* Correlation keeps its footprint as the number of assets grows. */
-.portfolio-panel .correlation-viewport {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-viewport {
   width: 100%;
   min-width: 0;
   height: clamp(260px, 42vw, 480px);
@@ -3169,15 +3155,15 @@ td {
   overflow: hidden;
   border-radius: 8px;
 }
-.portfolio-panel .correlation-table {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table {
   width: 100%;
   min-width: 0;
   height: 100%;
   table-layout: fixed;
   border-spacing: 2px;
 }
-.portfolio-panel .correlation-table td,
-.portfolio-panel .correlation-table th {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table td,
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table th {
   min-width: 0;
   max-width: none;
   height: auto;
@@ -3188,11 +3174,11 @@ td {
   line-height: 1.1;
   font-size: inherit;
 }
-.portfolio-panel .correlation-table th {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table th {
   font-weight: 400;
   font-size: 10px;
 }
-.portfolio-panel .correlation-table td {
+:is(.portfolio-panel, .etf-correlation-panel) .correlation-table td {
   font-weight: 500;
 }
 .dense-correlation {
@@ -3733,4 +3719,62 @@ td {
 .watchlist-resistance [aria-pressed="true"] {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+.portfolio-total-toggle {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 6px;
+  color: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  text-align: left;
+}
+.portfolio-total-toggle:not(:disabled):hover {
+  border-color: var(--line);
+}
+.portfolio-total-toggle:disabled {
+  cursor: default;
+  opacity: 1;
+}
+.bank-account-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  margin: 20px 0;
+}
+.bank-account-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bank-account-form input {
+  width: 100%;
+  padding: 10px;
+}
+.bank-account-list {
+  list-style: none;
+  padding: 0;
+}
+.bank-account-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.bank-account-list li > span {
+  flex: 1;
+  min-width: 120px;
+  overflow-wrap: anywhere;
+}
+.bank-account-total {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
 }

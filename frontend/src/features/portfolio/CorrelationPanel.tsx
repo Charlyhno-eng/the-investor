@@ -8,10 +8,12 @@ export function CorrelationPanel({
   correlation,
   years,
   onYearsChange: setYears,
+  caption = "Corrélations des actifs et du S&P 500",
 }: {
   correlation?: PortfolioResult["correlation"];
   years: number;
   onYearsChange: (years: number) => void;
+  caption?: string;
 }) {
   return (
     <>
@@ -21,9 +23,9 @@ export function CorrelationPanel({
             Matrice de corrélation{" "}
             <Tooltip label="Méthode de corrélation">
               Corrélation de Pearson des rendements logarithmiques en USD,
-              dividendes réinvestis pour les actions. Dates communes uniquement,
-              sans remplissage des données manquantes. Les quantités ne
-              modifient pas les coefficients.
+              dividendes réinvestis pour les actions et ETF. Dates communes
+              uniquement, sans remplissage des données manquantes. Les quantités
+              ne modifient pas les coefficients.
               {correlation?.frequency === "monthly" &&
                 " Les séries sont alignées sur les mois terminés."}
               {correlation &&
@@ -34,6 +36,7 @@ export function CorrelationPanel({
         <label className="portfolio-period">
           Période
           <select
+            aria-label="Période de corrélation"
             value={years}
             onChange={(e) => setYears(Number(e.target.value))}
           >
@@ -71,9 +74,7 @@ export function CorrelationPanel({
                   fontSize: `${Math.max(8, 14 - correlation.assets.length / 3)}px`,
                 }}
               >
-                <caption className="sr-only">
-                  Corrélations des actifs et du S&P 500
-                </caption>
+                <caption className="sr-only">{caption}</caption>
                 <thead>
                   <tr>
                     <th>Actif</th>

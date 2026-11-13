@@ -1,3 +1,9 @@
+import { BankAccounts } from "./BankAccounts";
+import {
+  readBankAccounts,
+  bankAccountsKey,
+  type BankAccount,
+} from "./bankAccounts";
 import { PortfolioPrediction } from "./PortfolioPrediction";
 import { PositionsTable } from "./PositionsTable";
 import { CorrelationPanel } from "./CorrelationPanel";
@@ -36,6 +42,25 @@ export function PortfolioPanel({
   recommendationAssets?: Asset[];
 }) {
   const [tab, setTab] = useState("positions");
+  const [bankAccounts, setBankAccounts] = useState(readBankAccounts);
+  const [includeBankAccounts, setIncludeBankAccounts] = useState(false);
+  const [bankError, setBankError] = useState("");
+  const bankTotal = bankAccounts.reduce(
+    (sum, account) => sum + account.balance,
+    0,
+  );
+  function updateBankAccounts(accounts: BankAccount[]) {
+    setBankAccounts(accounts);
+    try {
+      localStorage.setItem(bankAccountsKey, JSON.stringify(accounts));
+      setBankError("");
+    } catch {
+      setBankError(
+        "Les comptes restent disponibles dans cette session, mais leur enregistrement local a échoué.",
+      );
+    }
+  }
+
   const [allocationView, setAllocationView] = useState("assets");
   const [years, setYears] = useState(3);
   const [result, setResult] = useState<Result | null>(null);
@@ -180,10 +205,42 @@ export function PortfolioPanel({
           </div>
           <div className="portfolio-summary">
             <div className="portfolio-total">
-              <span>
-                {simulation ? "Valeur simulée" : "Valeur du Portfolio"}
-              </span>
-              <strong>{result ? money(result.total) : "—"}</strong>
+              <button
+                type="button"
+                className="portfolio-total-toggle"
+                disabled={simulation}
+                aria-pressed={!simulation && includeBankAccounts}
+                title={
+                  simulation
+                    ? undefined
+                    : "Basculer entre investissements seuls et investissements + comptes bancaires"
+                }
+                onClick={() => setIncludeBankAccounts((value) => !value)}
+              >
+                <span>
+                  {simulation
+                    ? "Valeur simulée"
+                    : includeBankAccounts
+                      ? "Patrimoine total"
+                      : "Valeur du Portfolio"}
+                </span>
+                <strong>
+                  {result
+                    ? money(
+                        result.total +
+                          (!simulation && includeBankAccounts ? bankTotal : 0),
+                      )
+                    : "—"}
+                </strong>
+                {!simulation && (
+                  <small>
+                    {includeBankAccounts
+                      ? "Investissements + comptes bancaires"
+                      : "Investissements seuls"}{" "}
+                    · ⇄
+                  </small>
+                )}
+              </button>
             </div>
             <div>
               <span>Actifs détenus</span>
@@ -201,6 +258,9 @@ export function PortfolioPanel({
         >
           {[
             ["positions", "Positions", "layers"],
+            ...(!simulation
+              ? [["bank-accounts", "Comptes bancaires", "layers"]]
+              : []),
             ["prediction", "Prédiction", "analysis"],
             ["performance", "Comparaison & optimisation", "stock"],
             ["correlation", "Corrélations", "analysis"],
@@ -220,26 +280,42 @@ export function PortfolioPanel({
             </button>
           ))}
         </div>
-        {tab !== "recommendations" && tab !== "prediction" && loading && (
-          <p role="status">Actualisation des valeurs du portefeuille…</p>
-        )}
-        {tab !== "recommendations" && tab !== "prediction" && error && (
+        {tab !== "bank-accounts" &&
+          tab !== "recommendations" &&
+          tab !== "prediction" &&
+          loading && (
+            <p role="status">Actualisation des valeurs du portefeuille…</p>
+          )}
+        {tab !== "bank-accounts" &&
+          tab !== "recommendations" &&
+          tab !== "prediction" &&
+          error && (
+            <p className="error" role="alert">
+              {error}{" "}
+              <button
+                className="secondary-button"
+                onClick={() => setRevision((v) => v + 1)}
+              >
+                Réessayer
+              </button>
+            </p>
+          )}
+        {tab !== "bank-accounts" &&
+          tab !== "recommendations" &&
+          !assets.length && (
+            <p>
+              {simulation
+                ? "Ajoutez des actifs à cette stratégie pour commencer."
+                : "Ajoutez une étoile or à vos actifs détenus pour commencer."}
+            </p>
+          )}
+        {!simulation && bankError && (
           <p className="error" role="alert">
-            {error}{" "}
-            <button
-              className="secondary-button"
-              onClick={() => setRevision((v) => v + 1)}
-            >
-              Réessayer
-            </button>
+            {bankError}
           </p>
         )}
-        {tab !== "recommendations" && !assets.length && (
-          <p>
-            {simulation
-              ? "Ajoutez des actifs à cette stratégie pour commencer."
-              : "Ajoutez une étoile or à vos actifs détenus pour commencer."}
-          </p>
+        {tab === "bank-accounts" && !simulation && (
+          <BankAccounts accounts={bankAccounts} onChange={updateBankAccounts} />
         )}
         {tab === "prediction" && (
           <PortfolioPrediction
@@ -353,7 +429,8 @@ export function PortfolioPanel({
             onYearsChange={setYears}
           />
         )}
-        {tab !== "volatility" &&
+        {tab !== "bank-accounts" &&
+          tab !== "volatility" &&
           tab !== "recommendations" &&
           tab !== "prediction" &&
           !!result?.excluded.length && (
