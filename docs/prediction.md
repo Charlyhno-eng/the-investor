@@ -49,3 +49,27 @@ Les trajectoires conservent les étapes propres à chaque actif : jours calendai
 Un historique de moins de 61 observations est inclus dès sa première cotation via un modèle provisoire sans tendance (marche aléatoire logarithmique), avec variance empirique des rendements ramenée au temps calendaire. Une ou deux cotations ne suffisent pas à estimer cette variance : la contribution reste constante et une explication visible signale que son risque n’est pas estimé. Ce modèle provisoire n’est pas un ajustement GARCH. La fiche individuelle conserve son minimum de 61 observations pour GARCH.
 
 Le graphique historique utilise les dates communes uniquement pour afficher une valeur reconstituée, jamais pour ajuster les modèles. Les cours ajustés sont normalisés à la valeur actuelle de chaque quantité ; cette courbe ne représente pas les transactions réelles. Les quantités et le change sont conservés, sans apport, retrait ni rééquilibrage. Les paramètres et dépendances sont estimés puis supposés connus ; la simulation n’intègre pas leur incertitude et sa couverture hors échantillon n’est pas validée.
+
+## Latence du portefeuille
+
+L’historique transmis par l’API est limité aux trois années utilisées par le
+modèle, relativement à la dernière observation propre de chaque actif.
+L’ajustement régression/AR/GARCH est séparé de la simulation : chaque actif
+est ajusté une seule fois ; les quantiles individuels non utilisés ne sont
+plus triés dans la simulation jointe. Les innovations gaussiennes indépendantes
+sont partagées entre actifs par date, trajectoire et composante, sans changer
+les graines, les dépendances ni les 4 096 trajectoires.
+
+Le calcul joint s’exécute dans un Web Worker, préparé dès l’ouverture du
+portefeuille ou de la stratégie. Le graphique n’est monté que lorsque l’onglet
+Prédiction est visible. Un cache mémoire borné à quatre résultats, indexé par
+quantités et révision des données, évite les recalculs lors des retours ;
+l’actualisation des données ou des positions invalide le résultat correspondant.
+Les requêtes et workers obsolètes sont annulés. Le tout premier calcul peut
+encore nécessiter un délai ou attendre un import : aucun résultat fictif
+n’est affiché pour donner l’apparence d’un chargement immédiat.
+
+Mesure locale reproductible (14 cryptos synthétiques, 1 100 observations,
+4 096 trajectoires, Node) : environ 7,8 s avant et 1,6 s après, avec les mêmes
+quantiles terminaux. Ce chiffre mesure le calcul, pas le réseau ni une garantie
+de délai sur tous les appareils.

@@ -7,20 +7,28 @@ import numpy as np
 from investor.assets.momentum import months_before
 
 
-def regression_z(prices, dates, signal):
-    """Fit the last three calendar years through the known signal close only."""
-    lower = bisect_left(dates, months_before(dates[signal], 36))
+def regression_z(prices, dates, signal, *, months=36, min_observations=501):
+    """Fit a calendar window through the known close; default remains three years."""
+    lower = bisect_left(dates, months_before(dates[signal], months))
     x = np.array([(d - dates[lower]).days / 365.25 for d in dates[lower : signal + 1]])
     y = np.log(prices[lower : signal + 1])
-    valid = np.all(np.isfinite(y), axis=0)
-    y = np.where(valid, y, 0.0)
-    if len(x) < 501 or (dates[lower] - months_before(dates[signal], 36)).days > 7:
+    if (
+        len(x) < min_observations
+        or (dates[lower] - months_before(dates[signal], months)).days > 7
+    ):
         return [None] * prices.shape[1]
     centered = x - x.mean()
+    return log_regression_scores(y, centered)
+
+
+def log_regression_scores(y, centered):
+    """Shared OLS arithmetic for raw and calendar-prepared regression windows."""
+    valid = np.all(np.isfinite(y), axis=0)
+    y = np.where(valid, y, 0.0)
     mean = y.mean(axis=0)
     slope = centered @ (y - mean) / (centered @ centered)
     residuals = y - (mean + centered[:, None] * slope)
-    sigma = np.sqrt((residuals**2).sum(axis=0) / (len(x) - 2))
+    sigma = np.sqrt((residuals**2).sum(axis=0) / (len(centered) - 2))
     return [
         float(r / s) if usable and s > 1e-10 * max(1, abs(float(m))) else None
         for r, s, m, usable in zip(residuals[-1], sigma, mean, valid, strict=True)
@@ -41,6 +49,7 @@ def reversion_orders(
     exit_z=1.4,
     funding_min_z=0.0,
     exits=None,
+    entry_allowed=None,
 ):
     """Open meaningful positions, capped at 25%, with one funding holding.
 
@@ -85,6 +94,7 @@ def reversion_orders(
         j
         for j, score in enumerate(z)
         if active[j]
+        and (entry_allowed is None or entry_allowed[j])
         and score is not None
         and values[j] <= 1e-12
         and score <= -entry_z

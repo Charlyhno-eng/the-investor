@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import { App } from "./App";
 import "./style.css";
+import { migrateSp500Storage } from "./lib/sp500Migration";
+migrateSp500Storage();
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>

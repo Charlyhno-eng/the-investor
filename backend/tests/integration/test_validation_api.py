@@ -42,6 +42,16 @@ def test_validation_api_with_fx_and_local_benchmark(client):
     assert result["status"] == "ready", result
     assert result["benchmark_name"].startswith("S&P 500")
     assert result["completed_quarters"] >= 3
+    parity = http.post(
+        "/api/portfolio/validation",
+        json={**payload, "asset_ids": ["a"], "mode": "risk_parity"},
+    )
+    assert parity.status_code == 200, parity.text
+    parity = parity.json()
+    assert parity["status"] == "ready", parity
+    assert parity["holding_months"] == 3
+    for fold in parity["folds"]:
+        assert fold["risk_contributions"] == pytest.approx([1.0], abs=1e-6)
     assert result["assets"] == [{"id": "a", "name": "a"}, {"id": "b", "name": "b"}]
     local = http.post(
         "/api/portfolio/validation", json={**payload, "benchmark_asset_id": "b"}
@@ -154,3 +164,80 @@ def test_mean_reversion_accepts_non_stock_universe(client):
     assert response.status_code == 200
     assert response.json()["status"] == "insufficient"
     assert "trois ans" in response.json()["message"]
+
+
+def test_sp500_strategy_needs_no_cac_or_inverse_etf(client):
+    import math
+
+    http, _ = client
+    start = date.today() - timedelta(days=4 * 366)
+    days = [
+        (start + timedelta(days=i)).isoformat()
+        for i in range(4 * 366 + 1)
+        if (start + timedelta(days=i)).weekday() < 5
+    ]
+    for identifier in ("yf-psp5.pa",):
+        seed(days, identifier, category="etf", unit="EUR")
+    with db.connect() as c:
+        for symbol in (INDEX, "EURUSD=X"):
+            c.execute("DELETE FROM reference_observations WHERE symbol=?", (symbol,))
+            c.execute(
+                "INSERT OR REPLACE INTO reference_imports VALUES (?,strftime('%Y-%m-%dT%H:%M:%SZ','now'))",
+                (symbol,),
+            )
+            c.executemany(
+                "INSERT INTO reference_observations VALUES (?,?,?)",
+                [
+                    (
+                        symbol,
+                        d,
+                        1.2
+                        if symbol == "EURUSD=X"
+                        else 6000
+                        * math.exp(0.0001 * i + (0.2 if i > len(days) - 30 else 0)),
+                    )
+                    for i, d in enumerate(days)
+                ],
+            )
+    response = http.post(
+        "/api/portfolio/validation",
+        json={
+            "asset_ids": ["yf-psp5.pa"],
+            "mode": "etf_switch",
+            "years": 1,
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["status"] == "ready", result
+    assert result["protocol"]["etf_switch"]["signal_asset_id"] == "yf-psp5.pa"
+    policy = result["protocol"]["etf_switch"]
+    assert policy["version"] == "slow_defensive_sharpe_v6"
+    assert policy["sleeves"][0]["initial_state"] == "historical_monthly_signals"
+    assert (
+        policy["sleeves"][0]["initial_state_history"]
+        == "strictly_before_simulation_start"
+    )
+    assert policy["sleeves"][1]["initial_state"] == "defensive"
+    assert policy["sleeves"][0]["reentry_z"] == 0.0
+    assert policy["sleeves"][0]["reentry_comparison"] == "previous_session"
+    assert not policy["transfers_between_sleeves"]
+    assert [s["initial_share"] for s in policy["sleeves"]] == [0.75, 0.25]
+    assert [s["id"] for s in policy["sleeves"]] == ["slow", "defensive"]
+    assert policy["active_initial_share"] == 1
+    assert policy["passive_initial_share"] == 0
+    assert [s["regression_months"] for s in policy["sleeves"][:2]] == [60, 18]
+    assert [s["entry_z"] for s in policy["sleeves"][:2]] == [-2, -0.5]
+    assert result["protocol"]["etf_switch"]["defensive_weight"] == 0.10
+    assert result["protocol"]["signal_frequency"] == "monthly_and_every_5_sessions"
+    assert result["training_years"] == 1.5
+    assert result["parameters"]["benchmark_asset_id"] == "yf-psp5.pa"
+    assert result["transactions"]
+    assert all(t["asset_id"] == "yf-psp5.pa" for t in result["transactions"])
+    with db.connect() as c:
+        assert (
+            c.execute(
+                "SELECT count(*) FROM import_jobs WHERE symbol='^FCHI'"
+            ).fetchone()[0]
+            == 0
+        )

@@ -44,7 +44,8 @@ export function App() {
       });
     return () => controller.abort();
   }, []);
-  const { id, categoryId } = useParams();
+  const { id: requestedId, categoryId } = useParams();
+  const id = requestedId === "yf-ese.pa" ? "yf-psp5.pa" : requestedId;
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const library = searchParams.get("library");
@@ -226,7 +227,9 @@ export function App() {
           >
             <Icon name="analysis" size={21} />
             <span>Stratégie</span>
-            <span className="rail-count">{strategies.strategies.length}</span>
+            <span className="rail-count">
+              {strategies.strategies.length + 1}
+            </span>
           </button>
           <button
             aria-label="Simulation"
@@ -258,9 +261,6 @@ export function App() {
         </nav>
         {category === "simulation" ? (
           <aside className="asset-library simulation-intro">
-            <div className="library-heading">
-              <h2>Scénarios</h2>
-            </div>
             {simulationError && (
               <p role="alert" className="error">
                 {simulationError}
@@ -309,6 +309,7 @@ export function App() {
           )}
           {category === "simulation" ? (
             <SimulationPanel
+              strategies={strategies.strategies}
               key={simulationScenario}
               watchlistIds={visibleAssets
                 .filter((a) => favorites[a.id] === "silver")
@@ -320,7 +321,6 @@ export function App() {
                 .filter((a) => favorites[a.id] === "gold")
                 .map((a) => a.id)}
               quantities={quantities}
-              onImport={() => setAdding(true)}
             />
           ) : category === "strategy" && !selected ? (
             <StrategyWorkspace

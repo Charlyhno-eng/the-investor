@@ -18,14 +18,7 @@ export type ForecastPoint = {
  * Parameters are fitted only up to the final observation. Probabilities are
  * conditional on this fitted model, not empirically calibrated coverage.
  */
-export function predict(
-  points: Point[],
-  crypto: boolean,
-  simulation?: {
-    normal: (time: string, pair: number) => number;
-    observe: (time: string, prices: Float64Array) => void;
-  },
-) {
+export function fitPrediction(points: Point[], crypto: boolean) {
   if (points.length < 61)
     throw new Error(
       "Au moins 61 cours quotidiens sont nécessaires pour estimer la régression et GARCH.",
@@ -82,6 +75,22 @@ export function predict(
     : Math.max(0, Math.min(1, numerator / denominator));
   const innovations = residuals.slice(1).map((u, i) => u - phi * residuals[i]);
   const garch = fitGarch(innovations);
+  return { history, regression, garch, phi, partialHistory, crypto };
+}
+
+export function simulatePrediction(
+  fitted: ReturnType<typeof fitPrediction>,
+  simulation?: {
+    normal: (time: string, pair: number) => number;
+    observe: (time: string, prices: Float64Array) => void;
+  },
+) {
+  const { history, regression, garch, phi, partialHistory, crypto } = fitted;
+  const last = history.at(-1)!;
+  const origin = Date.parse(last.time);
+  const scale = regression.degenerate ? 1 : regression.sigma;
+  const lastResidual =
+    (Math.log(last.value) - Math.log(regression.rows.at(-1)!.trend)) / scale;
   // Seeded antithetic Gaussian paths: stable output and a symmetric log-price distribution.
   let seed = 20261111;
   function normal() {
@@ -109,7 +118,6 @@ export function predict(
   if (!crypto)
     while ([0, 6].includes(end.getUTCDay()))
       end.setUTCDate(end.getUTCDate() - 1);
-  const lastResidual = residuals.at(-1)!;
   const states = new Float64Array(PATHS).fill(lastResidual);
   const variances = new Float64Array(PATHS / 2).fill(garch.nextVariance);
   const forecast: ForecastPoint[] = [
@@ -128,15 +136,22 @@ export function predict(
     const date = new Date(time);
     if (!crypto && [0, 6].includes(date.getUTCDay())) continue;
     step++;
+    const timeKey = date.toISOString().slice(0, 10);
     const trend = lastTrend + (regression.slope * (time - origin)) / DAY / YEAR;
     for (let i = 0; i < PATHS / 2; i++) {
       const shock =
-        Math.sqrt(variances[i]) *
-        (simulation?.normal(date.toISOString().slice(0, 10), i) ?? normal());
+        Math.sqrt(variances[i]) * (simulation?.normal(timeKey, i) ?? normal());
       states[2 * i] = phi * states[2 * i] + shock;
       states[2 * i + 1] = phi * states[2 * i + 1] - shock;
       variances[i] =
         garch.omega + garch.alpha * shock * shock + garch.beta * variances[i];
+    }
+    if (simulation) {
+      simulation.observe(
+        timeKey,
+        Float64Array.from(states, (u) => Math.exp(trend + scale * u)),
+      );
+      continue;
     }
     const sorted = Float64Array.from(states).sort();
     const quantile = (p: number) => {
@@ -150,7 +165,7 @@ export function predict(
       );
     };
     const row = {
-      time: date.toISOString().slice(0, 10),
+      time: timeKey,
       p05: quantile(0.05),
       p25: quantile(0.25),
       p50: Math.exp(trend + scale * phi ** step * lastResidual),
@@ -165,10 +180,6 @@ export function predict(
       throw new Error(
         "Projection hors limites numériques pour cet historique.",
       );
-    simulation?.observe(
-      row.time,
-      Float64Array.from(states, (u) => Math.exp(trend + scale * u)),
-    );
     forecast.push(row);
   }
   return {
@@ -184,4 +195,8 @@ export function predict(
       Math.sqrt(garch.nextVariance) * scale * Math.sqrt(crypto ? YEAR : 252),
     currentZ: regression.rows.at(-1)!.z,
   };
+}
+
+export function predict(points: Point[], crypto: boolean) {
+  return simulatePrediction(fitPrediction(points, crypto));
 }

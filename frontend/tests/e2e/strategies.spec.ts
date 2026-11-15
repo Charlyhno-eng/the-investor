@@ -23,7 +23,11 @@ test("independent strategies persist, switch, remove assets and delete", async (
   await page.reload();
   await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await expect(
-    page.getByText("Créez une stratégie pour simuler", { exact: false }),
+    page.getByRole("heading", {
+      name: "S&P 500 · Régression",
+      exact: true,
+      level: 1,
+    }),
   ).toBeVisible();
   await page
     .getByLabel("Nouvelle stratégie", { exact: true })
@@ -126,10 +130,17 @@ test("independent strategies persist, switch, remove assets and delete", async (
     .getByRole("button", { name: "Confirmer la suppression", exact: true })
     .click();
   await expect(
-    page.getByText("Créez une stratégie pour simuler", { exact: false }),
+    page.getByRole("heading", {
+      name: "S&P 500 · Régression",
+      exact: true,
+      level: 1,
+    }),
   ).toBeVisible();
   await page.reload();
-  await expect(page.locator(".strategy-list button")).toHaveCount(0);
+  await expect(page.locator(".strategy-list button")).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Supprimer la stratégie", exact: true }),
+  ).toHaveCount(0);
 });
 
 test("simulated portfolio sends its own universe to validation", async ({
@@ -277,4 +288,76 @@ test("locked quantities persist and are sent to every simulation", async ({
   await quantity.fill("2");
   await quantity.blur();
   await expect(quantity).toHaveValue("2");
+});
+
+test("built-in S&P strategy stays distinct and personal strategy tabs have unique icons", async ({
+  page,
+}, testInfo) => {
+  await mockApi(page);
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "investor-strategies",
+      JSON.stringify([
+        {
+          id: "personal",
+          name: "Stratégie 1",
+          quantities: {},
+          lockedAssetIds: [],
+        },
+      ]),
+    ),
+  );
+  await page.goto("/markets/strategy");
+  const tabs = page.getByRole("tablist", { name: "Vues du Portfolio" });
+  await expect(
+    tabs.getByRole("tab", { name: "S&P 500 · Régression", exact: true }),
+  ).toHaveCount(0);
+  const icons = await tabs
+    .locator("button svg")
+    .evaluateAll((elements) => elements.map((element) => element.innerHTML));
+  expect(new Set(icons).size).toBe(icons.length);
+  const builtIn = page.locator(".strategy-list .strategy-built-in");
+  await expect(
+    page.getByText("Incluse dans l’application", { exact: true }),
+  ).toHaveCount(0);
+  await builtIn.click();
+  await expect(builtIn).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("heading", { name: "S&P 500 · Régression", level: 1 }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "S&P 500 · Régression", exact: true }),
+  ).toHaveCount(1);
+  await expect(
+    page.getByText("Incluse dans l’application", { exact: true }),
+  ).toHaveCount(0);
+  const panel = page.getByRole("region", {
+    name: "Validation historique",
+    exact: true,
+  });
+  expect(
+    await panel.evaluate(
+      (element) => element.scrollWidth <= element.clientWidth + 1,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: testInfo.outputPath("builtin-sp500.png"),
+    fullPage: true,
+  });
+  await expect(
+    page.getByRole("button", { name: "Supprimer la stratégie", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Composer la stratégie", exact: true }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(builtIn).toBeVisible();
+  await expect(page.locator(".strategy-list button")).toHaveCount(2);
+  await page
+    .locator(".strategy-list")
+    .getByRole("button", { name: /Stratégie 1/ })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Supprimer la stratégie", exact: true }),
+  ).toBeVisible();
 });

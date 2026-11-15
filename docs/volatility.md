@@ -1,7 +1,8 @@
 # Frontière de Markowitz
 
-Les onglets Frontières d’efficience affichent un point par actif et le S&P 500
-en étoile bleue.
+Les onglets Frontières d’efficience affichent un point par actif et le S&P 500 PEA
+(ESE.PA) en étoile bleue, pour les portefeuilles comme pour les stratégies
+et les fiches individuelles.
 Aucun nuage aléatoire, point agrégé du portefeuille, minimum/Sharpe simulé,
 panneau de composition ou sélection d’actifs. Les noms et valeurs apparaissent au survol, au focus clavier ou au toucher.
 Le tableau de détail est replié par défaut. Le graphique est plus haut, sans
@@ -9,8 +10,11 @@ légende ni étiquettes permanentes. Les axes s’ajustent aux données.
 
 ## Données
 
-Historiques ajustés des actions et S&P 500 total return (`^SP500TR`) convertis
-en EUR avant calcul. Change connu à la date du prix, vieux de sept jours au plus.
+Historiques ajustés des actifs et de l’ETF BNP Paribas Easy S&P 500 PEA
+(`yf-ese.pa`, [ESE.PA, ISIN FR0011550185](https://live.euronext.com/fr/product/etfs/FR0011550185-XPAR)) convertis en EUR avant calcul.
+La référence est identique dans tous les écrans de frontière ; aucun indice
+théorique ne la remplace silencieusement. Si ESE manque, il passe par la file
+d’import ; un échec explicite invite à relancer son import. Change connu à la date du prix, vieux de sept jours au plus.
 Prix non interpolés. Dates communes sur 1/3/5/10 ans jusqu’à la dernière date
 commune disponible. Si un actif est mensuel, toutes les séries utilisent le
 dernier prix de chaque mois terminé. Minimum : 21 variations quotidiennes ou
@@ -19,7 +23,7 @@ graphique. Les références manquantes passent par la file d’import existante.
 
 À partir des rendements simples `R[t] = P[t]/P[t-1] - 1`, estimer
 `μ = moyenne(R) × A` et `Σ = covariance(R, ddof=1) × A`, avec A = 252 sur les
-séances communes du S&P 500 et A = 12 en mensuel. Chaque actif est placé en
+séances communes de l’ETF ESE et A = 12 en mensuel. Chaque actif est placé en
 `(sqrt(Σ[i,i]), μ[i])`, en pourcentage. Le rendement moyen historique estime
 le rendement attendu : il ne s’agit ni d’un CAGR ni d’une prévision.
 
@@ -39,11 +43,17 @@ La branche supérieure efficiente est en trait plein. La branche inférieure
 global, est en pointillés. Les échantillons sont reliés sans marqueurs.
 
 Dans le portefeuille, l’univers optimisé contient uniquement les actifs détenus
-valorisables. Le S&P 500 est un comparatif extérieur. Sur une fiche individuelle,
-l’univers contient l’actif et le S&P 500. Un portefeuille à un seul actif n’a
+valorisables. L’ETF ESE est un comparatif extérieur. Sur une fiche individuelle,
+l’univers contient l’actif et l’ETF ESE. Un portefeuille à un seul actif n’a
 pas de courbe de diversification. Avec des rendements égaux, l’ensemble efficient
 se réduit au minimum de variance. Avec des rendements proches, la courbe peut
-être presque horizontale ; sa forme dépend des données.
+être presque horizontale ; sa forme dépend des données et des actifs
+investissables. Une référence commune ne rend pas identiques les frontières
+de portefeuilles différents. Les périodes de données communes peuvent aussi
+différer selon les dates de cotation de chaque actif.
+
+Cette modification concerne les frontières d’efficience ; les comparateurs
+des validations historiques conservent leur protocole documenté.
 
 ## Références et vérification
 

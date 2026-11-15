@@ -1,15 +1,36 @@
 """Portfolio analytics endpoints."""
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
+from fastapi.responses import StreamingResponse
 
 from investor.portfolio.performance import PerformanceRequest, portfolio_performance
 from investor.portfolio.prediction import prediction_history
 from investor.portfolio.regression import RegressionRequest, regression_deviations
 from investor.portfolio.service import PortfolioRequest, portfolio
+from investor.portfolio.sp500_simulation import (
+    Sp500BatchRequest,
+    Sp500SimulationRequest,
+    sp500_simulation,
+    stream_sp500_batch,
+)
 from investor.portfolio.validation import ValidationRequest, portfolio_validation
 from investor.portfolio.volatility import asset_volatility, portfolio_volatility
 
 router = APIRouter(prefix="/api", tags=["portfolio"])
+
+
+@router.post("/portfolio/sp500-simulation/batch")
+async def simulate_sp500_batch(payload: Sp500BatchRequest, request: Request):
+    return StreamingResponse(
+        stream_sp500_batch(payload, request.is_disconnected),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/portfolio/sp500-simulation")
+def simulate_sp500(request: Sp500SimulationRequest):
+    return sp500_simulation(request)
 
 
 @router.post("/portfolio/validation")

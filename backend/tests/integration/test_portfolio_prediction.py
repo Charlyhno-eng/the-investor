@@ -63,3 +63,20 @@ def test_native_currency_history_is_not_fx_transformed(client):
             ).fetchone()[0]
             == 0
         )
+
+
+def test_prediction_loads_only_model_window(client):
+    from datetime import date, timedelta
+
+    from investor.assets.momentum import months_before
+
+    api, _ = client
+    today = date.today()
+    days = [(today - timedelta(days=i)).isoformat() for i in range(6 * 366, -1, -1)]
+    seed(days, "long", category="crypto")
+    data = request(api, ("long", 1)).json()
+    assert data["status"] == "ready"
+    points = data["series"][0]["points"]
+    assert points[0]["time"] == months_before(today, 36).isoformat()
+    assert points[-1]["time"] == today.isoformat()
+    assert len(points) < 1100

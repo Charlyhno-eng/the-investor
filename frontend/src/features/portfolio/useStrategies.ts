@@ -7,6 +7,12 @@ type Strategy = {
   quantities: Quantities;
   lockedAssetIds: string[];
 };
+export const sp500Strategy: Strategy = {
+  id: "builtin-sp500-regression",
+  name: "S&P 500 · Régression",
+  quantities: {},
+  lockedAssetIds: [],
+};
 const storageKey = "investor-strategies";
 function readStrategies(): Strategy[] {
   try {
@@ -16,6 +22,7 @@ function readStrategies(): Strategy[] {
       if (
         !item ||
         typeof item.id !== "string" ||
+        item.id === sp500Strategy.id ||
         typeof item.name !== "string" ||
         !item.quantities ||
         typeof item.quantities !== "object" ||
@@ -53,7 +60,12 @@ export function useStrategies() {
   const [strategies, setStrategies] = useState(readStrategies);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const selected = strategies.find((s) => s.id === selectedId) ?? strategies[0];
+  const selected =
+    selectedId === sp500Strategy.id
+      ? sp500Strategy
+      : (strategies.find((s) => s.id === selectedId) ??
+        strategies[0] ??
+        sp500Strategy);
   function save(next: Strategy[]) {
     setStrategies(next);
     try {
@@ -66,6 +78,7 @@ export function useStrategies() {
     }
   }
   function update(strategy: Strategy) {
+    if (strategy.id === sp500Strategy.id) return;
     save(strategies.map((s) => (s.id === strategy.id ? strategy : s)));
   }
   function create(name: string) {
@@ -86,7 +99,9 @@ export function useStrategies() {
     error,
     create,
     update,
-    remove: (id: string) => save(strategies.filter((s) => s.id !== id)),
+    remove: (id: string) => {
+      if (id !== sp500Strategy.id) save(strategies.filter((s) => s.id !== id));
+    },
   };
 }
 export type StrategyStore = ReturnType<typeof useStrategies>;

@@ -30,7 +30,7 @@ function model(rates = false, portfolio = false): RiskResult {
       : []),
     {
       id: "sp500",
-      name: "S&P 500",
+      name: "S&P 500 PEA · PSP5",
       kind: "benchmark",
       return: 19.4,
       volatility: 16.6,
@@ -95,7 +95,7 @@ async function assertCleanChart(page: Page, count: number) {
     page.locator(".risk-map-legend, .risk-point-label, .risk-marker line"),
   ).toHaveCount(0);
   await expect(page.getByText("Stockage local")).toHaveCount(0);
-  await expect(page.locator(".risk-table")).toContainText("S&P 500");
+  await expect(page.locator(".risk-table")).toContainText("S&P 500 PEA · PSP5");
   await expect(
     page.locator(".risk-readout, .risk-scale, .vol-selection, .vol-note"),
   ).toHaveCount(0);

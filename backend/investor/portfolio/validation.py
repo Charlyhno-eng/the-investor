@@ -11,8 +11,12 @@ from pydantic import BaseModel, Field, model_validator
 
 from investor.assets.momentum import months_before
 from investor.db import connect
+from investor.portfolio import etf_switch
 from investor.portfolio.performance import optimize_weights
+from investor.portfolio.research import residual_diagnostics, shrunk_covariance
 from investor.portfolio.reversion import regression_z, reversion_exits, reversion_orders
+from investor.portfolio.risk_parity import risk_contributions as measured_risk
+from investor.portfolio.risk_parity import risk_parity_weights
 from investor.portfolio.statistics import curve_metrics, factor_regression
 from investor.portfolio.validation_history import align, history_notices, maturities
 from investor.portfolio.volatility import load_histories, observations
@@ -20,7 +24,9 @@ from investor.portfolio.volatility import load_histories, observations
 
 class ValidationRequest(BaseModel):
     asset_ids: list[str] = Field(min_length=1, max_length=20)
-    mode: Literal["volatility", "mean_reversion", "correlation"] = "volatility"
+    mode: Literal[
+        "volatility", "mean_reversion", "correlation", "risk_parity", "etf_switch"
+    ] = "volatility"
     years: Literal[1, 3, 5, 10] = 5
     fee_rate: float = Field(default=0.005, ge=0, le=0.1, allow_inf_nan=False)
     initial_capital: float = Field(default=10000, ge=1, le=1e12, allow_inf_nan=False)
@@ -33,6 +39,14 @@ class ValidationRequest(BaseModel):
         default=0.5, ge=0.1, le=2, allow_inf_nan=False
     )
     reversion_funding_min_z: float = Field(default=0, ge=0, le=2, allow_inf_nan=False)
+    rebalance_tolerance: float = Field(default=0, ge=0, le=0.1, allow_inf_nan=False)
+    risk_rebalance_tolerance: float = Field(
+        default=0, ge=0, le=0.1, allow_inf_nan=False
+    )
+    execution_delay: int = Field(default=1, ge=1, le=2)
+    spread_bps: float = Field(default=0, ge=0, le=100, allow_inf_nan=False)
+    regularize_covariance: bool = False
+    reversion_quality_filter: bool = False
     start_date: date | None = None
     end_date: date | None = None
 
@@ -40,6 +54,16 @@ class ValidationRequest(BaseModel):
     def chronological_dates(self):
         if self.start_date and self.end_date and self.start_date >= self.end_date:
             raise ValueError("La date de début doit précéder la date de fin.")
+        if self.mode == "etf_switch":
+            if "fee_rate" not in self.model_fields_set:
+                self.fee_rate = 0.0012
+            if self.asset_ids != ["yf-psp5.pa"]:
+                raise ValueError("La stratégie S&P 500 exige uniquement PSP5.PA.")
+            if self.benchmark_asset_id not in (None, "yf-psp5.pa"):
+                raise ValueError("La référence de cette stratégie est PSP5.PA.")
+            self.benchmark_asset_id = "yf-psp5.pa"
+            if self.execution_delay != 1:
+                raise ValueError("La bascule ETF s’exécute à la clôture suivante.")
         return self
 
 
@@ -89,6 +113,11 @@ def validation_data(
     benchmark_asset=None,
 ):
     """Pure engine: only training slices ever reach the allocation optimizer."""
+    # Half-spread charged on each traded notional, separately disclosed.
+    commission_rate = request.fee_rate
+    request = request.model_copy(
+        update={"fee_rate": request.fee_rate + request.spread_bps / 20000}
+    )
     assets = [dict(a) for a in assets]
     if not benchmark:
         return {
@@ -130,15 +159,24 @@ def validation_data(
     if len(days) < 2:
         return {"status": "insufficient", "message": "Pas assez de dates communes."}
     dates = [date.fromisoformat(d) for d in days]
-    earliest = months_before(dates[0], -36)
+    training_months = (
+        etf_switch.REGRESSION_MONTHS if request.mode == "etf_switch" else 36
+    )
+    min_observations = (
+        etf_switch.MIN_OBSERVATIONS if request.mode == "etf_switch" else 501
+    )
+    training_duration = (
+        f"{training_months} mois" if request.mode == "etf_switch" else "trois ans"
+    )
+    earliest = months_before(dates[0], -training_months)
     requested = request.start_date or months_before(dates[-1], request.years * 12)
     first = bisect_left(dates, max(earliest, requested))
     if first + 2 >= len(days):
         return {
             "status": "insufficient",
-            "message": "Il faut trois ans d’apprentissage puis une période de validation pour au moins un actif.",
+            "message": f"Il faut {training_duration} d’apprentissage puis une période de validation pour au moins un actif.",
         }
-    used_start = months_before(dates[first], 36).isoformat()
+    used_start = months_before(dates[first], training_months).isoformat()
     for a, h in zip(
         [*assets, {"frequency": "daily"}], [*histories, benchmark], strict=True
     ):
@@ -188,7 +226,9 @@ def validation_data(
             for a in assets
         ]
     )
-    matured = maturities(histories, days)
+    matured = maturities(
+        histories, days, months=training_months, min_observations=min_observations
+    )
     scale = request.initial_capital / 100
     instruments = [
         *[dict(a) for a in assets],
@@ -237,8 +277,12 @@ def validation_data(
             break
         signals.append(i)
         quarter += 1
-    events = {i + 1: i for i in signals}
-    keys = ("strategy", "equal", "buy_hold", "benchmark")
+    events = {
+        i + request.execution_delay: i
+        for i in signals
+        if i + request.execution_delay < len(days)
+    }
+    keys = ("strategy", "equal", "eligible_equal", "buy_hold", "benchmark")
     count = len(assets)
     books = {key: (np.zeros(1 if key == "benchmark" else count), 100.0) for key in keys}
     costs = dict.fromkeys(keys, 0.0)
@@ -246,20 +290,46 @@ def validation_data(
     initial_turnover = dict.fromkeys(keys, 0.0)
     exposed_capital_days = dict.fromkeys(keys, 0.0)
     equity, folds, active = [], [], None
+    snapshots = {}
     transactions = []
+    position_traces = []
     cost_basis = np.zeros(count)
     received_dividends = np.zeros(count)
     strategy_entered = False
     reversion_peaks = np.full(count, np.nan)
     passive_entered = np.zeros(count, dtype=bool)
     buy_hold_entered = np.zeros(count, dtype=bool)
+    # Independent initial budgets drift without transfers or weight resets.
+    etf_values = np.zeros(len(etf_switch.SLEEVE_NAMES))
+    etf_cash = 100 * np.array(etf_switch.INITIAL_SHARES)
+    etf_risk_on = [False] * len(etf_switch.SLEEVE_NAMES)
+    if request.mode == "etf_switch":
+        etf_risk_on[0] = etf_switch.initial_slow_state(
+            dates,
+            first,
+            lambda signal: regression_z(
+                signal_prices[:, :1],
+                dates,
+                signal,
+                months=etf_switch.SLOW_REGRESSION_MONTHS,
+                min_observations=etf_switch.SLOW_MIN_OBSERVATIONS,
+            )[0],
+        )
+    etf_last_target = [None] * len(etf_switch.SLEEVE_NAMES)
 
-    def record_trades(before, after, execution, signal, scores=None, reasons=None):
+    def record_trades(
+        before, after, execution, signal, scores=None, reasons=None, sleeve=None
+    ):
         delta = after - before
         trade_cash = float(books["strategy"][1] * scale)
         portfolio_before = float(before.sum() * scale + trade_cash)
         if scores is None and np.any(np.abs(delta) > 1e-9):
             scores = regression_z(signal_prices, dates, signal)
+        diagnostics = (
+            residual_diagnostics(signal_prices, dates, signal)
+            if request.mode == "mean_reversion" and np.any(np.abs(delta) > 1e-9)
+            else None
+        )
         # Sales precede purchases, matching the self-financing rebalance.
         for j in np.argsort(delta):
             amount = float(abs(delta[j]))
@@ -284,7 +354,22 @@ def validation_data(
             transactions.append(
                 {
                     "reason": reasons[j] if reasons is not None else "rebalance",
+                    "sleeve": sleeve,
                     "profit_return": profit_return,
+                    "residual_diagnostics": (
+                        {
+                            k: (
+                                bool(v[j])
+                                if k == "allowed"
+                                else float(v[j])
+                                if np.isfinite(v[j])
+                                else None
+                            )
+                            for k, v in diagnostics.items()
+                        }
+                        if diagnostics is not None
+                        else None
+                    ),
                     "asset_id": assets[j]["id"],
                     "name": assets[j]["name"],
                     "signal": days[signal],
@@ -298,6 +383,10 @@ def validation_data(
                     "price": float(execution_prices[execution, j]),
                     "amount": amount * scale,
                     "fee": amount * request.fee_rate * scale,
+                    "commission": amount * commission_rate * scale,
+                    "spread_cost": amount
+                    * (request.fee_rate - commission_rate)
+                    * scale,
                     "cash_before": cash_before,
                     "cash_after": trade_cash,
                     "portfolio_before": portfolio_before,
@@ -308,9 +397,19 @@ def validation_data(
     def wealths():
         return {key: float(v.sum() + cash) for key, (v, cash) in books.items()}
 
+    risk_covariance = None
+
+    def actual_risk():
+        if risk_covariance is None:
+            return None
+        result = measured_risk(books["strategy"][0], risk_covariance)
+        return result.tolist() if result is not None else None
+
     def finish(end, complete):
         if active is None:
             return
+        if risk_covariance is not None:
+            active["risk_contributions_end"] = actual_risk()
         active["end"] = end
         active["complete"] = complete
         active["returns"] = {
@@ -350,22 +449,32 @@ def validation_data(
                 if key == "strategy":
                     received_dividends += payout * scale
         if i in events:
+            signal_values, signal_cash = snapshots[events[i]]
+            signal_total = float(signal_values.sum() + signal_cash)
+            current = (
+                signal_values / signal_total
+                if signal_values.sum() > 0
+                else np.full(count, 1 / count)
+            )
             finish(days[i], True)  # End the preceding holding period BEFORE trading.
             signal = events[i]
-            lower = bisect_left(dates, months_before(dates[signal], 36))
+            lower = bisect_left(dates, months_before(dates[signal], training_months))
             if (
-                signal - lower < 500
-                or (dates[lower] - months_before(dates[signal], 36)).days > 7
+                signal - lower < min_observations - 1
+                or (dates[lower] - months_before(dates[signal], training_months)).days
+                > 7
             ):
                 return {
                     "status": "insufficient",
-                    "message": f"Trois ans et au moins 500 variations communes sont nécessaires au {days[signal]}.",
+                    "message": f"{training_months} mois et au moins {min_observations - 1} variations communes sont nécessaires au {days[signal]}.",
                 }
             training = prices[lower + 1 : signal + 1] / prices[lower:signal] - 1
             eligible = matured[signal] & tradable[signal] & tradable[i]
+            if request.mode == "etf_switch":
+                eligible = tradable[signal] & tradable[i] & matured[signal, 0]
             try:
                 target = np.zeros(count)
-                if request.mode == "mean_reversion":
+                if request.mode in ("mean_reversion", "etf_switch"):
                     target = signal_values / signal_total
                 elif np.any(eligible):
                     subset = current[eligible]
@@ -374,18 +483,42 @@ def validation_data(
                         if subset.sum() > 0
                         else np.full(eligible.sum(), 1 / eligible.sum())
                     )
-                    target[eligible] = optimize_weights(
-                        training[:, :-1][:, eligible],
-                        subset,
-                        request.mode,
-                        elapsed_years=(dates[signal] - dates[lower]).days / 365.25,
+                    target[eligible] = (
+                        risk_parity_weights(training[:, :-1][:, eligible])
+                        if request.mode == "risk_parity"
+                        else optimize_weights(
+                            training[:, :-1][:, eligible],
+                            subset,
+                            request.mode,
+                            continuous_correlation=request.mode == "correlation",
+                            elapsed_years=(dates[signal] - dates[lower]).days / 365.25,
+                            covariance_override=(
+                                shrunk_covariance(training[:, :-1][:, eligible])
+                                if request.regularize_covariance
+                                and request.mode == "volatility"
+                                else None
+                            ),
+                        )
                     )
             except HTTPException as error:
                 return {
                     "status": "insufficient",
                     "message": f"Validation interrompue au {days[signal]} : {error.detail} Aucun trimestre n’est ignoré.",
                 }
+            risk_contributions = None
+            if request.mode == "risk_parity" and np.any(eligible):
+                covariance = np.atleast_2d(
+                    np.cov(training[:, :-1][:, eligible], rowvar=False, ddof=1)
+                )
+                weights = target[eligible]
+                contributions = weights * (covariance @ weights)
+                full = np.zeros(count)
+                full[eligible] = contributions / contributions.sum()
+                risk_contributions = full.tolist()
+                risk_covariance = np.zeros((count, count))
+                risk_covariance[np.ix_(eligible, eligible)] = covariance
             active = {
+                "risk_contributions": risk_contributions,
                 "signal": days[signal],
                 "execution": days[i],
                 "train_start": days[lower],
@@ -404,7 +537,10 @@ def validation_data(
                 "turnover": {},
             }
             for key in keys:
-                if key == "strategy" and request.mode == "mean_reversion":
+                if key == "strategy" and request.mode in (
+                    "mean_reversion",
+                    "etf_switch",
+                ):
                     active["costs"][key] = active["turnover"][key] = 0.0
                     continue
                 if key == "buy_hold" or (key == "benchmark" and len(folds) > 0):
@@ -415,8 +551,45 @@ def validation_data(
                     if key == "strategy"
                     else np.ones(1)
                     if key == "benchmark"
+                    else eligible.astype(float) / max(1, int(eligible.sum()))
+                    if key == "eligible_equal"
                     else (tradable[signal] & tradable[i]).astype(float) / count
                 )
+                if key == "strategy" and (
+                    request.rebalance_tolerance > 0
+                    or (
+                        request.mode == "risk_parity"
+                        and request.risk_rebalance_tolerance > 0
+                    )
+                ):
+                    drift = np.max(np.abs(target - signal_values / signal_total))
+                    cash_drift = abs(1 - target.sum() - signal_cash / signal_total)
+                    weight_ok = (
+                        request.rebalance_tolerance == 0
+                        or max(drift, cash_drift) <= request.rebalance_tolerance
+                    )
+                    risk_ok = True
+                    if (
+                        request.mode == "risk_parity"
+                        and request.risk_rebalance_tolerance > 0
+                    ):
+                        actual = (
+                            measured_risk(signal_values, risk_covariance)
+                            if risk_covariance is not None
+                            else None
+                        )
+                        risk_ok = (
+                            actual is not None
+                            and risk_contributions is not None
+                            and np.max(np.abs(actual - np.array(risk_contributions)))
+                            <= request.risk_rebalance_tolerance
+                            and cash_drift <= 0.03
+                        )
+                    if signal_values.sum() > 0 and weight_ok and risk_ok:
+                        active["costs"][key] = active["turnover"][key] = 0.0
+                        active["rebalance_skipped"] = True
+                        active["risk_contributions_execution"] = actual_risk()
+                        continue
                 values, remaining, cost, turnover = rebalance(
                     *books[key], weights, request.fee_rate
                 )
@@ -446,6 +619,8 @@ def validation_data(
                 if key == "strategy":
                     record_trades(books[key][0], values, i, signal)
                 books[key] = values, remaining
+                if key == "strategy" and risk_covariance is not None:
+                    active["risk_contributions_execution"] = actual_risk()
                 costs[key] += cost
                 if not folds:
                     initial_turnover[key] += turnover
@@ -470,8 +645,8 @@ def validation_data(
                     active["costs"]["buy_hold"] += amount * request.fee_rate
                     active["turnover"]["buy_hold"] += amount / 100
             books["buy_hold"] = values, cash
-        if request.mode == "mean_reversion" and i > first:
-            scores = regression_z(signal_prices, dates, i - 1)
+        if request.mode == "mean_reversion" and i >= first + request.execution_delay:
+            scores = regression_z(signal_prices, dates, i - request.execution_delay)
             before, cash = books["strategy"]
             values = before.copy()
             for j in np.flatnonzero(
@@ -490,7 +665,7 @@ def validation_data(
                 if not passive[j]
                 and tradable[i - 1, j]
                 and tradable[i, j]
-                and matured[i - 1, j]
+                and matured[i - request.execution_delay, j]
                 else None
                 for j, score in enumerate(scores)
             ]
@@ -515,6 +690,13 @@ def validation_data(
                 exit_z=request.reversion_exit_z,
                 funding_min_z=request.reversion_funding_min_z,
                 exits=exits,
+                entry_allowed=(
+                    residual_diagnostics(
+                        signal_prices, dates, i - request.execution_delay
+                    )["allowed"]
+                    if request.reversion_quality_filter
+                    else None
+                ),
             )
             for j in range(count):
                 if values[j] <= 1e-12:
@@ -537,7 +719,9 @@ def validation_data(
                 else "funding"
                 for j in range(count)
             ]
-            record_trades(before, values, i, i - 1, scores, reasons)
+            record_trades(
+                before, values, i, i - request.execution_delay, scores, reasons
+            )
             books["strategy"] = values, remaining_cash + reserved
             costs["strategy"] += cost
             if volume > 1e-9 and not strategy_entered:
@@ -548,6 +732,106 @@ def validation_data(
             if active is not None:
                 active["costs"]["strategy"] += cost
                 active["turnover"]["strategy"] += turn
+        if request.mode == "etf_switch" and i > first:
+            # Mirror the consolidated book's prices and cash distributions.
+            etf_cash += etf_values * distributions[i, 0] / execution_prices[i - 1, 0]
+            etf_values *= raw_growth[0] if whole[0] else growth[0]
+            signal = i - 1
+            scheduled = (
+                days[signal][:7] != days[signal - 1][:7],
+                (signal - first) % etf_switch.DECISION_SESSIONS == 0,
+            )
+            plans = []
+            if np.all(tradable[signal] & tradable[i]):
+                for sleeve in range(len(etf_switch.SLEEVE_NAMES)):
+                    if not matured[signal, 0]:
+                        continue
+                    if not scheduled[sleeve] and etf_last_target[sleeve] is not None:
+                        continue
+                    score = None
+                    desired = etf_risk_on[sleeve]
+                    if scheduled[sleeve]:
+                        kwargs = {
+                            "months": etf_switch.SLOW_REGRESSION_MONTHS
+                            if sleeve == 0
+                            else etf_switch.REGRESSION_MONTHS,
+                            "min_observations": etf_switch.SLOW_MIN_OBSERVATIONS
+                            if sleeve == 0
+                            else etf_switch.MIN_OBSERVATIONS,
+                        }
+                        score = regression_z(
+                            signal_prices[:, :1], dates, signal, **kwargs
+                        )[0]
+                        previous_score = regression_z(
+                            signal_prices[:, :1], dates, signal - 1, **kwargs
+                        )[0]
+                        if sleeve == 0:
+                            desired = etf_switch.slow_target(
+                                score, previous_score, desired
+                            )
+                        else:
+                            desired = etf_switch.defensive_target(
+                                score, previous_score, desired
+                            )
+                    weight = 1.0 if desired else etf_switch.DEFENSIVE_WEIGHT
+                    etf_risk_on[sleeve] = desired
+                    if etf_last_target[sleeve] == weight:
+                        continue
+                    old = float(etf_values[sleeve])
+                    capital = float(old + etf_cash[sleeve])
+                    values, _, _, _ = rebalance(
+                        np.array([old]),
+                        float(etf_cash[sleeve]),
+                        np.array([weight]),
+                        request.fee_rate,
+                    )
+                    if whole[0]:
+                        unit = execution_prices[i, 0] / scale
+                        values[0] = np.floor(values[0] / unit + 1e-10) * unit
+                    delta = float(values[0] - old)
+                    cost = abs(delta) * request.fee_rate
+                    remaining = max(0.0, capital - values[0] - cost)
+                    plans.append((delta, sleeve, values[0], remaining, cost, score))
+                    etf_last_target[sleeve] = weight
+                # Record real sleeve orders, including offsetting trades and fees.
+                # Sales precede buys in the consolidated cash/cost-basis ledger.
+                initial_allocation = not strategy_entered
+                allocation_capital = float(
+                    books["strategy"][0].sum() + books["strategy"][1]
+                )
+                for delta, sleeve, value, remaining, cost, score in sorted(plans):
+                    before, cash = books["strategy"]
+                    after = before + delta
+                    name = etf_switch.SLEEVE_NAMES[sleeve]
+                    reason = (
+                        (
+                            "etf_slow_entry_sp500"
+                            if etf_risk_on[sleeve]
+                            else "etf_slow_defensive_sp500"
+                        )
+                        if sleeve == 0
+                        else (
+                            "etf_rebound_sp500"
+                            if etf_risk_on[sleeve]
+                            else "etf_defensive_sp500"
+                        )
+                    )
+                    record_trades(
+                        before, after, i, signal, [score], [reason], sleeve=name
+                    )
+                    etf_values[sleeve], etf_cash[sleeve] = value, remaining
+                    books["strategy"] = after, cash - delta - cost
+                    costs["strategy"] += cost
+                    turn = abs(delta) / allocation_capital
+                    if abs(delta) > 1e-9 and initial_allocation:
+                        initial_turnover["strategy"] += turn
+                        strategy_entered = True
+                    else:
+                        turnovers["strategy"] += turn
+                    if active is not None:
+                        active["costs"]["strategy"] += cost
+                        active["turnover"]["strategy"] += turn
+        snapshots[i] = (books["strategy"][0].copy(), books["strategy"][1])
         equity.append({"time": days[i], **wealths()})
     finish(days[-1], False)
     elapsed = (dates[-1] - dates[first]).days / 365.25
@@ -572,6 +856,15 @@ def validation_data(
             ),
             "cost_base_100": costs[key],
             "cost_eur": costs[key] * scale,
+            "commission_eur": costs[key] * scale * commission_rate / request.fee_rate
+            if request.fee_rate
+            else 0,
+            "spread_cost_eur": costs[key]
+            * scale
+            * (request.fee_rate - commission_rate)
+            / request.fee_rate
+            if request.fee_rate
+            else 0,
             "market_exposure": exposed_capital_days[key]
             / (dates[-1] - dates[first + 1]).days,
             "annual_turnover": turnovers[key] / elapsed,
@@ -582,27 +875,57 @@ def validation_data(
             ),
             "worst_quarter": min((f["returns"][key] for f in completed), default=None),
         }
+    diagnostics = []
+    if request.mode == "mean_reversion":
+        diagnostic = residual_diagnostics(signal_prices, dates, len(days) - 1)
+        scores = regression_z(signal_prices, dates, len(days) - 1)
+        for j, asset in enumerate(assets):
+            diagnostics.append(
+                {
+                    "id": asset["id"],
+                    "name": asset["name"],
+                    "z": scores[j],
+                    **{
+                        k: float(v[j]) if np.isfinite(v[j]) else None
+                        for k, v in diagnostic.items()
+                        if k != "allowed"
+                    },
+                }
+            )
     return {
         "status": "ready",
+        "diagnostics": diagnostics,
+        "position_traces": position_traces,
         "start": days[first],
         "end": days[-1],
         "requested_start": requested.isoformat(),
-        "training_years": 3,
-        "holding_months": None if request.mode == "mean_reversion" else 3,
+        "training_years": training_months / 12,
+        "holding_months": None
+        if request.mode in ("mean_reversion", "etf_switch")
+        else 3,
         "reporting_months": 3,
-        "fee_rate": request.fee_rate,
-        "parameters": request.model_dump(mode="json"),
+        "fee_rate": commission_rate,
+        "spread_bps": request.spread_bps,
+        "parameters": {**request.model_dump(mode="json"), "fee_rate": commission_rate},
         "protocol": {
-            "execution": "next_common_close",
+            "execution": f"common_close_t_plus_{request.execution_delay}",
+            "spread_bps": request.spread_bps,
             "annualization": 252,
             "survivorship_and_selection_bias": True,
             "cash_return": 0,
             "exposure_basis": "invested_capital_calendar_time_after_first_execution",
             "whole_shares": request.whole_shares,
             "dividends_paid_as_cash": bool(np.any(whole)),
-            "signal_frequency": "daily"
-            if request.mode == "mean_reversion"
-            else "quarterly",
+            "etf_switch": etf_switch.protocol()
+            if request.mode == "etf_switch"
+            else None,
+            "signal_frequency": (
+                "monthly_and_every_5_sessions"
+                if request.mode == "etf_switch"
+                else "daily"
+                if request.mode == "mean_reversion"
+                else "quarterly"
+            ),
             "reversion_sizing": "capped_entry_single_highest_z_funding_sale"
             if request.mode == "mean_reversion"
             else None,
@@ -637,6 +960,18 @@ def validation_data(
             "initial_capital": request.initial_capital,
             "total": wealths()["strategy"] * scale,
             "cash": books["strategy"][1] * scale,
+            "sleeves": [
+                {
+                    "id": name,
+                    "value": float(etf_values[j] * scale),
+                    "cash": float(etf_cash[j] * scale),
+                    "risk_on": bool(etf_risk_on[j]),
+                    "quantity": float(etf_values[j] * scale / execution_prices[-1, 0]),
+                }
+                for j, name in enumerate(etf_switch.SLEEVE_NAMES)
+            ]
+            if request.mode == "etf_switch"
+            else None,
             "positions": [
                 {
                     "id": a["id"],

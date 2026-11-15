@@ -34,7 +34,8 @@ def run(data, **kwargs):
     return validation_data(*data, ValidationRequest(asset_ids=["a", "b"], **kwargs))
 
 
-def test_future_prices_cannot_change_past_decisions_or_equity(monkeypatch):
+@pytest.mark.parametrize("mode", ["volatility", "risk_parity"])
+def test_future_prices_cannot_change_past_decisions_or_equity(monkeypatch, mode):
     data = sample()
     calls = []
     real = engine.optimize_weights
@@ -44,7 +45,7 @@ def test_future_prices_cannot_change_past_decisions_or_equity(monkeypatch):
         return real(returns, current, mode, **kwargs)
 
     monkeypatch.setattr(engine, "optimize_weights", spy)
-    original = run(data)
+    original = run(data, mode=mode)
     baseline_calls = calls.copy()
     calls.clear()
     # Include a change at the EXECUTION close: target must remain unchanged.
@@ -52,7 +53,7 @@ def test_future_prices_cannot_change_past_decisions_or_equity(monkeypatch):
     changed = [
         {d: v * (2 if d >= boundary else 1) for d, v in h.items()} for h in data[1]
     ]
-    updated = run((data[0], changed, data[2]))
+    updated = run((data[0], changed, data[2]), mode=mode)
     assert original["status"] == updated["status"] == "ready"
     for before, after in zip(baseline_calls[:4], calls[:4], strict=True):
         np.testing.assert_allclose(before[0], after[0])
@@ -106,7 +107,7 @@ def test_independent_share_ledger_reproduces_all_curves_and_quarters(monkeypatch
                         wealth / quarter_starts[key] - 1
                     )
                 quarter_starts[key] = wealth
-                if not prior or key in ("strategy", "equal"):
+                if not prior or key in ("strategy", "equal", "eligible_equal"):
                     weights = (
                         target
                         if key == "strategy"
@@ -164,7 +165,7 @@ def test_rebalance_self_finances_round_trip_and_noop():
     assert sell[2] == pytest.approx(values.sum() * 0.01)
 
 
-@pytest.mark.parametrize("mode", ["volatility", "correlation"])
+@pytest.mark.parametrize("mode", ["volatility", "correlation", "risk_parity"])
 def test_existing_optimizers_run_only_on_training(mode):
     data = sample()
     result = run(data, mode=mode, years=1, fee_rate=0)
@@ -172,6 +173,8 @@ def test_existing_optimizers_run_only_on_training(mode):
     for fold in result["folds"]:
         assert sum(fold["weights"]) == pytest.approx(1)
         assert min(fold["weights"]) >= 0
+        if mode == "risk_parity":
+            assert fold["risk_contributions"] == pytest.approx([0.5, 0.5], abs=1e-6)
 
 
 def test_failure_never_silently_skips_bad_quarter(monkeypatch):
@@ -210,6 +213,7 @@ def test_missing_short_and_discontinuous_histories():
     [
         ("volatility", {}),
         ("correlation", {}),
+        ("risk_parity", {}),
         ("mean_reversion", {}),
         ("mean_reversion", {"reversion_entry_z": 1.2, "reversion_exit_z": 0.7}),
         ("mean_reversion", {"reversion_exit_mode": "trailing_z"}),
@@ -313,7 +317,9 @@ def test_journal_reconciles_every_daily_value_final_positions_and_beta(mode, set
         assert {t["side"] for t in trades} == {"buy", "sell"}
 
 
-@pytest.mark.parametrize("mode", ["volatility", "correlation", "mean_reversion"])
+@pytest.mark.parametrize(
+    "mode", ["volatility", "correlation", "mean_reversion", "risk_parity"]
+)
 def test_reversion_past_only_regression_and_next_session_execution(mode):
     from investor.portfolio.reversion import regression_z
 
@@ -826,7 +832,7 @@ def test_whole_shares_missing_raw_prices_unaffordable_assets_and_local_etf():
         assert result["metrics"][key]["cost_eur"] == 0
 
 
-@pytest.mark.parametrize("mode", ["volatility", "correlation"])
+@pytest.mark.parametrize("mode", ["volatility", "correlation", "risk_parity"])
 def test_optimization_invests_affordable_remainder_without_cash_overdraft(
     mode, monkeypatch
 ):
@@ -854,7 +860,9 @@ def test_optimization_invests_affordable_remainder_without_cash_overdraft(
     ) == pytest.approx(10000)
 
 
-@pytest.mark.parametrize("mode", ["volatility", "correlation", "mean_reversion"])
+@pytest.mark.parametrize(
+    "mode", ["volatility", "correlation", "mean_reversion", "risk_parity"]
+)
 def test_staggered_listing_never_shortens_other_assets_or_uses_future_prices(mode):
     assets, histories, benchmark = sample()
     assets = [
@@ -951,3 +959,68 @@ def test_recent_crypto_without_training_stays_in_cash_while_others_run():
         ]
         == 0
     )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"rebalance_tolerance": 0.03},
+        {"risk_rebalance_tolerance": 0.03},
+        {"rebalance_tolerance": 0.03, "risk_rebalance_tolerance": 0.03},
+    ],
+)
+def test_risk_bands_are_causal_and_measure_actual_holdings(options):
+    data = sample()
+    result = run(data, mode="risk_parity", **options)
+    assert result["status"] == "ready"
+    for fold in result["folds"]:
+        for key in ("risk_contributions_execution", "risk_contributions_end"):
+            rc = fold[key]
+            assert rc is not None
+            assert sum(rc) == pytest.approx(1)
+    boundary = result["folds"][3]["execution"]
+    changed = [
+        {d: v * (3 if d >= boundary else 1) for d, v in h.items()} for h in data[1]
+    ]
+    updated = run((data[0], changed, data[2]), mode="risk_parity", **options)
+    for a, b in zip(result["folds"][:4], updated["folds"][:4], strict=True):
+        assert a.get("rebalance_skipped", False) == b.get("rebalance_skipped", False)
+        assert a["weights"] == b["weights"]
+    assert not result["folds"][0].get("rebalance_skipped", False)
+
+
+@pytest.mark.parametrize("delay", [1, 2])
+def test_execution_and_spread_accounting(delay):
+    data = sample()
+    result = run(data, mode="volatility", execution_delay=delay, spread_bps=50)
+    assert result["status"] == "ready"
+    days = sorted(data[2])
+    for fold in result["folds"]:
+        assert days.index(fold["execution"]) - days.index(fold["signal"]) == delay
+        assert sum(fold["weights"]) == pytest.approx(1)
+    for trade in result["transactions"]:
+        assert trade["fee"] == pytest.approx(trade["amount"] * 0.0075)
+    assert result["parameters"]["fee_rate"] == 0.005
+    assert result["spread_bps"] == 50
+
+
+def test_two_session_delay_does_not_use_intervening_prices(monkeypatch):
+    data = sample()
+    calls = []
+
+    def spy(returns, current, mode, **kwargs):
+        calls.append((returns.copy(), current.copy()))
+        return np.array([0.6, 0.4])
+
+    monkeypatch.setattr(engine, "optimize_weights", spy)
+    original = run(data, execution_delay=2)
+    baseline = calls.copy()
+    calls.clear()
+    boundary = original["folds"][2]["signal"]
+    changed = [
+        {d: v * (2 if d > boundary else 1) for d, v in h.items()} for h in data[1]
+    ]
+    run((data[0], changed, data[2]), execution_delay=2)
+    for before, after in zip(baseline[:3], calls[:3], strict=True):
+        np.testing.assert_allclose(before[0], after[0])
+        np.testing.assert_allclose(before[1], after[1])

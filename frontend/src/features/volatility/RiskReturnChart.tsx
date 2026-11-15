@@ -57,7 +57,7 @@ export function RiskReturnChart({ result }: { result: RiskResult }) {
       <svg
         viewBox={`0 0 ${width} ${height}`}
         role="img"
-        aria-label="Frontière de Markowitz et actifs comparés au S&P 500"
+        aria-label="Frontière de Markowitz et actifs comparés au S&P 500 PEA PSP5"
         onMouseLeave={() => setHovered(null)}
         onKeyDown={(event) => {
           if (event.key === "Escape") setHovered(null);
@@ -65,9 +65,9 @@ export function RiskReturnChart({ result }: { result: RiskResult }) {
       >
         <title>Rendement et volatilité annualisés en euros</title>
         <desc>
-          Un point par actif et un point pour le S&P 500. La courbe donne la
-          variance minimale pour chaque rendement cible. Les valeurs des actifs
-          figurent dans le tableau.
+          Un point par actif et un point pour l’ETF S&P 500 PEA PSP5. La courbe
+          donne la variance minimale pour chaque rendement cible. Les valeurs
+          des actifs figurent dans le tableau.
         </desc>
         {Array.from({ length: 6 }, (_, i) => {
           const xx = left + ((right - left) * i) / 5,

@@ -15,7 +15,7 @@ function model() {
     positive_quarters: 2,
     winning_quarters: 1,
   };
-  const keys = ["strategy", "equal", "buy_hold", "benchmark"];
+  const keys = ["strategy", "equal", "eligible_equal", "buy_hold", "benchmark"];
   return {
     status: "ready",
     notices: [
@@ -36,6 +36,7 @@ function model() {
       time: new Date(Date.UTC(2024, 0, 2 + i)).toISOString().slice(0, 10),
       strategy: 100 + i * 0.07,
       equal: 100 + i * 0.05,
+      eligible_equal: 100 + i * 0.05,
       buy_hold: 100 + i * 0.04,
       benchmark: 100 + i * 0.03,
     })),
@@ -132,7 +133,7 @@ async function setup(page: Page) {
         {
           id: "s",
           name: "Test chronologique",
-          quantities: { "yf-test": 3 },
+          quantities: { "yf-test": 2, "yf-btc-usd": 1 },
           lockedAssetIds: [],
         },
       ]),
@@ -152,12 +153,13 @@ test("chronological validation is explicit, auditable and invalidated when setti
     return r.fulfill({ json: model() });
   });
   await page.goto("/markets/portfolio");
+  await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await expect(
     page
       .getByRole("tablist", { name: "Vues du Portfolio" })
       .getByRole("tab")
       .last(),
-  ).toHaveText("Corrélation minimale");
+  ).toHaveText("Parité de risque");
   await expect(
     page.getByRole("tab", { name: "Volatilité minimale", exact: true }),
   ).toHaveCSS("border-left-width", "1px");
@@ -173,14 +175,13 @@ test("chronological validation is explicit, auditable and invalidated when setti
   const tabs = page.getByRole("tablist", { name: "Vues du Portfolio" });
   await expect(tabs.getByRole("tab")).toHaveText([
     "Positions",
-    "Comptes bancaires",
     "Prédiction",
     "Corrélations",
     "Frontières d’efficience",
-    "Recommandation action",
     "Volatilité minimale",
     "Retour à la moyenne",
     "Corrélation minimale",
+    "Parité de risque",
   ]);
   await expect(panel.getByLabel("Méthode à valider")).toHaveCount(0);
   await expect(panel.getByLabel("Référence de marché")).toHaveCount(0);
@@ -211,7 +212,7 @@ test("chronological validation is explicit, auditable and invalidated when setti
   ).toHaveText(["Indicateur", ...labels]);
   await expect(
     panel
-      .getByRole("img", { name: /quatre courbes/ })
+      .getByRole("img", { name: /4 courbes/ })
       .locator("canvas")
       .first(),
   ).toBeVisible();
@@ -223,6 +224,7 @@ test("chronological validation is explicit, auditable and invalidated when setti
     initial_capital: 10000,
     whole_shares: false,
     benchmark_asset_id: null,
+    rebalance_tolerance: 0.03,
   });
   await panel
     .getByText("Détail des décisions et des trimestres", { exact: true })
@@ -306,6 +308,21 @@ test("chronological validation is explicit, auditable and invalidated when setti
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  await page
+    .getByRole("tab", { name: "Parité de risque", exact: true })
+    .click();
+  await expect(panel.getByText(/Allocation trimestrielle visant/)).toHaveCount(
+    0,
+  );
+  await panel.getByRole("button", { name: "Lancer la validation" }).click();
+  await expect.poll(() => requests.at(-1)?.mode).toBe("risk_parity");
+  expect(requests.at(-1)).toMatchObject({
+    rebalance_tolerance: 0.03,
+    risk_rebalance_tolerance: 0.03,
+  });
+  await expect(
+    panel.getByRole("table", { name: "Positions finales de la méthode" }),
+  ).toBeVisible();
   await panel.screenshot({ path: testInfo.outputPath("validation.png") });
   expect(errors).toEqual([]);
 });
@@ -348,6 +365,7 @@ test("metric colors compare both references and correctly handle losses, costs, 
     r.fulfill({ json: data }),
   );
   await page.goto("/markets/portfolio");
+  await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await page
     .getByRole("tab", { name: "Volatilité minimale", exact: true })
     .click();
@@ -465,6 +483,7 @@ test("pending imports, errors and short histories can be retried", async ({
     return r.fulfill({ json: model() });
   });
   await page.goto("/markets/portfolio");
+  await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await page
     .getByRole("tab", { name: "Volatilité minimale", exact: true })
     .click();
@@ -497,11 +516,14 @@ test("the same tab validates an independent strategy universe", async ({
   });
   await page.goto("/markets/portfolio");
   await page.getByRole("button", { name: "Stratégie", exact: true }).click();
+  await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await page
     .getByRole("tab", { name: "Volatilité minimale", exact: true })
     .click();
   await page.getByRole("button", { name: "Lancer la validation" }).click();
-  await expect.poll(() => requests[0]?.asset_ids).toEqual(["yf-test"]);
+  await expect
+    .poll(() => requests[0]?.asset_ids)
+    .toEqual(["yf-test", "yf-btc-usd"]);
 });
 
 test("reversion exposes only two thresholds with fixed defaults and preserves each strategy tab", async ({
@@ -522,6 +544,7 @@ test("reversion exposes only two thresholds with fixed defaults and preserves ea
     });
   });
   await page.goto("/markets/portfolio");
+  await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await page
     .getByRole("tab", { name: "Retour à la moyenne", exact: true })
     .click();
@@ -644,6 +667,7 @@ test("catalogue polling preserves validation settings, requests and results", as
     });
   });
   await page.goto("/markets/portfolio");
+  await page.getByRole("button", { name: "Stratégie", exact: true }).click();
   await page
     .getByRole("tab", { name: "Volatilité minimale", exact: true })
     .click();
@@ -693,4 +717,108 @@ test("catalogue polling preserves validation settings, requests and results", as
   ).toBeVisible();
   expect(validationCalls).toBe(1);
   expect(navigations).toBe(0);
+});
+
+test("ETF switch fixes its universe and hides discarded controls", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.route("**/api/assets", (r) =>
+    r.fulfill({
+      json: [
+        stock,
+        { ...stock, id: "yf-psp5.pa", name: "S&P 500 PEA", category: "etf" },
+        { ...stock, id: "yf-bx4.pa", name: "CAC inverse −2", category: "etf" },
+      ],
+    }),
+  );
+  const requests: Record<string, unknown>[] = [];
+  await page.route("**/api/portfolio/validation", (r) => {
+    requests.push(r.request().postDataJSON());
+    return r.fulfill({
+      json: {
+        ...model(),
+        benchmark_name: "S&P 500 PEA · PSP5",
+        transactions: model().transactions.map((t, i) =>
+          i === 0
+            ? { ...t, sleeve: "defensive", reason: "etf_defensive_sp500" }
+            : t,
+        ),
+      },
+    });
+  });
+  await page.goto("/markets/strategy");
+  await page
+    .locator(".strategy-list")
+    .getByRole("button", { name: /S&P 500 · Régression/ })
+    .click();
+  await expect(page.getByRole("tab", { name: /CVaR/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Exécution", exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Spread total", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByText(/^Deux ETF fixes/)).toHaveCount(0);
+  await expect(
+    page.getByRole("combobox", { name: "Tolérance de révision" }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Lancer la validation" }).click();
+  await expect.poll(() => requests[0]?.mode).toBe("etf_switch");
+  const legend = page.getByRole("group", { name: "Légende des courbes" });
+  await expect(legend.locator("span")).toHaveText([
+    "S&P 500 PEA · PSP5",
+    "Méthode testée",
+  ]);
+  const panel = page.getByRole("region", {
+    name: "Validation historique",
+    exact: true,
+  });
+  await expect(panel.getByText("Poche défensive · cible 10 %")).toBeVisible();
+  await expect(panel).not.toContainText("Achat-conservation");
+  await expect(panel).not.toContainText("Équipondération trimestrielle");
+  expect(requests[0].asset_ids).toEqual(["yf-psp5.pa"]);
+  expect(requests[0].benchmark_asset_id).toBe("yf-psp5.pa");
+  await expect(panel).toContainText(
+    "75 % lente 60 mois, 25 % défensive 18 mois",
+  );
+  await expect(panel).toContainText("exposition 10 à 100 %");
+  await expect(panel).toContainText("Sans poche passive");
+  await expect(panel).toContainText(
+    "État lent initial reconstitué avec les seuls signaux antérieurs au test.",
+  );
+  const introduction = panel.locator(".portfolio-section-heading p");
+  const layout = await introduction.evaluate((element) => ({
+    width: element.getBoundingClientRect().width,
+    available: element
+      .closest(".portfolio-section-heading")!
+      .getBoundingClientRect().width,
+    lines:
+      element.getBoundingClientRect().height /
+      Number.parseFloat(getComputedStyle(element).lineHeight),
+  }));
+  expect(layout.width).toBeGreaterThanOrEqual(layout.available - 1);
+  if (page.viewportSize()!.width >= 1000)
+    expect(layout.lines).toBeLessThanOrEqual(2.1);
+  expect(requests[0]).not.toHaveProperty("execution_delay");
+  expect(requests[0]).not.toHaveProperty("spread_bps");
+  await expect(
+    page.getByText("Journal prospectif", { exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByText(/Contrôle rétrospectif à exposition moyenne comparable/),
+  ).toHaveCount(0);
+  expect(requests[0].years).toBe(5);
+  expect(requests[0]).not.toHaveProperty("start_date");
+  await expect(
+    page.getByRole("option", { name: /période étudiée/ }),
+  ).toHaveCount(0);
+  expect(requests[0].whole_shares).toBe(true);
+  await page
+    .getByRole("combobox", { name: "Période de validation" })
+    .selectOption("10");
+  await page.getByRole("button", { name: "Lancer la validation" }).click();
+  await expect.poll(() => requests.length).toBe(2);
+  expect(requests[1].years).toBe(10);
+  expect(requests[1]).not.toHaveProperty("start_date");
 });

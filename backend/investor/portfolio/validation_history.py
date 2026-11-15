@@ -19,23 +19,23 @@ def align(history, days):
     return values
 
 
-def _mature(quotes, day):
+def _mature(quotes, day, months=36, min_observations=501):
     if not quotes:
         return False
-    lower = months_before(date.fromisoformat(day), 36).isoformat()
+    lower = months_before(date.fromisoformat(day), months).isoformat()
     left, right = bisect_left(quotes, lower), bisect_right(quotes, day)
     return (
-        right - left >= 501
+        right - left >= min_observations
         and quotes[0] <= lower
         and (date.fromisoformat(quotes[left]) - date.fromisoformat(lower)).days <= 7
     )
 
 
-def maturities(histories, days):
+def maturities(histories, days, *, months=36, min_observations=501):
     """Precompute eligibility with sorted histories, avoiding repeated full scans."""
     return np.column_stack(
         [
-            [_mature(quotes, day) for day in days]
+            [_mature(quotes, day, months, min_observations) for day in days]
             for quotes in (sorted(h) for h in histories)
         ]
     )

@@ -48,9 +48,13 @@ def optimize_weights(
     betas=None,
     target_beta=None,
     elapsed_years=None,
+    covariance_override=None,
+    continuous_correlation=False,
 ):
     """Select positions and solve each support with hard 3% / cardinality bounds.
 
+    Validation correlation can instead solve the convex full-universe problem
+    without the floor or support selection via continuous_correlation.
     Exhaust all supports up to eight assets. Larger universes use deterministic
     ranked supports and bounded exchange search; no global optimality claim.
     """
@@ -86,7 +90,21 @@ def optimize_weights(
         if target_beta is not None and abs(float(betas[0]) - target_beta) > 1e-7:
             raise HTTPException(422, "Bêta cible inaccessible avec cet actif.")
         return np.ones(1)
-    covariance = np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
+    covariance = (
+        np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
+        if covariance_override is None
+        else np.asarray(covariance_override)
+    )
+    if mode == "correlation" and continuous_correlation:
+        # Solve the convex full-universe problem; no floor or support heuristic.
+        return _optimize_support(
+            returns,
+            np.full(count, 1 / count),
+            mode,
+            max(0.35, 1 / count),
+            covariance_override=covariance,
+            fixed=locked,
+        )
     means = returns.mean(axis=0)
     correlation = None
     if mode == "correlation":
@@ -141,6 +159,7 @@ def optimize_weights(
                 betas=betas[selected] if betas is not None else None,
                 target_beta=target_beta,
                 elapsed_years=elapsed_years,
+                covariance_override=covariance[np.ix_(selected, selected)],
             )
         except HTTPException as error:
             if error.status_code != 503:
@@ -184,6 +203,7 @@ def optimize_weights(
                 betas=betas,
                 target_beta=target_beta,
                 elapsed_years=elapsed_years,
+                covariance_override=covariance,
             )
         )
         rankings = [
@@ -233,6 +253,7 @@ def _optimize_support(
     betas=None,
     target_beta=None,
     elapsed_years=None,
+    covariance_override=None,
 ):
     """Long-only historical objectives; compounded drawdown uses convex cuts."""
     count = len(current)
@@ -255,7 +276,11 @@ def _optimize_support(
     )
     if fixed:
         initial_weights = initial_fixed
-    covariance = np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
+    covariance = (
+        np.atleast_2d(np.cov(returns, rowvar=False, ddof=1))
+        if covariance_override is None
+        else np.asarray(covariance_override)
+    )
     scaled = covariance / max(float(np.max(np.diag(covariance))), 1e-12)
     means = returns.mean(axis=0)
     budget = {

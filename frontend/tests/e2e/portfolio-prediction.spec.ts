@@ -110,6 +110,11 @@ test("allocation is below positions and portfolio prediction uses the shared mod
     fullPage: true,
   });
   await page.getByRole("tab", { name: "Positions", exact: true }).click();
+  const beforeReopen = requests.length;
+  await page.getByRole("tab", { name: "Prédiction", exact: true }).click();
+  await expect(panel.getByRole("img")).toBeVisible();
+  expect(requests).toHaveLength(beforeReopen);
+  await page.getByRole("tab", { name: "Positions", exact: true }).click();
   await page.getByLabel("Quantité Action test", { exact: true }).fill("3");
   await page.getByRole("tab", { name: "Prédiction", exact: true }).click();
   await expect

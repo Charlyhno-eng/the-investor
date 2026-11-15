@@ -69,41 +69,20 @@ type Response =
   | { status: "pending" }
   | { status: "insufficient"; message: string; excluded: Excluded[] };
 
-function readCustom(): Quantities {
-  try {
-    const v: unknown = JSON.parse(
-      localStorage.getItem("investor-simulation") ?? "{}",
-    );
-    if (v && typeof v === "object" && !Array.isArray(v))
-      return Object.fromEntries(
-        Object.entries(v).filter(
-          (e) =>
-            typeof e[1] === "number" &&
-            Number.isFinite(e[1]) &&
-            e[1] >= 0 &&
-            e[1] <= 1e15,
-        ),
-      );
-  } catch {
-    /* Use an empty draft if storage is unavailable. */
-  }
-  return {};
-}
-
 export function SimulationPanel({
   assets,
+  strategies,
   portfolioIds,
   watchlistIds,
   quantities,
-  onImport,
   scenarios,
   scenario,
 }: {
+  strategies: { id: string; name: string; quantities: Quantities }[];
   assets: Asset[];
   portfolioIds: string[];
   watchlistIds: string[];
   quantities: Quantities;
-  onImport: () => void;
   scenarios: Scenario[];
   scenario: string;
 }) {
@@ -112,10 +91,8 @@ export function SimulationPanel({
     pageRef.current?.scrollIntoView({ block: "start" });
   }, []);
   const months = 12;
-  const [custom, setCustom] = useState(false);
-  const [draft, setDraft] = useState<Quantities>(readCustom);
-  const [search, setSearch] = useState("");
-  const [assetId, setAssetId] = useState("");
+  const [source, setSource] = useState("portfolio");
+  const strategy = strategies.find((s) => source === `strategy:${s.id}`);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Response | null>(null);
   const [request, setRequest] = useState<{
@@ -159,18 +136,15 @@ export function SimulationPanel({
       clearTimeout(timer);
     };
   }, [request]);
-  function updateDraft(next: Quantities) {
-    setDraft(next);
-    try {
-      localStorage.setItem("investor-simulation", JSON.stringify(next));
-    } catch {
-      setError(
-        "Le portefeuille sur mesure reste disponible dans cette session ; son enregistrement local a échoué.",
-      );
-    }
+  function chooseSource(next: string) {
+    setSource(next);
+    setRequest(null);
+    setResult(null);
+    setError("");
+    setBusy(false);
   }
-  const ids = custom ? Object.keys(draft) : portfolioIds;
-  const selected = custom ? draft : quantities;
+  const ids = strategy ? Object.keys(strategy.quantities) : portfolioIds;
+  const selected = strategy ? strategy.quantities : quantities;
   const holdings = ids
     .filter((id) => assets.some((a) => a.id === id) && (selected[id] ?? 0) > 0)
     .map((id) => ({ asset_id: id, quantity: selected[id] }));
@@ -187,79 +161,28 @@ export function SimulationPanel({
       </header>
       <section className="simulation-box" aria-label="Paramètres de simulation">
         <h2>
-          Composer le portefeuille <span className="muted">· 12 mois</span>
+          Choisir le portefeuille <span className="muted">· 12 mois</span>
         </h2>
         <div className="simulation-actions">
           <button
             className="secondary-button"
-            aria-pressed={!custom}
-            onClick={() => setCustom(false)}
+            aria-pressed={source === "portfolio"}
+            onClick={() => chooseSource("portfolio")}
           >
             Mon portefeuille
           </button>
-          <button
-            className="secondary-button"
-            aria-pressed={custom}
-            onClick={() => setCustom(true)}
-          >
-            Sur mesure
-          </button>
-          {custom && (
+          {strategies.map((s) => (
             <button
+              key={s.id}
+              type="button"
               className="secondary-button"
-              onClick={() =>
-                updateDraft(
-                  Object.fromEntries(
-                    portfolioIds.map((id) => [id, quantities[id] ?? 0]),
-                  ),
-                )
-              }
+              aria-pressed={source === `strategy:${s.id}`}
+              onClick={() => chooseSource(`strategy:${s.id}`)}
             >
-              Copier mon portefeuille
+              {s.name}
             </button>
-          )}
+          ))}
         </div>
-        {custom && (
-          <div className="simulation-actions">
-            <input
-              aria-label="Rechercher un actif"
-              placeholder="Rechercher dans le catalogue…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <select
-              aria-label="Actif à ajouter"
-              value={assetId}
-              onChange={(e) => setAssetId(e.target.value)}
-            >
-              <option value="">Choisir un actif</option>
-              {assets
-                .filter(
-                  (a) =>
-                    !(a.id in draft) &&
-                    a.name.toLowerCase().includes(search.toLowerCase()),
-                )
-                .map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-            </select>
-            <button
-              className="secondary-button"
-              disabled={!assetId}
-              onClick={() => {
-                updateDraft({ ...draft, [assetId]: 1 });
-                setAssetId("");
-              }}
-            >
-              Ajouter
-            </button>
-            <button className="secondary-button" onClick={onImport}>
-              Importer une action / un ETF
-            </button>
-          </div>
-        )}
         <p className="simulation-beta-legend">
           Cuivré : réaction dans le même sens · Bleu : réaction inverse · Gris :
           proche de zéro (±0,05).
@@ -270,7 +193,6 @@ export function SimulationPanel({
               <tr>
                 <th>Actif</th>
                 <th>Quantité</th>
-                {custom && <th>Retirer</th>}
               </tr>
             </thead>
             <tbody>
@@ -279,47 +201,16 @@ export function SimulationPanel({
                 .map((id) => (
                   <tr key={id}>
                     <td>{assets.find((a) => a.id === id)?.name}</td>
-                    <td>
-                      {custom ? (
-                        <input
-                          aria-label={`Quantité ${assets.find((a) => a.id === id)?.name}`}
-                          type="number"
-                          min="0"
-                          max="1000000000000000"
-                          step="any"
-                          value={draft[id]}
-                          onChange={(e) => {
-                            const q = Number(e.target.value);
-                            if (Number.isFinite(q) && q >= 0 && q <= 1e15)
-                              updateDraft({ ...draft, [id]: q });
-                          }}
-                        />
-                      ) : (
-                        (quantities[id] ?? 0)
-                      )}
-                    </td>
-                    {custom && (
-                      <td>
-                        <button
-                          className="secondary-button"
-                          aria-label={`Retirer ${assets.find((a) => a.id === id)?.name}`}
-                          onClick={() => {
-                            const next = { ...draft };
-                            delete next[id];
-                            updateDraft(next);
-                          }}
-                        >
-                          ×
-                        </button>
-                      </td>
-                    )}
+                    <td>{selected[id] ?? 0}</td>
                   </tr>
                 ))}
             </tbody>
           </table>
         </div>
         {!holdings.length && (
-          <p>Ajoutez des actifs avec une quantité positive pour démarrer.</p>
+          <p>
+            Ce portefeuille ne contient aucune position de quantité positive.
+          </p>
         )}
         <button
           className="primary-button"

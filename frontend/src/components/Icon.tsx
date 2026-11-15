@@ -1,5 +1,59 @@
 import type { CSSProperties } from "react";
 const paths: Record<string, React.ReactNode> = {
+  regression: (
+    <>
+      <path d="M3 20h18M4 20V4M6 17l14-12" />
+      <circle cx="8" cy="13" r="1" />
+      <circle cx="13" cy="11" r="1" />
+      <circle cx="17" cy="6" r="1" />
+    </>
+  ),
+  prediction: (
+    <>
+      <path d="M3 20h18M4 20V4m2 11 5-5 4 3" />
+      <path d="m15 13 6-8m-5 0h5v5" strokeDasharray="2 3" />
+    </>
+  ),
+  frontier: (
+    <>
+      <path d="M3 20h18M4 20V4M6 17c1-9 6-12 14-13" />
+      <circle cx="12" cy="10" r="1" />
+      <circle cx="16" cy="14" r="1" />
+    </>
+  ),
+  shield: (
+    <>
+      <path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z" />
+      <path d="m8 12 3 3 5-6" />
+    </>
+  ),
+  "mean-reversion": (
+    <>
+      <path d="M3 12h18" strokeDasharray="2 3" />
+      <path d="M3 7c3 0 3 10 6 10s3-10 6-10 3 10 6 10" />
+    </>
+  ),
+  diversification: (
+    <>
+      <path d="M4 12h5m6-6h5m-5 12h5M9 12l6-6M9 12l6 6" />
+      <circle cx="3" cy="12" r="1" />
+      <circle cx="21" cy="6" r="1" />
+      <circle cx="21" cy="18" r="1" />
+    </>
+  ),
+  correlation: (
+    <>
+      <circle cx="5" cy="6" r="2" />
+      <circle cx="19" cy="6" r="2" />
+      <circle cx="12" cy="19" r="2" />
+      <path d="M7 6h10M6 8l5 9m7-9-5 9" />
+    </>
+  ),
+  balance: (
+    <>
+      <path d="M12 3v17M7 21h10M4 7h16M6 7l-4 8h8Zm12 0-4 8h8Z" />
+    </>
+  ),
   simulation: (
     <>
       <path d="M9 3h6m-5 0v6L4 19a1.3 1.3 0 0 0 1 2h14a1.3 1.3 0 0 0 1-2L14 9V3M7 15h10" />

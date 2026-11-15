@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { mockApi } from "./fixtures";
 
-test("simulation opens below strategy, uses current quantities and preserves independent draft", async ({
+test("simulation opens below strategy, uses saved quantities without a custom composer", async ({
   page,
 }, testInfo) => {
   await mockApi(page);
@@ -142,32 +142,13 @@ test("simulation opens below strategy, uses current quantities and preserves ind
     path: testInfo.outputPath("simulation.png"),
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Sur mesure", exact: true }).click();
-  await page.getByRole("button", { name: "Copier mon portefeuille" }).click();
-  await page.getByLabel("Quantité Action test", { exact: true }).fill("3");
-  await page
-    .getByLabel("Actif à ajouter", { exact: true })
-    .selectOption("yf-btc-usd");
-  await page.getByRole("button", { name: "Ajouter", exact: true }).click();
-  await page.getByRole("button", { name: "Simuler ce portefeuille" }).click();
-  await expect.poll(() => requests.length).toBe(2);
-  expect(requests[1].holdings).toEqual([
-    { asset_id: "yf-test", quantity: 3 },
-    { asset_id: "yf-btc-usd", quantity: 1 },
-  ]);
-  expect(
-    await page.evaluate(() =>
-      JSON.parse(localStorage.getItem("investor-quantities")!),
-    ),
-  ).toEqual({ "yf-test": 9 });
-  await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Simulation", exact: true, level: 1 }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Sur mesure", exact: true }).click();
-  await expect(
-    page.getByLabel("Quantité Action test", { exact: true }),
-  ).toHaveValue("3");
+    page.getByRole("button", { name: "Sur mesure", exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Actif à ajouter", { exact: true })).toHaveCount(
+    0,
+  );
+  expect(requests[0].holdings).toEqual([{ asset_id: "yf-test", quantity: 9 }]);
 });
 
 test("unavailable data produces a useful error without fabricated results", async ({
@@ -349,4 +330,58 @@ test("changing scenarios clears results and watchlist uses the same shock", asyn
   await expect
     .poll(() => watchRequests.some((r) => r.scenario === "ai"))
     .toBe(true);
+});
+
+test("simulation lists each saved strategy and sends its own quantities", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.addInitScript(() =>
+    localStorage.setItem(
+      "investor-strategies",
+      JSON.stringify([
+        { id: "a", name: "Défensive", quantities: { "yf-test": 3 } },
+        { id: "b", name: "Dynamique", quantities: { "yf-test": 7 } },
+      ]),
+    ),
+  );
+  await page.route("**/api/simulation/scenarios", (r) =>
+    r.fulfill({
+      json: [
+        {
+          id: "covid",
+          name: "Pandémie",
+          start: "2020-01",
+          tone: "stress",
+          description: "Choc",
+        },
+      ],
+    }),
+  );
+  const requests: { holdings: { asset_id: string; quantity: number }[] }[] = [];
+  await page.route("**/api/simulation/run", (r) => {
+    requests.push(r.request().postDataJSON());
+    return r.fulfill({
+      json: {
+        status: "insufficient",
+        message: "Historique court",
+        excluded: [],
+      },
+    });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Simulation", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Scénarios", exact: true }),
+  ).toHaveCount(0);
+  for (const [name, quantity] of [
+    ["Défensive", 3],
+    ["Dynamique", 7],
+  ] as const) {
+    await page.getByRole("button", { name, exact: true }).click();
+    await page.getByRole("button", { name: "Simuler ce portefeuille" }).click();
+    await expect
+      .poll(() => requests.at(-1)?.holdings)
+      .toEqual([{ asset_id: "yf-test", quantity }]);
+  }
 });

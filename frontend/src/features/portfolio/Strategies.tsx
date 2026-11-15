@@ -2,7 +2,8 @@ import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import type { Asset } from "../../lib/types";
 import { PortfolioPanel } from "./PortfolioPanel";
-import type { StrategyStore as Store } from "./useStrategies";
+import { sp500Strategy, type StrategyStore as Store } from "./useStrategies";
+import { Sp500Workspace } from "./Sp500Workspace";
 
 export function StrategyLibrary({ store }: { store: Store }) {
   const [name, setName] = useState("");
@@ -34,20 +35,35 @@ export function StrategyLibrary({ store }: { store: Store }) {
         </button>
       </form>
       <div className="strategy-list">
-        {store.strategies.map((strategy) => (
+        {[...store.strategies, sp500Strategy].map((strategy) => (
           <button
             key={strategy.id}
-            className={store.selected?.id === strategy.id ? "selected" : ""}
+            className={[
+              store.selected?.id === strategy.id ? "selected" : "",
+              strategy.id === sp500Strategy.id ? "strategy-built-in" : "",
+            ].join(" ")}
             aria-pressed={store.selected?.id === strategy.id}
             onClick={() => store.select(strategy.id)}
           >
-            {strategy.name}
-            <small>
-              {Object.keys(strategy.quantities).length}{" "}
-              {Object.keys(strategy.quantities).length === 1
-                ? "actif"
-                : "actifs"}
-            </small>
+            <span className="strategy-list-title">
+              <Icon
+                name={
+                  strategy.id === sp500Strategy.id ? "regression" : "layers"
+                }
+                size={17}
+              />
+              {strategy.name}
+            </span>
+            {strategy.id === sp500Strategy.id ? (
+              <small>S&P 500 PEA · PSP5</small>
+            ) : (
+              <small>
+                {Object.keys(strategy.quantities).length}{" "}
+                {Object.keys(strategy.quantities).length === 1
+                  ? "actif"
+                  : "actifs"}
+              </small>
+            )}
           </button>
         ))}
       </div>
@@ -97,14 +113,8 @@ export function StrategyWorkspace({
           {store.error}
         </p>
       )}
-      {!strategy ? (
-        <div className="workspace-empty">
-          <h1>Stratégie</h1>
-          <p>
-            Créez une stratégie pour simuler un portefeuille avec les actifs de
-            votre watchlist ou de votre portfolio.
-          </p>
-        </div>
+      {strategy.id === sp500Strategy.id ? (
+        <Sp500Workspace assets={assets} />
       ) : (
         <>
           <PortfolioPanel

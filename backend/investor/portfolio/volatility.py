@@ -175,7 +175,7 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
     if len(common) - 1 < minimum:
         return {
             "status": "insufficient",
-            "message": f"Il faut au moins {minimum} variations {'mensuelles' if monthly else 'quotidiennes'} communes avec le S&P 500 sur cette période.",
+            "message": f"Il faut au moins {minimum} variations {'mensuelles' if monthly else 'quotidiennes'} communes avec l’ETF S&P 500 PEA PSP5 sur cette période.",
         }
     prices = np.array([[h[d] for d in common] for h in histories])
     returns = np.diff(prices, axis=1) / prices[:, :-1]
@@ -189,7 +189,12 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
         for a, p in zip(assets, individual[:-1], strict=True)
     ]
     points.append(
-        {"id": "sp500", "name": "S&P 500", "kind": "benchmark", **individual[-1]}
+        {
+            "id": "sp500",
+            "name": "S&P 500 PEA · PSP5",
+            "kind": "benchmark",
+            **individual[-1],
+        }
     )
     # The benchmark is a comparator, not a hidden addition to portfolio holdings.
     universe_means = means[:-1] if portfolio_view else means
@@ -230,6 +235,8 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
         "points": points,
         "frontier": frontier,
         "lower_frontier": lower_frontier,
+        "benchmark_asset_id": "yf-psp5.pa",
+        "benchmark_name": "S&P 500 PEA · PSP5",
         "frontier_assets": [a["id"] for a in assets]
         + ([] if portfolio_view or not assets else ["sp500"]),
     }
@@ -267,10 +274,39 @@ def load_histories(connection, assets, *, include_benchmark=True, allow_cached=F
 
 
 def load_map(connection, assets, years, *, portfolio_view=False, locked=None):
-    loaded = load_histories(connection, assets)
+    benchmark_asset = connection.execute(
+        "SELECT * FROM assets WHERE id='yf-psp5.pa'"
+    ).fetchone()
+    if (
+        benchmark_asset is None
+        or not connection.execute(
+            "SELECT 1 FROM observations WHERE asset_id='yf-psp5.pa' AND value>0 LIMIT 1"
+        ).fetchone()
+    ):
+        job = connection.execute(
+            "SELECT status FROM import_jobs WHERE symbol='PSP5.PA' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if job and job["status"] == "failed":
+            raise HTTPException(
+                503,
+                "Historique de l’ETF S&P 500 PEA PSP5 indisponible. Relancez son import.",
+            )
+        connection.execute(
+            "INSERT INTO import_jobs(symbol,category) SELECT 'PSP5.PA','etf' WHERE NOT EXISTS (SELECT 1 FROM import_jobs WHERE symbol='PSP5.PA' AND status IN ('queued','running'))"
+        )
+        return {"status": "pending"}
+    selected = list(assets)
+    index = next((i for i, a in enumerate(selected) if a["id"] == "yf-psp5.pa"), None)
+    if index is None:
+        selected.append(benchmark_asset)
+    loaded = load_histories(
+        connection, selected, include_benchmark=False, allow_cached=True
+    )
     if loaded is None:
         return {"status": "pending"}
-    histories, benchmark = loaded
+    all_histories, _ = loaded
+    histories = all_histories[: len(assets)]
+    benchmark = all_histories[index if index is not None else -1]
     return risk_map(
         assets,
         histories,

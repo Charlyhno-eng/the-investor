@@ -1,8 +1,11 @@
 """Independent native-currency histories for joint portfolio simulations."""
 
+import math
+from datetime import date
+
+from investor.assets.momentum import months_before
 from investor.db import connect
 from investor.portfolio.service import PortfolioRequest, portfolio
-from investor.portfolio.volatility import observations
 
 
 def prediction_history(request: PortfolioRequest):
@@ -36,7 +39,23 @@ def prediction_history(request: PortfolioRequest):
                 return insufficient(
                     "La prédiction nécessite un historique quotidien pour chaque position."
                 )
-            history = observations(connection, asset)
+            latest = connection.execute(
+                "SELECT date FROM observations WHERE asset_id=? AND value>0 ORDER BY date DESC LIMIT 1",
+                (asset["id"],),
+            ).fetchone()
+            cutoff = (
+                months_before(date.fromisoformat(latest["date"]), 36).isoformat()
+                if latest
+                else "0001-01-01"
+            )
+            history = {
+                row["date"]: row["value"]
+                for row in connection.execute(
+                    "SELECT date,value FROM observations WHERE asset_id=? AND date>=? ORDER BY date",
+                    (asset["id"], cutoff),
+                )
+                if math.isfinite(row["value"]) and row["value"] > 0
+            }
             if not history:
                 return insufficient("Historique indisponible : " + asset["name"] + ".")
             series.append(

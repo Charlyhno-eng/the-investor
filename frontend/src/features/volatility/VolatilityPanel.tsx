@@ -120,12 +120,12 @@ export function VolatilityPanel({
               </span>
             )}
             <Tooltip label="Comprendre le graphique">
-              Un point par actif, et le S&P 500 en étoile bleue, sur les mêmes
-              dates et en euros. La courbe minimise la variance pour chaque
-              rendement cible, sans vente à découvert.
+              Un point par actif, et l’ETF S&P 500 PEA PSP5 en étoile bleue, sur
+              les mêmes dates et en euros. La courbe minimise la variance pour
+              chaque rendement cible, sans vente à découvert.
               {portfolio
-                ? " Elle utilise uniquement les actifs du portefeuille ; le S&P 500 sert de comparatif."
-                : " Sur cette fiche, elle combine l’actif et le S&P 500."}
+                ? " Elle utilise uniquement les actifs du portefeuille ; l’ETF PSP5 sert de référence commune."
+                : " Sur cette fiche, elle combine l’actif et l’ETF PSP5."}
               La branche efficiente est en trait plein ; la branche inférieure
               est en pointillés. Les rendements moyens historiques servent
               d’estimation des rendements attendus.
@@ -147,8 +147,8 @@ export function VolatilityPanel({
           <div className="chart-placeholder" role="status">
             <span className="spinner" />
             {portfolio
-              ? "Calcul du risque et chargement du S&P 500…"
-              : "Calcul du rendement et chargement du S&P 500…"}
+              ? "Calcul du risque et chargement de l’ETF S&P 500 PEA…"
+              : "Calcul du rendement et chargement de l’ETF S&P 500 PEA…"}
           </div>
         )}
         {error && (

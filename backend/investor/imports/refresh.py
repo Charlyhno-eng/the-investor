@@ -17,7 +17,7 @@ def schedule_refreshes(*, seed=False):
         symbols = {}
         for row in connection.execute("SELECT * FROM assets"):
             if row["id"] in REMOVED_ETF:
-                symbols["ESE.PA"] = ("etf", "yahoo:ESE.PA", 1)
+                symbols["PSP5.PA"] = ("etf", "yahoo:PSP5.PA", 1)
                 continue
             if row["source"] == "yahoo" and row["id"].startswith("yf-"):
                 symbol = row["id"][3:].upper()

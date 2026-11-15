@@ -35,6 +35,23 @@ describe("joint portfolio forecasts", () => {
         expect(doubled.forecast[i][k]).toBeCloseTo(2 * p[k], 8);
     });
   });
+  it("preserves the reference joint quantiles after removing duplicate simulations", () => {
+    const a = asset("a");
+    const b = asset("b", 300, 75);
+    b.points = b.points.map((p) => ({ ...p, value: 10000 / p.value }));
+    const last = predictPortfolio([a, b]).forecast.at(-1)!;
+    // Captured from the original 4096-path implementation, same seeded draws.
+    expect(last.time).toBe("2027-05-11");
+    const expected = {
+      p05: 174.68636525890128,
+      p25: 176.5427905490161,
+      p50: 177.59193327904427,
+      p75: 178.64857112627266,
+      p95: 180.57052790352463,
+    };
+    for (const key of ["p05", "p25", "p50", "p75", "p95"] as const)
+      expect(last[key]).toBeCloseTo(expected[key], 9);
+  });
   it("does not truncate an older model when a young asset is added", () => {
     const a = asset("a");
     const original = predictPortfolio([a]);

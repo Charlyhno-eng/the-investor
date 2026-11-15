@@ -20,11 +20,30 @@ type Fold = {
   complete: boolean;
   observations: number;
   weights: number[];
+  risk_contributions?: number[] | null;
+  risk_contributions_execution?: number[] | null;
+  risk_contributions_end?: number[] | null;
+  rebalance_skipped?: boolean;
   returns: Record<Key, number>;
   turnover: Record<Key, number>;
   costs: Record<Key, number>;
 };
-type Ready = {
+export type Ready = {
+  diagnostics?: {
+    id: string;
+    name: string;
+    z: number | null;
+    phi: number | null;
+    half_life: number | null;
+    recent_shift: number | null;
+    slope_change: number | null;
+  }[];
+  position_traces?: {
+    time: string;
+    id: string;
+    price: number;
+    z: number | null;
+  }[];
   status: "ready";
   parameters?: { whole_shares: boolean };
   start: string;
@@ -110,18 +129,30 @@ const metricRows = [
   },
 ] as const;
 
-function ValidationMetrics({ ready }: { ready: Ready }) {
+export function ValidationMetrics({
+  ready,
+  displayedSeries = series,
+  accessibleLabel = "Résultats hors échantillon",
+  showComparisonLegend = true,
+}: {
+  ready: Pick<Ready, "completed_quarters" | "benchmark_name"> & {
+    metrics: Partial<Ready["metrics"]>;
+  };
+  displayedSeries?: readonly { key: Key; title: string; color: string }[];
+  accessibleLabel?: string;
+  showComparisonLegend?: boolean;
+}) {
   return (
     <>
       <div className="table-scroll">
         <table
           className="positions-table performance-metrics validation-metrics"
-          aria-label="Résultats hors échantillon"
+          aria-label={accessibleLabel}
         >
           <thead>
             <tr>
               <th scope="col">Indicateur</th>
-              {series.map((s) => (
+              {displayedSeries.map((s) => (
                 <th scope="col" key={s.key}>
                   {s.key === "benchmark" ? ready.benchmark_name : s.title}
                 </th>
@@ -134,8 +165,8 @@ function ValidationMetrics({ ready }: { ready: Ready }) {
               const lower = "lower" in metric && metric.lower;
               const format = "format" in metric ? metric.format : "percent";
               const values = Object.fromEntries(
-                series.map(({ key }) => {
-                  const raw = ready.metrics[key][metric.key];
+                displayedSeries.map(({ key }) => {
+                  const raw = ready.metrics[key]?.[metric.key] ?? null;
                   const unavailable =
                     format === "quarters" &&
                     (!ready.completed_quarters ||
@@ -172,7 +203,7 @@ function ValidationMetrics({ ready }: { ready: Ready }) {
                           : "Plus élevé"}
                     </small>
                   </th>
-                  {series.map(({ key }) => {
+                  {displayedSeries.map(({ key }) => {
                     const value = values[key];
                     const compare = (
                       reference: number | null,
@@ -218,7 +249,16 @@ function ValidationMetrics({ ready }: { ready: Ready }) {
                           ? [benchmark]
                           : [
                               benchmark,
-                              compare(values.buy_hold, "l’achat-conservation"),
+                              ...(displayedSeries.some(
+                                (s) => s.key === "buy_hold",
+                              )
+                                ? [
+                                    compare(
+                                      values.buy_hold,
+                                      "l’achat-conservation",
+                                    ),
+                                  ]
+                                : []),
                             ];
                     const isBest =
                       !neutral &&
@@ -274,11 +314,19 @@ function ValidationMetrics({ ready }: { ready: Ready }) {
           </tbody>
         </table>
       </div>
-      <p className="metric-signals-legend">
-        Premier trait : comparaison à {ready.benchmark_name}. Second trait pour
-        les deux méthodes : comparaison à l’achat-conservation. Vert : meilleur
-        · Rouge : moins bon · Gris : égal ou indisponible.
-      </p>
+      {showComparisonLegend &&
+        (displayedSeries.some((s) => s.key === "buy_hold") ? (
+          <p className="metric-signals-legend">
+            Premier trait : comparaison à {ready.benchmark_name}. Second trait
+            pour les deux méthodes : comparaison à l’achat-conservation. Vert :
+            meilleur · Rouge : moins bon · Gris : égal ou indisponible.
+          </p>
+        ) : (
+          <p className="metric-signals-legend">
+            Comparaison à {ready.benchmark_name} · Vert : meilleur · Rouge :
+            moins bon · Gris : égal ou indisponible.
+          </p>
+        ))}
     </>
   );
 }
@@ -388,6 +436,23 @@ function ValidationLedger({ ready }: { ready: Ready }) {
                         {t.side === "buy"
                           ? "Achat"
                           : `Vente${t.profit_return != null ? ` (${percent(t.profit_return, true)})` : ""}`}
+                        {(t.reason === "etf_passive_sp500" ||
+                          t.reason === "etf_rebound_sp500" ||
+                          t.reason === "etf_defensive_sp500" ||
+                          t.reason === "etf_slow_entry_sp500" ||
+                          t.reason === "etf_slow_defensive_sp500") && (
+                          <small className="validation-trade-reason">
+                            {t.reason === "etf_passive_sp500"
+                              ? "Poche passive · achat-conservation"
+                              : t.reason === "etf_rebound_sp500"
+                                ? "Poche défensive · rebond · cible 100 %"
+                                : t.reason === "etf_defensive_sp500"
+                                  ? "Poche défensive · cible 10 %"
+                                  : t.reason === "etf_slow_entry_sp500"
+                                    ? "Poche lente · entrée · cible 100 %"
+                                    : "Poche lente · cible 10 %"}
+                          </small>
+                        )}
                         {t.reason === "funding" && (
                           <small className="validation-trade-reason">
                             Financement d’un achat
@@ -440,16 +505,23 @@ function ValidationLedger({ ready }: { ready: Ready }) {
   );
 }
 
-type ValidationMode = "volatility" | "mean_reversion" | "correlation";
+type ValidationMode =
+  | "volatility"
+  | "mean_reversion"
+  | "correlation"
+  | "risk_parity"
+  | "etf_switch";
 
 export function ValidationPanel({
   holdings,
   mode,
   dataRevision,
+  prominentHeading = false,
 }: {
   holdings: string;
   mode: ValidationMode;
   dataRevision: string;
+  prominentHeading?: boolean;
 }) {
   // Universe edits reset the form; background catalogue updates preserve the user’s work.
   return (
@@ -458,6 +530,7 @@ export function ValidationPanel({
       holdings={holdings}
       mode={mode}
       dataRevision={dataRevision}
+      prominentHeading={prominentHeading}
     />
   );
 }
@@ -466,15 +539,17 @@ function ValidationForm({
   holdings,
   mode,
   dataRevision,
+  prominentHeading = false,
 }: {
   holdings: string;
   mode: ValidationMode;
   dataRevision: string;
+  prominentHeading?: boolean;
 }) {
   const [years, setYears] = useState(5);
-  const [fee, setFee] = useState("0.5");
+  const [fee, setFee] = useState(mode === "etf_switch" ? "0.12" : "0.5");
   const [capital, setCapital] = useState("10000");
-  const [wholeShares, setWholeShares] = useState(false);
+  const [wholeShares, setWholeShares] = useState(mode === "etf_switch");
   const [entryZ, setEntryZ] = useState("2");
   const [exitZ, setExitZ] = useState("2");
   const [job, setJob] = useState<{
@@ -503,6 +578,7 @@ function ValidationForm({
     Number.isFinite(Number(value)) &&
     Number(value) >= minimum &&
     Number(value) <= maximum;
+  const validUniverse = mode !== "etf_switch" || ids.length === 1;
   const validReversion =
     mode !== "mean_reversion" ||
     (inRange(entryZ, 0.5, 4) && inRange(exitZ, 0, 4));
@@ -510,6 +586,8 @@ function ValidationForm({
     volatility: "Volatilité minimale",
     mean_reversion: "Retour à la moyenne",
     correlation: "Corrélation minimale",
+    risk_parity: "Parité de risque",
+    etf_switch: "S&P 500 · Régression",
   }[mode];
   function invalidate() {
     setJob(null);
@@ -554,10 +632,17 @@ function ValidationForm({
     };
   }, [job]);
   const ready = result?.status === "ready" ? result : null;
+  const chartSeries = useMemo(
+    () =>
+      mode === "etf_switch"
+        ? series.filter((s) => s.key === "benchmark" || s.key === "strategy")
+        : series,
+    [mode],
+  );
   const lines = useMemo(
     () =>
       ready
-        ? series.map((s) => ({
+        ? chartSeries.map((s) => ({
             title: s.key === "benchmark" ? ready.benchmark_name : s.title,
             color: s.color,
             points: ready.equity.map((p) => ({
@@ -566,20 +651,20 @@ function ValidationForm({
             })),
           }))
         : [],
-    [ready],
+    [ready, chartSeries],
   );
   return (
     <section
-      className="portfolio-content portfolio-validation"
+      className={`portfolio-content portfolio-validation${prominentHeading ? " portfolio-validation-standalone" : ""}`}
       aria-label="Validation historique"
     >
       <div className="portfolio-section-heading">
         <div>
-          <h2>{title}</h2>
+          {prominentHeading ? <h1>{title}</h1> : <h2>{title}</h2>}
           <p>
-            Trois années glissantes pour calculer les décisions. Rééquilibrage
-            trimestriel pour les allocations optimisées ; seuils vérifiés chaque
-            séance pour le retour à la moyenne.
+            {mode === "etf_switch"
+              ? "Régression PSP5 : 75 % lente 60 mois, 25 % défensive 18 mois, exposition 10 à 100 %. Sans poche passive, transfert ni rééquilibrage entre poches. État lent initial reconstitué avec les seuls signaux antérieurs au test."
+              : "Trois années glissantes pour calculer les décisions. Rééquilibrage trimestriel pour les allocations optimisées ; seuils vérifiés chaque séance pour le retour à la moyenne."}
           </p>
         </div>
       </div>
@@ -587,7 +672,8 @@ function ValidationForm({
         className="validation-controls"
         onSubmit={(event) => {
           event.preventDefault();
-          if (!validFee || !validCapital || !validReversion) return;
+          if (!validFee || !validCapital || !validReversion || !validUniverse)
+            return;
           setResult(null);
           setError("");
           setLoading(true);
@@ -599,7 +685,15 @@ function ValidationForm({
               fee_rate: Number(fee) / 100,
               initial_capital: Number(capital),
               whole_shares: wholeShares,
-              benchmark_asset_id: null,
+              benchmark_asset_id: mode === "etf_switch" ? "yf-psp5.pa" : null,
+              ...(mode === "risk_parity"
+                ? {
+                    rebalance_tolerance: 0.03,
+                    risk_rebalance_tolerance: 0.03,
+                  }
+                : mode === "volatility" || mode === "correlation"
+                  ? { rebalance_tolerance: 0.03 }
+                  : {}),
               ...(mode === "mean_reversion"
                 ? {
                     reversion_entry_z: Number(entryZ),
@@ -716,12 +810,18 @@ function ValidationForm({
             ids.length > 20 ||
             !validFee ||
             !validCapital ||
-            !validReversion
+            !validReversion ||
+            !validUniverse
           }
         >
           {loading ? "Validation en cours…" : "Lancer la validation"}
         </button>
       </form>
+      {!validUniverse && (
+        <p role="status">
+          L’ETF PSP5.PA doit être présent dans la bibliothèque.
+        </p>
+      )}
       {(!ids.length || ids.length > 20) && (
         <p className="fine-print">
           Sélectionnez entre 1 et 20 actifs pour lancer la validation.
@@ -742,6 +842,83 @@ function ValidationForm({
       )}
       {ready && (
         <>
+          {!!ready.diagnostics?.length && (
+            <details>
+              <summary>
+                Diagnostic du retour à la moyenne · informatif, sans filtre
+              </summary>
+              <p>
+                AR(1) proche de 1 : résidus persistants. Demi-vie indicative en
+                observations. Déplacement : valeur absolue de la moyenne récente
+                / dispersion. Variation de pente : pente logarithmique
+                annualisée de la seconde moitié moins celle de la première ;
+                aucune preuve de stationnarité.
+              </p>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Actif</th>
+                      <th>Score</th>
+                      <th>AR(1)</th>
+                      <th>Demi-vie</th>
+                      <th>Déplacement</th>
+                      <th>Variation de pente</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ready.diagnostics.map((d) => (
+                      <tr key={d.id}>
+                        <td>{d.name}</td>
+                        <td>{metricNumber(d.z)}</td>
+                        <td>{metricNumber(d.phi)}</td>
+                        <td>{metricNumber(d.half_life)}</td>
+                        <td>{metricNumber(d.recent_shift)}</td>
+                        <td>{metricNumber(d.slope_change)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          )}
+          {!!ready.position_traces?.length && (
+            <details>
+              <summary>Prix et score pendant les détentions</summary>
+              <p>
+                Prix ajustés en devise native au signal ; le score est recalculé
+                chaque séance. Les périodes de détention successives figurent
+                dans le journal des transactions.
+              </p>
+              {ready.assets.map((a) => (
+                <details key={a.id}>
+                  <summary>{a.name}</summary>
+                  <div className="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Date du signal</th>
+                          <th>Prix</th>
+                          <th>Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ready.position_traces
+                          ?.filter((p) => p.id === a.id)
+                          .map((p) => (
+                            <tr key={p.time}>
+                              <td>{date(p.time)}</td>
+                              <td>{number(p.price, 2)}</td>
+                              <td>{metricNumber(p.z)}</td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ))}
+            </details>
+          )}
           {ready.notices?.map((notice) => (
             <p className="fine-print" key={notice}>
               {notice}
@@ -764,7 +941,7 @@ function ValidationForm({
             role="group"
             aria-label="Légende des courbes"
           >
-            {series.map((s) => (
+            {chartSeries.map((s) => (
               <div key={s.key}>
                 <span>
                   <i style={{ background: s.color }} aria-hidden="true" />
@@ -775,9 +952,9 @@ function ValidationForm({
           </div>
           <HistoryChart
             lines={lines}
-            accessibleLabel="Validation historique, quatre courbes nettes de frais en base 100 et en euros"
+            accessibleLabel={`Validation historique, ${chartSeries.length} courbes nettes de frais en base 100 et en euros`}
           />
-          <ValidationMetrics ready={ready} />
+          <ValidationMetrics ready={ready} displayedSeries={chartSeries} />
           <ValidationLedger key={JSON.stringify(job)} ready={ready} />
           <details className="validation-details">
             <summary>Détail des décisions et des trimestres</summary>
@@ -791,7 +968,7 @@ function ValidationForm({
                     <th>Apprentissage</th>
                     <th>Signal → exécution</th>
                     <th>Fin de détention</th>
-                    {series.map((s) => (
+                    {chartSeries.map((s) => (
                       <th key={s.key}>
                         {s.key === "benchmark" ? ready.benchmark_name : s.title}
                       </th>
@@ -814,7 +991,7 @@ function ValidationForm({
                         {date(f.end)}
                         {!f.complete && " · Partiel"}
                       </td>
-                      {series.map((s) => (
+                      {chartSeries.map((s) => (
                         <td key={s.key}>{percent(f.returns[s.key], true)}</td>
                       ))}
                       <td>{percent(f.turnover.strategy)}</td>
@@ -829,120 +1006,170 @@ function ValidationForm({
                 {ready.assets
                   .map((a, i) => `${a.name} ${percent(f.weights[i])}`)
                   .join(" · ")}
+                {f.risk_contributions && (
+                  <>
+                    <br />
+                    Contributions au risque estimées à la cible :{" "}
+                    {ready.assets
+                      .map(
+                        (a, i) =>
+                          `${a.name} ${percent(f.risk_contributions![i])}`,
+                      )
+                      .join(" · ")}
+                  </>
+                )}
+                {f.risk_contributions_execution && (
+                  <>
+                    <br />
+                    Contributions après exécution
+                    {f.rebalance_skipped
+                      ? " (révision sans transaction)"
+                      : ""}{" "}
+                    :{" "}
+                    {ready.assets
+                      .map(
+                        (a, i) =>
+                          `${a.name} ${percent(f.risk_contributions_execution![i])}`,
+                      )
+                      .join(" · ")}
+                  </>
+                )}
+                {f.risk_contributions_end && (
+                  <>
+                    <br />
+                    Contributions en fin de période :{" "}
+                    {ready.assets
+                      .map(
+                        (a, i) =>
+                          `${a.name} ${percent(f.risk_contributions_end![i])}`,
+                      )
+                      .join(" · ")}{" "}
+                    (quantités effectives, covariance connue au signal ;
+                    liquidités hors risque)
+                  </>
+                )}
               </p>
             ))}
           </details>
         </>
       )}
-      <details className="validation-details">
-        <summary>Comprendre la méthode et ses limites</summary>
-        <p>
-          Les allocations de volatilité minimale et de corrélation minimale
-          utilisent les trois années précédant chaque signal trimestriel.
-          L’exécution a lieu à la clôture commune suivante. Au moins la moitié
-          des actifs éligibles à cette date est retenue, avec 3 % minimum par
-          ligne et 35 % maximum dès trois actifs. La corrélation minimale
-          minimise la variance pondérée de rendements standardisés : elle ne
-          garantit pas des actifs indépendants.
-        </p>
-        <p>
-          Le retour à la moyenne s’applique aux actions et cryptomonnaies. Les
-          autres actifs sont achetés à parts égales puis conservés à quantité
-          constante, dès leurs premières cotations disponibles. Les actifs sans
-          cours exploitable gardent leur part en liquidités. Chaque séance, il
-          recalcule une régression du logarithme des cours ajustés en devise
-          native sur les trois dernières années. Le z-score est l’écart à cette
-          tendance divisé par l’écart type résiduel. Au seuil d’achat choisi, un
-          achat vise une part égale du capital actif par position ouverte ou
-          nouvelle, plafonnée à 25 % de la valeur totale du portefeuille, frais
-          d’achat compris, même pour la première entrée. La sortie après repli
-          s’active une fois le seuil haut atteint, puis attend un recul de 1 σ
-          depuis le plus haut écart-type observé pendant la détention : par
-          exemple, activation à +2 σ, plus haut à +2,7 σ, vente à +1,7 σ ou
-          moins avec un repli de 1 σ. Elle peut conserver la position tant que
-          l’écart-type progresse ; ce suivi ne garantit pas la conservation d’un
-          gain en prix. Les ventes de financement restent possibles avant ce
-          repli. Les achats utilisent d’abord les liquidités disponibles. Une
-          entrée doit représenter au moins 10 % du portefeuille, frais d’achat
-          compris, ou une part équipondérée si l’univers actif dépasse dix
-          actifs. Ce minimum est arrondi au titre entier supérieur si
-          nécessaire. Les liquidités seules sont utilisées lorsqu’elles couvrent
-          ce minimum. Sinon, la position active dont l’écart-type au signal est
-          le plus élevé parmi ceux atteignant +0,3 σ est réduite, frais compris.
-          Une seule ligne peut financer les achats d’une séance, seulement pour
-          atteindre le minimum utile. Si elle ne suffit pas, l’entrée est
-          ignorée plutôt que d’ouvrir une petite position ou de vendre une
-          deuxième ligne. Une position encore sous sa tendance ou sans
-          écart-type calculable ne finance pas d’achat. Le plafond porte sur la
-          valeur courante, qui varie avec les cours ; il ne constitue pas quatre
-          enveloppes fixes du capital initial. Les lignes passives et leurs
-          budgets réservés sont conservés. Les ventes sont exécutées avant les
-          achats ; les entrées simultanées ont une même taille cible, avec
-          priorité à l’écart-type le plus négatif. Les ordres sont exécutés à la
-          clôture commune suivante. Aucune nouvelle tranche n’est achetée tant
-          que la position est ouverte ; les liquidités libérées sont disponibles
-          pour les actions et cryptomonnaies et ne sont pas rémunérées. Le seuil
-          est vérifié à la clôture : l’écart peut le franchir d’un seul coup
-          entre deux séances. La colonne Écart-type affiche la valeur au signal,
-          pas celle du lendemain à l’exécution.
-        </p>
-        <p>
-          Un actif récent n’écourte pas le test des autres lignes. Il ne peut
-          être acheté avant sa première cotation connue ; les signaux et les
-          optimisations attendent trois ans d’historique propre à cet actif. Les
-          comparateurs investissent sa part à sa disponibilité (à la prochaine
-          révision pour l’équipondération). Le calendrier suit les séances de la
-          référence, y compris pour les cryptomonnaies.
-        </p>
-        <p>
-          Les courbes partent de 100 ; les positions et le journal utilisent le
-          capital initial saisi. En mode fractionnaire, les parts ajustées sont
-          des unités de simulation qui tiennent compte des dividendes réinvestis
-          et des opérations sur titres. Elles ne correspondent pas
-          nécessairement au nombre de titres d’un compte réel. Les valeurs sont
-          converties en euros avec les changes historiques. En mode titres
-          entiers, les quantités des actions et ETF sont des nombres entiers et
-          les dividendes sont versés en liquidités.
-        </p>
-        <p>
-          Les frais s’appliquent à chaque achat et vente, entrée comprise, sans
-          vente finale fictive. L’équipondération est rétablie chaque trimestre
-          ; l’achat-conservation et la référence sont achetés une seule fois. La
-          référence indicielle est théorique. La rotation annuelle exclut la
-          première entrée. Le dernier trimestre partiel entre dans la courbe,
-          mais pas dans les statistiques de régularité. Les frais payés sont la
-          somme des frais prélevés lors des achats et ventes simulés, pour le
-          capital initial saisi. L’exposition au marché mesure la part du
-          capital investie (valeur des positions divisée par positions +
-          liquidités), pondérée par les jours calendaires depuis la première
-          exécution commune. L’attente initiale avant cette exécution est
-          exclue. Un portefeuille intégralement investi affiche 100 %, même si
-          l’optimiseur ne retient qu’une partie des actifs.
-        </p>
-        <p>
-          Le mode titres entiers applique l’arrondi inférieur à chaque ordre sur
-          les actions et ETF, avec leur cours de clôture hors ajustement des
-          dividendes. Pour les stratégies de volatilité et corrélation
-          minimales, le reliquat sert à acheter des titres entiers abordables
-          parmi les lignes retenues par l’optimiseur, en privilégiant les poids
-          cibles. Le solde non investissable reste en liquidités ; les
-          dividendes disponibles sont versés en liquidités, sans achat
-          automatique de fractions. Les cryptos conservent leurs fractions. La
-          référence indicielle reste théorique ; la référence utilisée est le
-          S&P 500, dividendes réinvestis. Les cours du fournisseur restent
-          ajustés des divisions de titres : les anciennes dénominations de parts
-          ne sont pas reconstituées. Cette option ne contrôle pas l’éligibilité
-          au PEA.
-        </p>
-        <p>
-          Les prix ajustés et les changes peuvent être révisés. Les dates
-          communes avec la référence déterminent les séances simulées. Les frais
-          excluent fiscalité, spread et impact de marché. L’univers est celui
-          sélectionné aujourd’hui ; les anciennes compositions et sociétés
-          disparues ne sont pas reconstituées. Comparer de nombreux réglages
-          puis retenir le meilleur peut surajuster la validation.
-        </p>
-      </details>
+      {mode !== "etf_switch" && (
+        <details className="validation-details">
+          <summary>Comprendre la méthode et ses limites</summary>
+          <p>
+            Les allocations de volatilité minimale et de corrélation minimale
+            utilisent les trois années précédant chaque signal trimestriel.
+            L’exécution a lieu à la clôture commune suivante. La volatilité
+            minimale conserve au moins la moitié des actifs éligibles, avec 3 %
+            minimum par ligne et 35 % maximum dès trois actifs. La corrélation
+            minimale optimise tous les actifs ensemble, sans plancher ni nombre
+            minimal de positions, avec un plafond de 35 % dès trois actifs. Elle
+            minimise la variance pondérée de rendements standardisés : deux
+            actifs corrélés peuvent être conservés s’ils diversifient le reste
+            du portefeuille. Leur présence n’est pas garantie.
+          </p>
+          <p>
+            Le retour à la moyenne s’applique aux actions et cryptomonnaies. Les
+            autres actifs sont achetés à parts égales puis conservés à quantité
+            constante, dès leurs premières cotations disponibles. Les actifs
+            sans cours exploitable gardent leur part en liquidités. Chaque
+            séance, il recalcule une régression du logarithme des cours ajustés
+            en devise native sur les trois dernières années. Le z-score est
+            l’écart à cette tendance divisé par l’écart type résiduel. Au seuil
+            d’achat choisi, un achat vise une part égale du capital actif par
+            position ouverte ou nouvelle, plafonnée à 25 % de la valeur totale
+            du portefeuille, frais d’achat compris, même pour la première
+            entrée. La sortie après repli s’active une fois le seuil haut
+            atteint, puis attend un recul de 1 σ depuis le plus haut écart-type
+            observé pendant la détention : par exemple, activation à +2 σ, plus
+            haut à +2,7 σ, vente à +1,7 σ ou moins avec un repli de 1 σ. Elle
+            peut conserver la position tant que l’écart-type progresse ; ce
+            suivi ne garantit pas la conservation d’un gain en prix. Les ventes
+            de financement restent possibles avant ce repli. Les achats
+            utilisent d’abord les liquidités disponibles. Une entrée doit
+            représenter au moins 10 % du portefeuille, frais d’achat compris, ou
+            une part équipondérée si l’univers actif dépasse dix actifs. Ce
+            minimum est arrondi au titre entier supérieur si nécessaire. Les
+            liquidités seules sont utilisées lorsqu’elles couvrent ce minimum.
+            Sinon, la position active dont l’écart-type au signal est le plus
+            élevé parmi ceux atteignant +0,3 σ est réduite, frais compris. Une
+            seule ligne peut financer les achats d’une séance, seulement pour
+            atteindre le minimum utile. Si elle ne suffit pas, l’entrée est
+            ignorée plutôt que d’ouvrir une petite position ou de vendre une
+            deuxième ligne. Une position encore sous sa tendance ou sans
+            écart-type calculable ne finance pas d’achat. Le plafond porte sur
+            la valeur courante, qui varie avec les cours ; il ne constitue pas
+            quatre enveloppes fixes du capital initial. Les lignes passives et
+            leurs budgets réservés sont conservés. Les ventes sont exécutées
+            avant les achats ; les entrées simultanées ont une même taille
+            cible, avec priorité à l’écart-type le plus négatif. Les ordres sont
+            exécutés à la clôture commune suivante. Aucune nouvelle tranche
+            n’est achetée tant que la position est ouverte ; les liquidités
+            libérées sont disponibles pour les actions et cryptomonnaies et ne
+            sont pas rémunérées. Le seuil est vérifié à la clôture : l’écart
+            peut le franchir d’un seul coup entre deux séances. La colonne
+            Écart-type affiche la valeur au signal, pas celle du lendemain à
+            l’exécution.
+          </p>
+          <p>
+            Un actif récent n’écourte pas le test des autres lignes. Il ne peut
+            être acheté avant sa première cotation connue ; les signaux et les
+            optimisations attendent trois ans d’historique propre à cet actif.
+            Les comparateurs investissent sa part à sa disponibilité (à la
+            prochaine révision pour l’équipondération). Le calendrier suit les
+            séances de la référence, y compris pour les cryptomonnaies.
+          </p>
+          <p>
+            Les courbes partent de 100 ; les positions et le journal utilisent
+            le capital initial saisi. En mode fractionnaire, les parts ajustées
+            sont des unités de simulation qui tiennent compte des dividendes
+            réinvestis et des opérations sur titres. Elles ne correspondent pas
+            nécessairement au nombre de titres d’un compte réel. Les valeurs
+            sont converties en euros avec les changes historiques. En mode
+            titres entiers, les quantités des actions et ETF sont des nombres
+            entiers et les dividendes sont versés en liquidités.
+          </p>
+          <p>
+            Les frais s’appliquent à chaque achat et vente, entrée comprise,
+            sans vente finale fictive. L’équipondération est rétablie chaque
+            trimestre ; l’achat-conservation et la référence sont achetés une
+            seule fois. La référence indicielle est théorique. La rotation
+            annuelle exclut la première entrée. Le dernier trimestre partiel
+            entre dans la courbe, mais pas dans les statistiques de régularité.
+            Les frais payés sont la somme des frais prélevés lors des achats et
+            ventes simulés, pour le capital initial saisi. L’exposition au
+            marché mesure la part du capital investie (valeur des positions
+            divisée par positions + liquidités), pondérée par les jours
+            calendaires depuis la première exécution commune. L’attente initiale
+            avant cette exécution est exclue. Un portefeuille intégralement
+            investi affiche 100 %, même si l’optimiseur ne retient qu’une partie
+            des actifs.
+          </p>
+          <p>
+            Le mode titres entiers applique l’arrondi inférieur à chaque ordre
+            sur les actions et ETF, avec leur cours de clôture hors ajustement
+            des dividendes. Pour les stratégies de volatilité et corrélation
+            minimales et de parité de risque, le reliquat sert à acheter des
+            titres entiers abordables parmi les lignes retenues par
+            l’optimiseur, en privilégiant les poids cibles. Le solde non
+            investissable reste en liquidités ; les dividendes disponibles sont
+            versés en liquidités, sans achat automatique de fractions. Les
+            cryptos conservent leurs fractions. La référence indicielle reste
+            théorique ; la référence utilisée est le S&P 500, dividendes
+            réinvestis. Les cours du fournisseur restent ajustés des divisions
+            de titres : les anciennes dénominations de parts ne sont pas
+            reconstituées. Cette option ne contrôle pas l’éligibilité au PEA.
+          </p>
+          <p>
+            Les prix ajustés et les changes peuvent être révisés. Les dates
+            communes avec la référence déterminent les séances simulées. Les
+            frais excluent fiscalité, spread et impact de marché. L’univers est
+            celui sélectionné aujourd’hui ; les anciennes compositions et
+            sociétés disparues ne sont pas reconstituées. Comparer de nombreux
+            réglages puis retenir le meilleur peut surajuster la validation.
+          </p>
+        </details>
+      )}
     </section>
   );
 }

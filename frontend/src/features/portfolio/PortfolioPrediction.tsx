@@ -1,10 +1,9 @@
 import { useEffect, useState } from "react";
 import { post } from "../../lib/api";
-import { useMemo } from "react";
 import { percent } from "../../lib/format";
-import {
+import type {
   predictPortfolio,
-  type HoldingSeries,
+  HoldingSeries,
 } from "../prediction/portfolioModel";
 import { PredictionChart } from "../prediction/PredictionChart";
 import { money } from "../../lib/currency";
@@ -22,21 +21,51 @@ type Result =
       current_total: number;
     };
 
+type Projection = ReturnType<typeof predictPortfolio>;
+const projectionCache = new Map<
+  string,
+  { result: Result; model: Projection }
+>();
+
 export function PortfolioPrediction({
   holdings,
   dataRevision,
+  active = true,
 }: {
   holdings: string;
   dataRevision: string;
+  active?: boolean;
 }) {
   const [result, setResult] = useState<Result | null>(null);
+  const [model, setModel] = useState<Projection | null>(null);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   useEffect(() => {
+    if (!(JSON.parse(holdings) as unknown[]).length) {
+      setResult({
+        status: "insufficient",
+        message:
+          "Renseignez vos quantités dans Positions pour afficher la prédiction.",
+        excluded: [],
+      });
+      setModel(null);
+      setError("");
+      return;
+    }
+    const key = holdings + ":" + dataRevision;
+    const cached = projectionCache.get(key);
+    if (cached && revision === 0) {
+      setResult(cached.result);
+      setModel(cached.model);
+      setError("");
+      return;
+    }
+    let worker: Worker | undefined;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
     setResult(null);
+    setModel(null);
     setError("");
     async function load() {
       try {
@@ -54,6 +83,33 @@ export function PortfolioPrediction({
           timer = setTimeout(load, 2000);
         }
         setResult(data);
+        if (data.status === "ready") {
+          worker = new Worker(
+            new URL("../prediction/portfolioWorker.ts", import.meta.url),
+            { type: "module" },
+          );
+          worker.onmessage = (
+            event: MessageEvent<{ model?: Projection; error?: string }>,
+          ) => {
+            if (controller.signal.aborted) return;
+            if (event.data.model) {
+              setModel(event.data.model);
+              projectionCache.set(key, {
+                result: data,
+                model: event.data.model,
+              });
+              if (projectionCache.size > 4)
+                projectionCache.delete(projectionCache.keys().next().value!);
+            } else setError(event.data.error ?? "La projection a échoué.");
+            worker?.terminate();
+          };
+          worker.onerror = () => {
+            if (!controller.signal.aborted)
+              setError("Le calcul de la projection a échoué. Réessayez.");
+            worker?.terminate();
+          };
+          worker.postMessage(data.series);
+        }
       } catch (e) {
         if (!controller.signal.aborted) setError((e as Error).message);
       }
@@ -61,11 +117,13 @@ export function PortfolioPrediction({
     void load();
     return () => {
       controller.abort();
+      worker?.terminate();
       clearTimeout(timer);
     };
   }, [holdings, dataRevision, revision]);
   return (
     <section
+      hidden={!active}
       className="portfolio-content"
       aria-label="Projection du portefeuille"
     >
@@ -92,30 +150,17 @@ export function PortfolioPrediction({
             </p>
           ))}
         </>
-      ) : (
-        <>
-          <JointProjection series={result.series} />
-        </>
-      )}
+      ) : !model ? (
+        <p role="status">Calcul de la projection…</p>
+      ) : active ? (
+        <JointProjection model={model} />
+      ) : null}
     </section>
   );
 }
 
-function JointProjection({ series }: { series: HoldingSeries[] }) {
-  const result = useMemo(() => {
-    try {
-      return { model: predictPortfolio(series) };
-    } catch (e) {
-      return { error: (e as Error).message };
-    }
-  }, [series]);
-  if (!result.model)
-    return (
-      <p role="alert" className="error">
-        {result.error}
-      </p>
-    );
-  const { history, forecast, short } = result.model;
+function JointProjection({ model }: { model: Projection }) {
+  const { history, forecast, short } = model;
   const terminal = forecast.at(-1)!;
   return (
     <section

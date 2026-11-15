@@ -272,15 +272,28 @@ export function PortfolioPanel({
             ...(!simulation
               ? [["bank-accounts", "Comptes bancaires", "layers"]]
               : []),
-            ["prediction", "Prédiction", "analysis"],
-            ["correlation", "Corrélations", "analysis"],
-            ["volatility", "Frontières d’efficience", "analysis"],
+            ["prediction", "Prédiction", "prediction"],
+            ["correlation", "Corrélations", "correlation"],
+            ["volatility", "Frontières d’efficience", "frontier"],
             ...(!simulation
               ? [["recommendations", "Recommandation action", "stock"]]
               : []),
-            ["validation-volatility", "Volatilité minimale", "analysis"],
-            ["validation-mean_reversion", "Retour à la moyenne", "analysis"],
-            ["validation-correlation", "Corrélation minimale", "analysis"],
+            ...(simulation
+              ? [
+                  ["validation-volatility", "Volatilité minimale", "shield"],
+                  [
+                    "validation-mean_reversion",
+                    "Retour à la moyenne",
+                    "mean-reversion",
+                  ],
+                  [
+                    "validation-correlation",
+                    "Corrélation minimale",
+                    "diversification",
+                  ],
+                  ["validation-risk_parity", "Parité de risque", "balance"],
+                ]
+              : []),
           ].map(([key, title, icon]) => (
             <button
               key={key}
@@ -338,12 +351,11 @@ export function PortfolioPanel({
         {tab === "bank-accounts" && !simulation && (
           <BankAccounts accounts={bankAccounts} onChange={updateBankAccounts} />
         )}
-        {tab === "prediction" && (
-          <PortfolioPrediction
-            holdings={holdings}
-            dataRevision={historyRevision}
-          />
-        )}
+        <PortfolioPrediction
+          active={tab === "prediction"}
+          holdings={holdings}
+          dataRevision={historyRevision}
+        />
         {tab === "volatility" && (
           <VolatilityPanel
             holdings={JSON.parse(holdings)}
@@ -351,8 +363,15 @@ export function PortfolioPanel({
             lockedAssetIds={lockedAssetIds}
           />
         )}
-        {(["volatility", "mean_reversion", "correlation"] as const).map(
-          (mode) => (
+        {simulation &&
+          (
+            [
+              "volatility",
+              "mean_reversion",
+              "correlation",
+              "risk_parity",
+            ] as const
+          ).map((mode) => (
             <div key={mode} hidden={tab !== `validation-${mode}`}>
               <ValidationPanel
                 holdings={holdings}
@@ -368,8 +387,7 @@ export function PortfolioPanel({
                 )}
               />
             </div>
-          ),
-        )}
+          ))}
         {tab === "recommendations" && !simulation && (
           <RecommendationsPanel
             assets={recommendationAssets}

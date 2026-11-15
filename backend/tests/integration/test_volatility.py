@@ -10,6 +10,12 @@ from investor import db
 from investor.assets.comparison import INDEX
 
 
+@pytest.fixture(autouse=True)
+def seed_frontier_reference(client):
+    _, days = client
+    seed(days, "yf-psp5.pa", category="etf", unit="EUR")
+
+
 def risk(client, holdings):
     response = client.post(
         "/api/portfolio/volatility",
@@ -45,8 +51,8 @@ def test_portfolio_uses_only_holdings_and_has_one_point_per_asset(client):
     # A comparator must not influence the holdings' opportunity frontier.
     with db.connect() as c:
         c.execute(
-            "UPDATE reference_observations SET value=value*2 WHERE symbol=? AND date=?",
-            (INDEX, days[-1]),
+            "UPDATE observations SET value=value*2 WHERE asset_id=? AND date=?",
+            ("yf-psp5.pa", days[-1]),
         )
     assert risk(http, [("a", 1), ("b", 1)])["frontier"] == combined["frontier"]
     alone = risk(http, [("a", 1)])
@@ -64,8 +70,8 @@ def test_currency_dates_and_short_history(client):
             [(1.2 * math.exp(0.02 * math.sin(i)), d) for i, d in enumerate(days)],
         )
         c.execute(
-            "DELETE FROM reference_observations WHERE symbol=? AND date=?",
-            (INDEX, days[30]),
+            "DELETE FROM observations WHERE asset_id=? AND date=?",
+            ("yf-psp5.pa", days[30]),
         )
     second = risk(http, [("a", 1)])
     assert point(first, "a")["volatility"] != pytest.approx(
@@ -83,13 +89,13 @@ def test_missing_reference_pending_and_duplicate_validation(client):
     http, days = client
     seed(days)
     with db.connect() as c:
-        c.execute("DELETE FROM reference_imports WHERE symbol=?", (INDEX,))
+        c.execute("DELETE FROM observations WHERE asset_id=?", ("yf-psp5.pa",))
     assert risk(http, [("a", 1)])["status"] == "pending"
     assert http.get("/api/assets/a/volatility").json()["status"] == "pending"
     with db.connect() as c:
         assert (
             c.execute(
-                "SELECT count(*) FROM import_jobs WHERE symbol=?", (INDEX,)
+                "SELECT count(*) FROM import_jobs WHERE symbol=?", ("PSP5.PA",)
             ).fetchone()[0]
             == 1
         )
@@ -149,3 +155,21 @@ def test_each_asset_matches_aligned_sample_and_always_has_benchmark(client, cate
     assert result == http.get("/api/assets/a/volatility").json()
     assert http.get("/api/assets/a/volatility?years=0").status_code == 422
     assert http.get("/api/assets/absent/volatility").status_code == 404
+
+
+def test_ese_reference_is_identical_on_asset_and_portfolio_views(client):
+    http, days = client
+    seed(days, "a")
+    a = http.get("/api/assets/a/volatility").json()
+    p = risk(http, [("a", 1)])
+    assert a["benchmark_asset_id"] == p["benchmark_asset_id"] == "yf-psp5.pa"
+    assert point(a, "sp500") == point(p, "sp500")
+    assert point(a, "sp500")["name"] == "S&P 500 PEA · PSP5"
+    # A change to the abstract index must not alter this benchmark.
+    with db.connect() as c:
+        c.execute(
+            "UPDATE reference_observations SET value=value*2 WHERE symbol=? AND date=?",
+            (INDEX, days[-1]),
+        )
+    assert http.get("/api/assets/a/volatility").json() == a
+    assert risk(http, [("a", 1)]) == p

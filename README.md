@@ -30,3 +30,5 @@ make web
 Ouvrir **[http://localhost:5173](http://localhost:5173)**. L’API et sa documentation sont disponibles sur [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). Ajouter ensuite les actions choisies depuis l’interface ; l’API assure leur import et leur actualisation en arrière-plan.
 
 Les méthodes de calcul, les sources de données et les commandes complémentaires sont détaillées dans la [documentation technique](docs/guide-technique.md).
+
+Le [journal des essais et des décisions](docs/journal-des-essais.md) rassemble les recherches sur les stratégies, leurs résultats favorables et défavorables, les limites et les décisions retenues.

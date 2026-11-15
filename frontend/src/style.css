@@ -3901,3 +3901,73 @@ td {
   color: var(--muted);
   font-size: 11px;
 }
+
+.simulation-intro {
+  padding: 6px;
+}
+.simulation-scenario-list {
+  gap: 3px;
+}
+.simulation-scenario-list button {
+  padding: 7px 9px;
+  gap: 3px;
+}
+
+.strategy-list-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.strategy-list button.strategy-built-in {
+  border-color: #83b4ee66;
+  background: #83b4ee0a;
+}
+.strategy-list button.strategy-built-in.selected {
+  border-color: #83b4ee;
+  background: #83b4ee18;
+  color: #afd2ff;
+}
+.portfolio-validation-standalone .portfolio-section-heading {
+  margin-bottom: 24px;
+}
+.portfolio-validation-standalone .portfolio-section-heading > div {
+  width: 100%;
+  min-width: 0;
+}
+.portfolio-validation-standalone .portfolio-section-heading h1 {
+  margin: 0 0 12px;
+}
+.portfolio-validation-standalone .portfolio-section-heading p {
+  max-width: none;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+
+.sp500-batch-progress {
+  display: block;
+  width: 100%;
+  height: 4px;
+  margin: 12px 0;
+  border: 0;
+  accent-color: #d5aa73;
+}
+.sp500-batch-progress::-webkit-progress-bar {
+  background: #ffffff0a;
+  border-radius: 2px;
+}
+.sp500-batch-progress::-webkit-progress-value {
+  background: #d5aa73;
+  border-radius: 2px;
+}
+.sp500-batch-progress::-moz-progress-bar {
+  background: #d5aa73;
+}
+.portfolio-panel .sp500-batch-metrics th:first-child {
+  width: 25%;
+}
+.portfolio-panel .sp500-batch-metrics th,
+.portfolio-panel .sp500-batch-metrics td {
+  padding: 16px 12px;
+  overflow-wrap: anywhere;
+}

@@ -1,5 +1,5 @@
 import type { Point } from "../../lib/types";
-import { predict, type ForecastPoint } from "./model";
+import { fitPrediction, simulatePrediction, type ForecastPoint } from "./model";
 
 export type HoldingSeries = {
   id: string;
@@ -61,7 +61,7 @@ function normal(day: number, pair: number, component: number) {
 export function predictPortfolio(series: HoldingSeries[]) {
   if (!series.length) throw new Error("Aucune position à projeter.");
   const fitted = series.map((s) =>
-    s.points.length >= 61 ? predict(s.points, s.crypto) : null,
+    s.points.length >= 61 ? fitPrediction(s.points, s.crypto) : null,
   );
   const vectors = fitted.map((m) => {
     const vector = new Map<string, number>();
@@ -103,18 +103,34 @@ export function predictPortfolio(series: HoldingSeries[]) {
   for (let t = Date.parse(origin) + DAY; t <= +horizon; t += DAY)
     dates.push(new Date(t).toISOString().slice(0, 10));
   const totals = dates.map(() => new Float64Array(PATHS));
+  // Shared independent Gaussian draws: generate each date/pair/component once.
+  const independent = new Map<string, Float64Array[]>();
+  function normals(time: string) {
+    let values = independent.get(time);
+    if (!values) {
+      const day = Math.floor(Date.parse(time) / DAY);
+      values = series.map((_, k) =>
+        Float64Array.from({ length: PATHS / 2 }, (_, pair) =>
+          normal(day, pair, k),
+        ),
+      );
+      independent.set(time, values);
+    }
+    return values;
+  }
   series.forEach((s, index) => {
     const samples = new Map<string, Float64Array>();
     const last = s.points.at(-1)!;
     function shock(time: string, pair: number) {
-      const day = Math.floor(Date.parse(time) / DAY);
-      return factor[index].reduce(
-        (sum, w, k) => sum + w * normal(day, pair, k),
-        0,
-      );
+      const draws = normals(time);
+      let value = 0;
+      for (let k = 0; k <= index; k++)
+        value += factor[index][k] * draws[k][pair];
+      return value;
     }
+
     if (fitted[index]) {
-      predict(s.points, s.crypto, {
+      simulatePrediction(fitted[index], {
         normal: shock,
         observe: (time, prices) => {
           samples.set(time, prices);
