@@ -65,6 +65,7 @@ export function PortfolioPanel({
 
   const [allocationView, setAllocationView] = useState("assets");
   const [years, setYears] = useState(3);
+  const [frontierYears, setFrontierYears] = useState(3);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -361,6 +362,8 @@ export function PortfolioPanel({
             holdings={JSON.parse(holdings)}
             assets={assets}
             lockedAssetIds={lockedAssetIds}
+            years={frontierYears}
+            onYearsChange={setFrontierYears}
           />
         )}
         {simulation &&

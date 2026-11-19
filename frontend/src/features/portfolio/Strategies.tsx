@@ -2,7 +2,11 @@ import { useState } from "react";
 import { Icon } from "../../components/Icon";
 import type { Asset } from "../../lib/types";
 import { PortfolioPanel } from "./PortfolioPanel";
-import { sp500Strategy, type StrategyStore as Store } from "./useStrategies";
+import {
+  downsideStrategy,
+  sp500Strategy,
+  type StrategyStore as Store,
+} from "./useStrategies";
 import { Sp500Workspace } from "./Sp500Workspace";
 
 export function StrategyLibrary({ store }: { store: Store }) {
@@ -35,37 +39,43 @@ export function StrategyLibrary({ store }: { store: Store }) {
         </button>
       </form>
       <div className="strategy-list">
-        {[...store.strategies, sp500Strategy].map((strategy) => (
-          <button
-            key={strategy.id}
-            className={[
-              store.selected?.id === strategy.id ? "selected" : "",
-              strategy.id === sp500Strategy.id ? "strategy-built-in" : "",
-            ].join(" ")}
-            aria-pressed={store.selected?.id === strategy.id}
-            onClick={() => store.select(strategy.id)}
-          >
-            <span className="strategy-list-title">
-              <Icon
-                name={
-                  strategy.id === sp500Strategy.id ? "regression" : "layers"
-                }
-                size={17}
-              />
-              {strategy.name}
-            </span>
-            {strategy.id === sp500Strategy.id ? (
-              <small>S&P 500 PEA · PSP5</small>
-            ) : (
-              <small>
-                {Object.keys(strategy.quantities).length}{" "}
-                {Object.keys(strategy.quantities).length === 1
-                  ? "actif"
-                  : "actifs"}
-              </small>
-            )}
-          </button>
-        ))}
+        {[...store.strategies, sp500Strategy, downsideStrategy].map(
+          (strategy) => (
+            <button
+              key={strategy.id}
+              className={[
+                store.selected?.id === strategy.id ? "selected" : "",
+                strategy.id === sp500Strategy.id ||
+                strategy.id === downsideStrategy.id
+                  ? "strategy-built-in"
+                  : "",
+              ].join(" ")}
+              aria-pressed={store.selected?.id === strategy.id}
+              onClick={() => store.select(strategy.id)}
+            >
+              <span className="strategy-list-title">
+                <Icon
+                  name={
+                    strategy.id === sp500Strategy.id ? "regression" : "layers"
+                  }
+                  size={17}
+                />
+                {strategy.name}
+              </span>
+              {strategy.id === sp500Strategy.id ||
+              strategy.id === downsideStrategy.id ? (
+                <small>S&P 500 PEA · PSP5</small>
+              ) : (
+                <small>
+                  {Object.keys(strategy.quantities).length}{" "}
+                  {Object.keys(strategy.quantities).length === 1
+                    ? "actif"
+                    : "actifs"}
+                </small>
+              )}
+            </button>
+          ),
+        )}
       </div>
     </aside>
   );
@@ -113,8 +123,13 @@ export function StrategyWorkspace({
           {store.error}
         </p>
       )}
-      {strategy.id === sp500Strategy.id ? (
-        <Sp500Workspace assets={assets} />
+      {strategy.id === downsideStrategy.id ||
+      strategy.id === sp500Strategy.id ? (
+        <Sp500Workspace
+          key={strategy.id}
+          assets={assets}
+          downside={strategy.id === downsideStrategy.id}
+        />
       ) : (
         <>
           <PortfolioPanel

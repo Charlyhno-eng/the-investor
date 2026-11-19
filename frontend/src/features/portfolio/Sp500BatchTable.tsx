@@ -12,6 +12,7 @@ type Row = {
 export type BatchResult = {
   status: "running" | "complete";
   completed: number;
+  joint_wins?: number;
   total: number;
   seed: number;
   metrics: Record<string, Row>;
@@ -34,9 +35,11 @@ const metrics = [
 export function Sp500BatchTable({
   result,
   running,
+  strategyName = "Régression",
 }: {
   result: BatchResult;
   running: boolean;
+  strategyName?: string;
 }) {
   return (
     <>
@@ -49,6 +52,12 @@ export function Sp500BatchTable({
             : " · Arrêté — résultats partiels"}{" "}
         · Graine du lot : {result.seed}
       </p>
+      {result.joint_wins !== undefined && (
+        <p>
+          Rendement supérieur et drawdown moins profond que PSP5 :{" "}
+          {result.joint_wins} / {result.completed} parcours.
+        </p>
+      )}
       <progress
         className="sp500-batch-progress"
         value={result.completed}
@@ -64,9 +73,9 @@ export function Sp500BatchTable({
             <tr>
               <th scope="col">Indicateur</th>
               <th scope="col">Buy & Hold · moyenne</th>
-              <th scope="col">Régression · moyenne</th>
+              <th scope="col">{strategyName} · moyenne</th>
               <th scope="col">Buy & Hold gagne</th>
-              <th scope="col">Régression gagne</th>
+              <th scope="col">{strategyName} gagne</th>
               <th scope="col">Égalités</th>
             </tr>
           </thead>

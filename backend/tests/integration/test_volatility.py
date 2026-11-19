@@ -1,6 +1,7 @@
 """Numerical risk invariants and real HTTP contracts; no network requests."""
 
 import math
+from datetime import date, timedelta
 
 import numpy as np
 import pytest
@@ -48,6 +49,18 @@ def test_portfolio_uses_only_holdings_and_has_one_point_per_asset(client):
     assert {p["id"] for p in combined["points"]} == {"a", "b", "sp500"}
     assert combined["frontier_assets"] == ["a", "b"]
     assert combined["frontier"][0]["volatility"] < 1e-5
+    assert combined["portfolio_point"]["volatility"] == pytest.approx(
+        combined["frontier"][0]["volatility"], abs=1e-7
+    )
+    assert len(combined["cloud"]) == 120
+    assert combined == risk(http, [("a", 1), ("b", 1)])
+    reversed_holdings = risk(http, [("b", 1), ("a", 1)])
+    assert reversed_holdings["frontier"] == combined["frontier"]
+    assert reversed_holdings["cloud"] == combined["cloud"]
+    different_weights = risk(http, [("a", 3), ("b", 1)])
+    assert different_weights["frontier"] == combined["frontier"]
+    assert different_weights["cloud"] == combined["cloud"]
+    assert different_weights["portfolio_point"]["volatility"] > 0
     # A comparator must not influence the holdings' opportunity frontier.
     with db.connect() as c:
         c.execute(
@@ -58,6 +71,31 @@ def test_portfolio_uses_only_holdings_and_has_one_point_per_asset(client):
     alone = risk(http, [("a", 1)])
     assert alone["frontier"] == []
     assert alone["frontier_assets"] == ["a"]
+    assert alone["cloud"] == []
+    assert alone["portfolio_point"]["return"] == point(alone, "a")["return"]
+
+
+def test_portfolio_keeps_eur_stocks_when_latest_fx_is_from_previous_session(client):
+    http, days = client
+    for asset_id, unit in (("a", "EUR"), ("b", "EUR"), ("c", "USD")):
+        seed(days, asset_id, unit=unit)
+    with db.connect() as connection:
+        previous = (date.fromisoformat(days[-1]) - timedelta(days=1)).isoformat()
+        connection.execute(
+            "DELETE FROM reference_observations WHERE symbol='EURUSD=X' AND date=?",
+            (days[-1],),
+        )
+        connection.execute(
+            "INSERT OR REPLACE INTO reference_observations VALUES ('EURUSD=X',?,1.25)",
+            (previous,),
+        )
+    result = risk(http, [("a", 1), ("b", 1), ("c", 1)])
+    assert result["excluded"] == []
+    assert result["frontier_assets"] == ["a", "b", "c"]
+    assert len(result["cloud"]) == 3000
+    for position in result["positions"][:2]:
+        assert position["fx_date"] == previous
+        assert position["price"] == pytest.approx(100)
 
 
 def test_currency_dates_and_short_history(client):
@@ -126,6 +164,10 @@ def test_frontier_with_all_positions_locked_collapses_to_actual_portfolio(client
     result = response.json()
     assert len(result["frontier"]) == 1
     assert result["lower_frontier"] == []
+    assert result["cloud"] == []
+    assert (
+        result["portfolio_point"]["volatility"] == result["frontier"][0]["volatility"]
+    )
     prices = np.array([[v[2] for v in values] for values in (a, b)]).T
     changes = np.diff(prices, axis=0) / prices[:-1]
     expected = changes @ [0.75, 0.25]

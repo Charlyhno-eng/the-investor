@@ -162,7 +162,16 @@ def markowitz_frontier(means, covariance):
     return upper, lower
 
 
-def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locked=None):
+def risk_map(
+    assets,
+    histories,
+    benchmark,
+    years,
+    *,
+    portfolio_view=False,
+    locked=None,
+    portfolio_weights=None,
+):
     monthly = any(a["frequency"] == "monthly" for a in assets)
     histories = [buckets(h, monthly) for h in histories] + [buckets(benchmark, monthly)]
     common = sorted(set.intersection(*(set(h) for h in histories)))
@@ -199,9 +208,10 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
     # The benchmark is a comparator, not a hidden addition to portfolio holdings.
     universe_means = means[:-1] if portfolio_view else means
     universe_covariance = covariance[:-1, :-1] if portfolio_view else covariance
+    free = [i for i in range(len(universe_means)) if i not in (locked or {})]
+    allocation_means, allocation_covariance = universe_means, universe_covariance
     if locked:
         fixed = np.array([locked.get(i, 0) for i in range(len(assets))])
-        free = [i for i in range(len(assets)) if i not in locked]
         if not free:
             frontier, lower_frontier = (
                 coordinates(fixed, universe_means, universe_covariance),
@@ -211,12 +221,12 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
             # Every free-allocation vertex includes exactly the same locked holdings.
             vertices = np.tile(fixed, (len(free), 1))
             vertices[np.arange(len(free)), free] = 1 - fixed.sum()
-            reduced_means = vertices @ universe_means
-            reduced_covariance = vertices @ universe_covariance @ vertices.T
+            allocation_means = vertices @ universe_means
+            allocation_covariance = vertices @ universe_covariance @ vertices.T
             frontier, lower_frontier = (
-                markowitz_frontier(reduced_means, reduced_covariance)
+                markowitz_frontier(allocation_means, allocation_covariance)
                 if len(free) > 1
-                else (coordinates([1], reduced_means, reduced_covariance), [])
+                else (coordinates([1], allocation_means, allocation_covariance), [])
             )
     else:
         frontier, lower_frontier = (
@@ -224,7 +234,39 @@ def risk_map(assets, histories, benchmark, years, *, portfolio_view=False, locke
             if assets
             else ([], [])
         )
+    portfolio_details = {}
+    if portfolio_view:
+        cloud = []
+        if len(free) > 1:
+            generator = np.random.default_rng(0)
+            # Sample both balanced and concentrated allocations to cover the
+            # interior and the edges of the feasible region.
+            if len(free) == 2:
+                weights = np.arange(1, 121) / 121
+                allocations = np.column_stack((weights, 1 - weights))
+            else:
+                allocations = np.vstack(
+                    [
+                        generator.dirichlet(
+                            np.full(len(free), concentration), size=1000
+                        )
+                        for concentration in (0.3, 0.65, 1.25)
+                    ]
+                )
+            cloud = coordinates(allocations, allocation_means, allocation_covariance)
+        portfolio_point = None
+        if portfolio_weights is not None and assets:
+            portfolio_point = {
+                "id": "current-portfolio",
+                "name": "Portefeuille actuel",
+                "kind": "portfolio",
+                **coordinates(portfolio_weights, universe_means, universe_covariance)[
+                    0
+                ],
+            }
+        portfolio_details = {"portfolio_point": portfolio_point, "cloud": cloud}
     return {
+        **portfolio_details,
         "status": "ready",
         "currency": "EUR",
         "frequency": "monthly" if monthly else "daily",
@@ -273,7 +315,15 @@ def load_histories(connection, assets, *, include_benchmark=True, allow_cached=F
     return histories, benchmark
 
 
-def load_map(connection, assets, years, *, portfolio_view=False, locked=None):
+def load_map(
+    connection,
+    assets,
+    years,
+    *,
+    portfolio_view=False,
+    locked=None,
+    portfolio_weights=None,
+):
     benchmark_asset = connection.execute(
         "SELECT * FROM assets WHERE id='yf-psp5.pa'"
     ).fetchone()
@@ -314,6 +364,7 @@ def load_map(connection, assets, years, *, portfolio_view=False, locked=None):
         years,
         portfolio_view=portfolio_view,
         locked=locked,
+        portfolio_weights=portfolio_weights,
     )
 
 
@@ -344,7 +395,7 @@ def portfolio_volatility(request: PortfolioRequest):
     valuation = portfolio(request.model_copy(update={"include_correlation": False}))
     if valuation["status"] == "pending":
         return valuation
-    positions = valuation["positions"]
+    positions = sorted(valuation["positions"], key=lambda p: p["id"])
     with connect() as connection:
         assets = [
             connection.execute("SELECT * FROM assets WHERE id=?", (p["id"],)).fetchone()
@@ -355,10 +406,15 @@ def portfolio_volatility(request: PortfolioRequest):
             assets,
             request.years,
             portfolio_view=True,
+            portfolio_weights=[p["weight"] for p in positions],
             locked={
                 i: p["weight"]
                 for i, p in enumerate(positions)
                 if p["id"] in request.locked_asset_ids
             },
         )
-    return {**result, "positions": positions, "excluded": valuation["excluded"]}
+    return {
+        **result,
+        "positions": valuation["positions"],
+        "excluded": valuation["excluded"],
+    }

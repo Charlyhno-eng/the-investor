@@ -13,6 +13,11 @@ export const sp500Strategy: Strategy = {
   quantities: {},
   lockedAssetIds: [],
 };
+export const downsideStrategy: Strategy = {
+  ...sp500Strategy,
+  id: "builtin-psp5-downside",
+  name: "S&P 500 · Filtre de baisses + cinq modèles",
+};
 const storageKey = "investor-strategies";
 function readStrategies(): Strategy[] {
   try {
@@ -23,6 +28,7 @@ function readStrategies(): Strategy[] {
         !item ||
         typeof item.id !== "string" ||
         item.id === sp500Strategy.id ||
+        item.id === downsideStrategy.id ||
         typeof item.name !== "string" ||
         !item.quantities ||
         typeof item.quantities !== "object" ||
@@ -61,11 +67,13 @@ export function useStrategies() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const selected =
-    selectedId === sp500Strategy.id
-      ? sp500Strategy
-      : (strategies.find((s) => s.id === selectedId) ??
-        strategies[0] ??
-        sp500Strategy);
+    selectedId === downsideStrategy.id
+      ? downsideStrategy
+      : selectedId === sp500Strategy.id
+        ? sp500Strategy
+        : (strategies.find((s) => s.id === selectedId) ??
+          strategies[0] ??
+          sp500Strategy);
   function save(next: Strategy[]) {
     setStrategies(next);
     try {
@@ -78,7 +86,8 @@ export function useStrategies() {
     }
   }
   function update(strategy: Strategy) {
-    if (strategy.id === sp500Strategy.id) return;
+    if (strategy.id === sp500Strategy.id || strategy.id === downsideStrategy.id)
+      return;
     save(strategies.map((s) => (s.id === strategy.id ? strategy : s)));
   }
   function create(name: string) {
@@ -100,7 +109,8 @@ export function useStrategies() {
     create,
     update,
     remove: (id: string) => {
-      if (id !== sp500Strategy.id) save(strategies.filter((s) => s.id !== id));
+      if (id !== sp500Strategy.id && id !== downsideStrategy.id)
+        save(strategies.filter((s) => s.id !== id));
     },
   };
 }

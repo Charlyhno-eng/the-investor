@@ -44,9 +44,11 @@ def grid():
     ]
 
 
-def experts(days, p):
-    f = engine.common.common.regression.previous.prepare(days, p)[0]
-    z60, z18 = f[60][0], f[18][0]
+def experts(days, p, regression_scores=None):
+    if regression_scores is None:
+        f = engine.common.common.regression.previous.prepare(days, p)[0]
+        regression_scores = f[60][0], f[18][0]
+    z60, z18 = regression_scores
     state = False
     defensive = np.zeros(2, dtype=bool)
     targets = np.empty((2, len(p)))
@@ -93,9 +95,9 @@ def experts(days, p):
     return targets, np.log1p(returns)
 
 
-def weights(p, cs, days=None):
+def weights(p, cs, days=None, regression_scores=None):
     assert days is not None
-    target, lr = experts(days, p)
+    target, lr = experts(days, p, regression_scores)
     cache = {}
     prior = np.array([0.5, 0.125, 0.125, 0.125, 0.125])[:, None]
     result = []

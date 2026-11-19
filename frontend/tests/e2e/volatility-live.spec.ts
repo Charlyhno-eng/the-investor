@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-// Run against an isolated database snapshot with cached FX and ^SP500TR.
+// Run against an isolated database snapshot with cached FX and PSP5.
 // INVESTOR_LIVE_VOLATILITY=1 npm test -- tests/e2e/volatility-live.spec.ts
 // Never changes the user's portfolio: browser quantities belong to this test context.
 test("real series and mixed portfolio have usable volatility charts", async ({
@@ -15,6 +15,11 @@ test("real series and mixed portfolio have usable volatility charts", async ({
   const quantities = {
     "yf-aapl": 4,
     "yf-msft": 2,
+    "yf-air.pa": 2,
+    "yf-gtt.pa": 2,
+    "yf-saf.pa": 2,
+    "yf-su.pa": 2,
+    "yf-te.pa": 2,
     "yf-btc-usd": 0.01,
     "wb-gold": 0.1,
     IRLTLT01FRM156N: 1,
@@ -51,16 +56,24 @@ test("real series and mixed portfolio have usable volatility charts", async ({
     }
   }
   await page.goto("/markets/portfolio");
-  const responsePromise = page.waitForResponse((r) =>
-    r.url().endsWith("/portfolio/volatility"),
+  const responsePromise = page.waitForResponse(
+    (r) =>
+      r.url().endsWith("/portfolio/volatility") &&
+      r.request().postDataJSON().holdings.length ===
+        Object.keys(quantities).length,
   );
   await page
     .getByRole("tab", { name: "Frontières d’efficience", exact: true })
     .click();
   const initial = await (await responsePromise).json();
   expect(initial.status).toBe("ready");
-  expect(initial.frequency).toBe("monthly");
-  expect(initial.positions.length).toBe(4);
+  expect(initial.frequency).toBe("daily");
+  expect(initial.frontier_assets).toEqual(
+    Object.keys(quantities)
+      .filter((id) => id !== "IRLTLT01FRM156N")
+      .sort(),
+  );
+  expect(initial.positions.length).toBe(9);
   expect(
     initial.positions.reduce(
       (sum: number, p: { weight: number }) => sum + p.weight,
@@ -73,8 +86,13 @@ test("real series and mixed portfolio have usable volatility charts", async ({
   expect(
     initial.points.find((p: { id: string }) => p.id === "sp500").volatility,
   ).toBeGreaterThan(0);
-  await expect(page.locator(".risk-marker")).toHaveCount(5);
+  await expect(page.locator(".risk-marker")).toHaveCount(2);
+  await expect(page.locator(".risk-portfolio-star")).toBeVisible();
+  await expect(page.locator(".risk-allocation-cloud circle")).toHaveCount(3000);
   await expect(page.locator(".vol-panel").getByRole("checkbox")).toHaveCount(0);
+  expect(initial.excluded.map((item: { id: string }) => item.id)).toEqual([
+    "IRLTLT01FRM156N",
+  ]);
   await expect(page.locator(".vol-exclusions")).toContainText(
     "aucun prix de titre",
   );

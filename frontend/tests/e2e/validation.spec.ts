@@ -821,4 +821,34 @@ test("ETF switch fixes its universe and hides discarded controls", async ({
   await expect.poll(() => requests.length).toBe(2);
   expect(requests[1].years).toBe(10);
   expect(requests[1]).not.toHaveProperty("start_date");
+
+  await page
+    .getByRole("button", {
+      name: /S&P 500 · Filtre de baisses \+ cinq modèles/,
+    })
+    .click();
+  await expect(
+    page.getByText("Comparaison sur plusieurs périodes"),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Lancer la validation" }).click();
+  await expect.poll(() => requests[2]?.mode).toBe("psp5_downside");
+  await expect(legend.locator("span")).toHaveText([
+    "S&P 500 PEA · PSP5",
+    "Méthode testée",
+  ]);
+  await expect(
+    panel.getByRole("table", { name: "Résultats hors échantillon" }),
+  ).toBeVisible();
+  await expect(
+    panel.getByRole("heading", { name: "Journal des achats et ventes" }),
+  ).toBeVisible();
+  await panel.getByText("Détail des décisions et des trimestres").click();
+  await expect(
+    panel.getByRole("table", { name: "Fenêtres de validation" }),
+  ).toBeVisible();
+  await page.getByRole("tab", { name: "Simulation aléatoire" }).click();
+  await page.getByLabel("Mode de génération").selectOption("batch");
+  await expect(page.getByLabel("Nombre de parcours")).toHaveValue("1000");
+  await page.getByRole("tab", { name: "Validation historique" }).click();
+  await expect(legend).toBeVisible();
 });

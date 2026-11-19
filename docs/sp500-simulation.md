@@ -154,3 +154,7 @@ textuelle des couleurs du tableau unitaire, ni la ligne « Capital final ».
 Les deux courbes, leurs noms, les métriques, les paramètres et la graine des lots
 restent disponibles. Le générateur, les règles, les graines transmises par l’API
 et les calculs ne changent pas. Les conventions et limites restent documentées ici.
+
+### Filtre de baisses + cinq modèles
+
+La stratégie dispose aussi des deux onglets historique et simulation. Dans sa simulation, le mode multiple ouvre un lot de 1 000 parcours sur cinq ans. Chaque paire partage les mêmes clôtures synthétiques. La stratégie réchauffe ses cinq modèles sur tout le préhistorique PSP5 disponible, puis combine leur exposition avec le filtre de baisses sur 32 séances. Elle évalue sa cible à chaque clôture et exécute à la suivante, à l’initialisation puis dès que l’exposition s’écarte de la cible d’au moins cinq points. Le lot indique aussi le nombre de parcours où rendement annualisé et drawdown surpassent tous deux PSP5 passif. Les routes de simulation unitaire et multiple acceptent le champ `strategy: "downside"`.

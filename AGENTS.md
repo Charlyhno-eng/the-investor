@@ -1,5 +1,20 @@
 # The Investor — repères pour les prochaines sessions
 
+## Adoption du 19 novembre 2026 · Filtre de baisses + cinq modèles
+
+La seconde entrée native PSP5 utilise la combinaison d’accord de la recherche,
+filtre 32 séances, cinq modèles et bande de cinq points, à la place de la règle
+21 séances. Les identifiants existants `psp5_downside` / `downside` désignent
+cette combinaison dans la validation et les deux modes de simulation.
+La stratégie distincte S&P 500 · Régression conserve sa politique v6.
+Source des cibles : `portfolio/psp5_agreement.py`. Contrôle contre les résultats
+archivés : `scripts/verify_pea_agreement.py` sur copie privée.
+
+
+## Contrainte PEA explicite — 19 novembre 2026
+
+La recherche S&P doit porter sur des instruments éligibles au PEA. SPMO américain rejeté, entrée et optimiseur retirés. V6 reste la régression native. Recherche PSP5/cash et branche PSP5/PSPH dans `docs/pea-sp500-recherche.md`. Objectif de comparaison : plus de rendement net et drawdown moindre que PSP5 passif. Règle semivariance baissière 21 séances/80 % intéressante mais sensible au décalage du départ et à 2020, ensuite explicitement adoptée en entrée native distincte « S&P 500 · Concentration des baisses ».
+
 ## Dernière adoption — régression Sharpe v6, 15 novembre 2026
 
 - Après recommandation du candidat historique, l'utilisateur demande sa mise

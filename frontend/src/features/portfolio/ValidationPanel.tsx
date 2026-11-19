@@ -453,6 +453,12 @@ function ValidationLedger({ ready }: { ready: Ready }) {
                                     : "Poche lente · cible 10 %"}
                           </small>
                         )}
+                        {t.reason === "agreement_rebalance" && (
+                          <small className="validation-trade-reason">
+                            Ajustement à la cible des cinq modèles et du filtre
+                            de baisses
+                          </small>
+                        )}
                         {t.reason === "funding" && (
                           <small className="validation-trade-reason">
                             Financement d’un achat
@@ -510,7 +516,8 @@ type ValidationMode =
   | "mean_reversion"
   | "correlation"
   | "risk_parity"
-  | "etf_switch";
+  | "etf_switch"
+  | "psp5_downside";
 
 export function ValidationPanel({
   holdings,
@@ -526,7 +533,7 @@ export function ValidationPanel({
   // Universe edits reset the form; background catalogue updates preserve the user’s work.
   return (
     <ValidationForm
-      key={holdings}
+      key={mode + holdings}
       holdings={holdings}
       mode={mode}
       dataRevision={dataRevision}
@@ -546,10 +553,11 @@ function ValidationForm({
   dataRevision: string;
   prominentHeading?: boolean;
 }) {
+  const sp500 = mode === "etf_switch" || mode === "psp5_downside";
   const [years, setYears] = useState(5);
-  const [fee, setFee] = useState(mode === "etf_switch" ? "0.12" : "0.5");
+  const [fee, setFee] = useState(sp500 ? "0.12" : "0.5");
   const [capital, setCapital] = useState("10000");
-  const [wholeShares, setWholeShares] = useState(mode === "etf_switch");
+  const [wholeShares, setWholeShares] = useState(sp500);
   const [entryZ, setEntryZ] = useState("2");
   const [exitZ, setExitZ] = useState("2");
   const [job, setJob] = useState<{
@@ -578,7 +586,7 @@ function ValidationForm({
     Number.isFinite(Number(value)) &&
     Number(value) >= minimum &&
     Number(value) <= maximum;
-  const validUniverse = mode !== "etf_switch" || ids.length === 1;
+  const validUniverse = !sp500 || ids.length === 1;
   const validReversion =
     mode !== "mean_reversion" ||
     (inRange(entryZ, 0.5, 4) && inRange(exitZ, 0, 4));
@@ -587,6 +595,7 @@ function ValidationForm({
     mean_reversion: "Retour à la moyenne",
     correlation: "Corrélation minimale",
     risk_parity: "Parité de risque",
+    psp5_downside: "S&P 500 · Filtre de baisses + cinq modèles",
     etf_switch: "S&P 500 · Régression",
   }[mode];
   function invalidate() {
@@ -634,10 +643,10 @@ function ValidationForm({
   const ready = result?.status === "ready" ? result : null;
   const chartSeries = useMemo(
     () =>
-      mode === "etf_switch"
+      sp500
         ? series.filter((s) => s.key === "benchmark" || s.key === "strategy")
         : series,
-    [mode],
+    [sp500],
   );
   const lines = useMemo(
     () =>
@@ -662,9 +671,11 @@ function ValidationForm({
         <div>
           {prominentHeading ? <h1>{title}</h1> : <h2>{title}</h2>}
           <p>
-            {mode === "etf_switch"
-              ? "Régression PSP5 : 75 % lente 60 mois, 25 % défensive 18 mois, exposition 10 à 100 %. Sans poche passive, transfert ni rééquilibrage entre poches. État lent initial reconstitué avec les seuls signaux antérieurs au test."
-              : "Trois années glissantes pour calculer les décisions. Rééquilibrage trimestriel pour les allocations optimisées ; seuils vérifiés chaque séance pour le retour à la moyenne."}
+            {mode === "psp5_downside"
+              ? "Chaque séance, cinq modèles et un filtre de baisses sur 32 séances déterminent la part de PSP5 à détenir. Après l’achat initial, un écart d’au moins 5 points avec la cible déclenche un ordre à la clôture suivante."
+              : sp500
+                ? "Régression PSP5 : 75 % lente 60 mois, 25 % défensive 18 mois, exposition 10 à 100 %. Sans poche passive, transfert ni rééquilibrage entre poches. État lent initial reconstitué avec les seuls signaux antérieurs au test."
+                : "Trois années glissantes pour calculer les décisions. Rééquilibrage trimestriel pour les allocations optimisées ; seuils vérifiés chaque séance pour le retour à la moyenne."}
           </p>
         </div>
       </div>
@@ -685,7 +696,7 @@ function ValidationForm({
               fee_rate: Number(fee) / 100,
               initial_capital: Number(capital),
               whole_shares: wholeShares,
-              benchmark_asset_id: mode === "etf_switch" ? "yf-psp5.pa" : null,
+              benchmark_asset_id: sp500 ? "yf-psp5.pa" : null,
               ...(mode === "risk_parity"
                 ? {
                     rebalance_tolerance: 0.03,
@@ -1053,7 +1064,7 @@ function ValidationForm({
           </details>
         </>
       )}
-      {mode !== "etf_switch" && (
+      {!sp500 && (
         <details className="validation-details">
           <summary>Comprendre la méthode et ses limites</summary>
           <p>

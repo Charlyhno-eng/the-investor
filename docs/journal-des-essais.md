@@ -12,9 +12,49 @@ multiple compare les victoires et moyennes de chaque indicateur en direct,
 sans sélection de parcours. Détails : [simulation S&P](sp500-simulation.md).
 
 
-Dernière mise à jour : **15 novembre 2026**.
+Dernière mise à jour : **19 novembre 2026**.
 
 Ce document rassemble les recherches disponibles dans le projet, leurs résultats favorables et défavorables, les décisions prises et les liens vers les rapports reproductibles. Il sert de point d’entrée ; les rapports détaillés conservent les paramètres, périodes, critères et contre-exemples de chaque campagne. Les chiffres ne sont pas recalculés à l’occasion de cette synthèse.
+
+## Adoption du filtre de baisses et des cinq modèles · 19 novembre 2026
+
+À la demande de l’utilisateur, « S&P 500 · Filtre de baisses + cinq modèles » remplace la concentration 21 séances dans son entrée native. Validation historique et simulations individuelles ou multiples utilisent la cible d’accord figée, le filtre 32 séances et la bande de cinq points. Les identifiants de sélection et d’API existants sont conservés. La régression v6 reste une stratégie distincte. [Règle, résultats et limites](pea-sharpe-recherche-elargie.md) · [Vérification de production sur copie privée](../scripts/verify_pea_agreement.py).
+
+## Adoption explicite de la concentration des baisses PSP5
+
+L’utilisateur demande l’intégration de la règle 21 séances, seuil strict de 80 %, décision toutes les cinq séances depuis le début du test. Une entrée native dédiée présente la comparaison à PSP5 passif. La régression v6 reste accessible séparément. Les réserves sur 2020 et le jour de départ sont détaillées dans [la recherche PEA](pea-sp500-recherche.md).
+
+La validation historique affiche désormais les courbes quotidiennes nettes, les positions finales, les transactions et les trimestres avec les réglages choisis. Les rendements annualisés et drawdowns des deux séries ont été rapprochés du tableau indépendant sur 1, 3, 5 et 10 ans aux réglages par défaut. Sur 1 000 parcours synthétiques de cinq ans (graine initiale 20261119), la règle obtient simultanément un rendement supérieur et une baisse maximale moins profonde dans 404 cas. Ces parcours rééchantillonnent le même historique PSP5.
+
+## Recherche élargie du Sharpe sur PSP5 · 19 novembre 2026
+
+1 629 configurations couvrant modèles de risque, apprentissage statistique, signaux macrofinanciers, combinaisons et optimisation directe. Piste post-sélection combinant un filtre de baisses et cinq modèles, figée avant 1 500 nouveaux marchés à cinq ans et 500 à dix ans. Sharpe 0,988/0,979 contre 0,970/0,966 pour la concentration active mais 0,980/0,983 pour la variante 32 séances. Critère de supériorité aux deux horizons face à la variante 32 séances non satisfait. Régression v6 en tête sur les fenêtres PSP5 réelles de trois, cinq et dix ans. Plusieurs contre-exemples sur historiques américains longs et marchés à rendements indépendants. Recherche sans adoption. [Rapport, comparaisons appariées et scripts](pea-sharpe-recherche-elargie.md).
+
+Nouveau lot demandé de 1 000 périodes de cinq ans pour la combinaison figée. Sharpe moyen de 0,9944 contre 0,9779 pour la concentration actuelle, 586 victoires appariées. Rendement annualisé moyen de 13,28 % contre 15,48 %, drawdown moyen de −17,60 % contre −20,51 %. [Détail du lot](pea-sharpe-recherche-elargie.md#nouveau-lot-demandé-de-1-000-périodes-de-cinq-ans).
+
+## Objectif Sharpe seul pour la concentration des baisses · 19 novembre 2026
+
+Sur 2 443 règles, la sélection synthétique retient le seuil 80 % sur 32 séances avec décision quotidienne. Gain moyen de Sharpe réservé face à la règle active de +0,0131 à cinq ans et +0,0085 à dix ans. Le Sharpe historique trois et cinq ans reste inférieur. Le gagnant du classement historique sous-performe en simulation. Recherche sans adoption. [Rapport et protocole](pea-concentration-sharpe.md).
+
+## Affinage de la concentration des baisses · 19 novembre 2026
+
+504 paramétrages, sept représentants figés, puis 1 000 parcours de cinq ans et 300 de dix ans. Aucun représentant n’améliore le rendement moyen de la règle actuelle sur ces deux horizons. Le calcul en rendements de deux séances protège mieux depuis 2021 au prix de 1,10 point de rendement annuel. L’alerte de volatilité protège fortement sur dix ans historiques mais aggrave le drawdown depuis 2021. La règle d’investissement actuelle est conservée. [Rapport complet](pea-concentration-affinage.md).
+
+## Contrainte PEA et recherche de surperformance — 19 novembre 2026
+
+SPMO écarté à la demande de l’utilisateur, stratégie et optimiseur américains retirés de l’application. Recherche sur 3 628 réglages déclarés, principalement PSP5/cash, plus une branche PSP5/PSPH. La part baissière 21 séances/80 % améliore les deux moyennes synthétiques, mais un changement de date de départ inverse le résultat à cinq ans. Aucun remplacement automatique de v6. [Résultats, contre-exemples et reproduction](pea-sp500-recherche.md).
+
+## Adoption SPMO et optimiseur — 19 novembre 2026
+
+Entrée native SPMO MM 200/75 distincte de la régression v6. Deux campagnes sur 54 réglages et 4 000 trajectoires réservées. Le plancher à 85 % perd sur le drawdown moyen cinq ans. La variante à deux moyennes améliore la protection avec moins de rendement. [Optimiseur, séries de résultats et reproduction](spmo-optimiseur.md).
+
+## Surperformance avec drawdown inférieur au S&P 500 — 19 novembre 2026
+
+La référence demandée devient PSP5 passif. Une règle mensuelle SPMO/cash sélectionnée sur 2016–2020 domine historiquement à 3/5/10 ans, avec 16 doubles réussites sur 28 fenêtres glissantes et 114/250 puis 127/250 sur les simulations à cinq et dix ans. Le stress combiné annule le gain de drawdown récent. Aucune adoption. [Détails et contre-exemples](sp500-objectif-indice.md).
+
+## Régression v6 et compromis rendement, drawdown et volatilité — 19 novembre 2026
+
+Aucune des 1 200 combinaisons de régression ni des 162 règles de dimensionnement par volatilité ne domine la v6 sur les trois critères à trois, cinq et dix ans. Les compromis défensif et rendement sont comparés sur 240 parcours synthétiques communs et 24 fenêtres historiques. Une réserve de cash initiale de 10 à 30 % est également chiffrée. Étude sans adoption. [Résultats et contre-exemples](sp500-v6-compromis.md).
 
 ## Adoption de la régression orientée Sharpe v6 — 15 novembre 2026
 

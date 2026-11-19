@@ -180,3 +180,27 @@ def test_disconnected_batch_stops_without_starting_another_path(monkeypatch):
     snapshots = asyncio.run(collect())
     assert [s["completed"] for s in snapshots] == [0, 1]
     assert calls == [44]
+
+
+def test_downside_single_matches_history_on_identical_simulated_prices():
+    from investor.portfolio import psp5_downside
+    from investor.portfolio import sp500_simulation as simulation
+
+    rows = historical_rows()
+    request = simulation.Sp500SimulationRequest(strategy="downside", years=1, seed=19)
+    source = simulation.prepare_history(rows, 1, downside=True)
+    single = simulation.simulate_history(rows, request)
+    increments = simulation.sampled_returns(
+        source["returns"], len(source["synthetic_days"]), 19
+    )
+    prices = np.r_[source["prices"], source["anchor"] * np.exp(np.cumsum(increments))]
+    days = [date.fromisoformat(d) for d in source["days"] + source["synthetic_days"]]
+    expected = psp5_downside.compare(days, prices, len(rows) - 1)
+    result = single["comparison"]
+    assert result["metrics"]["strategy"]["cagr"] == pytest.approx(expected["cagr"])
+    assert result["metrics"]["strategy"]["max_drawdown"] == pytest.approx(
+        expected["drawdown"]
+    )
+    assert result["metrics"]["benchmark"]["cagr"] == pytest.approx(
+        expected["passive_cagr"]
+    )

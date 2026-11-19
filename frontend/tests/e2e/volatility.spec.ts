@@ -74,13 +74,17 @@ function model(rates = false, portfolio = false): RiskResult {
       : [],
   };
 }
-async function assertCleanChart(page: Page, count: number) {
+async function assertCleanChart(page: Page, count: number, portfolio = false) {
   await expect(
     page.getByRole("img", { name: /Frontière de Markowitz/ }),
   ).toBeVisible();
   await expect(page.locator(".risk-marker")).toHaveCount(count);
-  await expect(page.locator(".risk-map svg circle")).toHaveCount(count - 1);
-  await expect(page.locator(".risk-table tbody tr")).toHaveCount(count);
+  await expect(page.locator(".risk-marker circle")).toHaveCount(
+    portfolio ? 0 : count - 1,
+  );
+  await expect(page.locator(".risk-table tbody tr")).toHaveCount(
+    portfolio ? 3 : count,
+  );
   await expect(page.locator(".risk-table")).toBeHidden();
   await expect(page.locator(".risk-benchmark-star")).toHaveCount(1);
   await expect(page.locator(".vol-panel .vol-heading")).toHaveCount(0);
@@ -92,7 +96,7 @@ async function assertCleanChart(page: Page, count: number) {
   ).toBeVisible();
 
   await expect(
-    page.locator(".risk-map-legend, .risk-point-label, .risk-marker line"),
+    page.locator(".risk-point-label, .risk-marker line"),
   ).toHaveCount(0);
   await expect(page.getByText("Stockage local")).toHaveCount(0);
   await expect(page.locator(".risk-table")).toContainText("S&P 500 PEA · PSP5");
@@ -152,7 +156,7 @@ for (const id of ["yf-test", "yf-btc-usd", "wb-gold", "bond-fr"]) {
   });
 }
 
-test("portfolio always includes all holdings, with one point per asset plus benchmark", async ({
+test("portfolio shows two stars and feasible allocations, and keeps the selected period", async ({
   page,
 }, testInfo) => {
   await mockApi(page);
@@ -178,6 +182,18 @@ test("portfolio always includes all holdings, with one point per asset plus benc
     return r.fulfill({
       json: {
         ...model(false, true),
+        portfolio_point: {
+          id: "current-portfolio",
+          name: "Portefeuille actuel",
+          kind: "portfolio",
+          return: 25,
+          volatility: 29,
+          sharpe: 0.86,
+        },
+        cloud: [
+          { return: 20, volatility: 25, sharpe: 0.8 },
+          { return: 23, volatility: 27, sharpe: 0.85 },
+        ],
         excluded: [
           {
             id: "bond-fr",
@@ -192,7 +208,16 @@ test("portfolio always includes all holdings, with one point per asset plus benc
   await page
     .getByRole("tab", { name: "Frontières d’efficience", exact: true })
     .click();
-  await assertCleanChart(page, 3);
+  await assertCleanChart(page, 2, true);
+  const star = page.locator(".risk-portfolio-star");
+  await expect(star).toBeVisible();
+  expect(await star.getAttribute("fill")).not.toBe(
+    await page.locator(".risk-benchmark-star").getAttribute("fill"),
+  );
+  await expect(page.locator(".risk-allocation-cloud circle")).toHaveCount(2);
+  await expect(page.locator(".risk-map-legend")).toContainText(
+    "2 allocations · Sharpe",
+  );
   await expect(
     page.locator(".vol-portfolio > .portfolio-section-heading h2"),
   ).toHaveCount(0);
@@ -205,7 +230,26 @@ test("portfolio always includes all holdings, with one point per asset plus benc
   await page
     .locator(".vol-panel")
     .screenshot({ path: testInfo.outputPath("markowitz-portfolio.png") });
+  let finishRefresh = () => {};
+  const refresh = new Promise<void>((resolve) => {
+    finishRefresh = resolve;
+  });
+  await page.route(
+    "**/api/portfolio/volatility",
+    async (route) => {
+      await refresh;
+      await route.fallback();
+    },
+    { times: 1 },
+  );
   await page.getByRole("button", { name: "1A", exact: true }).click();
+  try {
+    await expect(page.getByText("Mise à jour du graphique…")).toBeVisible();
+    await expect(star).toBeVisible();
+    await expect(page.locator(".risk-allocation-cloud circle")).toHaveCount(2);
+  } finally {
+    finishRefresh();
+  }
   await expect.poll(() => bodies.at(-1)?.years).toBe(1);
   expect(bodies.at(-1)?.holdings).toEqual(
     Object.entries(quantities).map(([asset_id, quantity]) => ({
@@ -220,7 +264,16 @@ test("portfolio always includes all holdings, with one point per asset plus benc
       )) ?? "{}",
     ),
   ).toEqual(quantities);
-  await assertCleanChart(page, 3);
+  await assertCleanChart(page, 2, true);
+  await page.getByRole("tab", { name: "Positions", exact: true }).click();
+  await page
+    .getByRole("tab", { name: "Frontières d’efficience", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "1A", exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await assertCleanChart(page, 2, true);
+  expect(bodies.at(-1)?.years).toBe(1);
 });
 
 test("pending references, retry and insufficient sample", async ({ page }) => {

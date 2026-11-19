@@ -26,6 +26,15 @@ class PortfolioRequest(BaseModel):
     currency: Literal["EUR"] = "EUR"
 
 
+def _latest_fx(connection, currency, price_date):
+    return connection.execute(
+        "SELECT date,value FROM reference_observations "
+        "WHERE symbol=? AND date<=? AND date>=date(?,'-7 days') "
+        "AND value>0 ORDER BY date DESC LIMIT 1",
+        (f"{currency}USD=X", price_date, price_date),
+    ).fetchone()
+
+
 def portfolio(request: PortfolioRequest):
     if len({h.asset_id for h in request.holdings}) != len(request.holdings):
         raise HTTPException(422, "Un actif ne peut figurer qu’une fois.")
@@ -134,10 +143,7 @@ def portfolio(request: PortfolioRequest):
                 continue
             rate = 1.0
             if currency != "USD":
-                fx_row = connection.execute(
-                    "SELECT value FROM reference_observations WHERE symbol=? AND date=?",
-                    (f"{currency}USD=X", row["date"]),
-                ).fetchone()
+                fx_row = _latest_fx(connection, currency, row["date"])
                 if (
                     fx_row is None
                     or not math.isfinite(fx_row["value"])
@@ -147,7 +153,7 @@ def portfolio(request: PortfolioRequest):
                         {
                             "id": asset["id"],
                             "name": asset["name"],
-                            "reason": "Change absent à la date du dernier prix.",
+                            "reason": "Change indisponible dans les sept jours précédant le dernier prix.",
                         }
                     )
                     continue
@@ -162,12 +168,11 @@ def portfolio(request: PortfolioRequest):
             exchange_rate, fx_date = 1.0, None
             if request.currency != "USD":
                 # FX markets close on weekends; use a known rate, never a future one.
-                fx_row = connection.execute(
-                    "SELECT date,value FROM reference_observations "
-                    "WHERE symbol=? AND date<=? AND date>=date(?,'-7 days') "
-                    "AND value>0 ORDER BY date DESC LIMIT 1",
-                    (f"{request.currency}USD=X", row["date"], row["date"]),
-                ).fetchone()
+                fx_row = (
+                    fx_row
+                    if currency == request.currency
+                    else _latest_fx(connection, request.currency, row["date"])
+                )
                 if fx_row is None or not math.isfinite(fx_row["value"]):
                     excluded.append(
                         {

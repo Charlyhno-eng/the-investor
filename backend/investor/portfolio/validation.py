@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from investor.assets.momentum import months_before
 from investor.db import connect
-from investor.portfolio import etf_switch
+from investor.portfolio import etf_switch, psp5_agreement
 from investor.portfolio.performance import optimize_weights
 from investor.portfolio.research import residual_diagnostics, shrunk_covariance
 from investor.portfolio.reversion import regression_z, reversion_exits, reversion_orders
@@ -25,7 +25,12 @@ from investor.portfolio.volatility import load_histories, observations
 class ValidationRequest(BaseModel):
     asset_ids: list[str] = Field(min_length=1, max_length=20)
     mode: Literal[
-        "volatility", "mean_reversion", "correlation", "risk_parity", "etf_switch"
+        "volatility",
+        "mean_reversion",
+        "correlation",
+        "risk_parity",
+        "etf_switch",
+        "psp5_downside",
     ] = "volatility"
     years: Literal[1, 3, 5, 10] = 5
     fee_rate: float = Field(default=0.005, ge=0, le=0.1, allow_inf_nan=False)
@@ -54,7 +59,7 @@ class ValidationRequest(BaseModel):
     def chronological_dates(self):
         if self.start_date and self.end_date and self.start_date >= self.end_date:
             raise ValueError("La date de début doit précéder la date de fin.")
-        if self.mode == "etf_switch":
+        if self.mode in ("etf_switch", "psp5_downside"):
             if "fee_rate" not in self.model_fields_set:
                 self.fee_rate = 0.0012
             if self.asset_ids != ["yf-psp5.pa"]:
@@ -118,6 +123,7 @@ def validation_data(
     request = request.model_copy(
         update={"fee_rate": request.fee_rate + request.spread_bps / 20000}
     )
+    downside = request.mode == "psp5_downside"
     assets = [dict(a) for a in assets]
     if not benchmark:
         return {
@@ -171,12 +177,17 @@ def validation_data(
     earliest = months_before(dates[0], -training_months)
     requested = request.start_date or months_before(dates[-1], request.years * 12)
     first = bisect_left(dates, max(earliest, requested))
+    if downside:
+        first = max(psp5_agreement.WINDOW, bisect_left(dates, requested))
+        training_duration = "32 variations quotidiennes"
     if first + 2 >= len(days):
         return {
             "status": "insufficient",
             "message": f"Il faut {training_duration} d’apprentissage puis une période de validation pour au moins un actif.",
         }
     used_start = months_before(dates[first], training_months).isoformat()
+    if downside:
+        used_start = days[first - psp5_agreement.WINDOW]
     for a, h in zip(
         [*assets, {"frequency": "daily"}], [*histories, benchmark], strict=True
     ):
@@ -226,8 +237,12 @@ def validation_data(
             for a in assets
         ]
     )
-    matured = maturities(
-        histories, days, months=training_months, min_observations=min_observations
+    matured = (
+        (np.arange(len(days))[:, None] >= psp5_agreement.WINDOW)
+        if downside
+        else maturities(
+            histories, days, months=training_months, min_observations=min_observations
+        )
     )
     scale = request.initial_capital / 100
     instruments = [
@@ -300,9 +315,11 @@ def validation_data(
     passive_entered = np.zeros(count, dtype=bool)
     buy_hold_entered = np.zeros(count, dtype=bool)
     # Independent initial budgets drift without transfers or weight resets.
-    etf_values = np.zeros(len(etf_switch.SLEEVE_NAMES))
-    etf_cash = 100 * np.array(etf_switch.INITIAL_SHARES)
-    etf_risk_on = [False] * len(etf_switch.SLEEVE_NAMES)
+    agreement = psp5_agreement.targets(days, signal_prices[:, 0]) if downside else None
+    sleeve_names = ("downside",) if downside else etf_switch.SLEEVE_NAMES
+    etf_values = np.zeros(len(sleeve_names))
+    etf_cash = 100 * np.array([1.0] if downside else etf_switch.INITIAL_SHARES)
+    etf_risk_on = [False] * len(sleeve_names)
     if request.mode == "etf_switch":
         etf_risk_on[0] = etf_switch.initial_slow_state(
             dates,
@@ -315,7 +332,7 @@ def validation_data(
                 min_observations=etf_switch.SLOW_MIN_OBSERVATIONS,
             )[0],
         )
-    etf_last_target = [None] * len(etf_switch.SLEEVE_NAMES)
+    etf_last_target = [None] * len(sleeve_names)
 
     def record_trades(
         before, after, execution, signal, scores=None, reasons=None, sleeve=None
@@ -459,7 +476,9 @@ def validation_data(
             finish(days[i], True)  # End the preceding holding period BEFORE trading.
             signal = events[i]
             lower = bisect_left(dates, months_before(dates[signal], training_months))
-            if (
+            if downside:
+                lower = signal - psp5_agreement.WINDOW
+            elif (
                 signal - lower < min_observations - 1
                 or (dates[lower] - months_before(dates[signal], training_months)).days
                 > 7
@@ -474,7 +493,7 @@ def validation_data(
                 eligible = tradable[signal] & tradable[i] & matured[signal, 0]
             try:
                 target = np.zeros(count)
-                if request.mode in ("mean_reversion", "etf_switch"):
+                if request.mode in ("mean_reversion", "etf_switch", "psp5_downside"):
                     target = signal_values / signal_total
                 elif np.any(eligible):
                     subset = current[eligible]
@@ -540,6 +559,7 @@ def validation_data(
                 if key == "strategy" and request.mode in (
                     "mean_reversion",
                     "etf_switch",
+                    "psp5_downside",
                 ):
                     active["costs"][key] = active["turnover"][key] = 0.0
                     continue
@@ -732,7 +752,9 @@ def validation_data(
             if active is not None:
                 active["costs"]["strategy"] += cost
                 active["turnover"]["strategy"] += turn
-        if request.mode == "etf_switch" and i > first:
+        if (downside or request.mode == "etf_switch") and i > first:
+            if downside:
+                prior_weight = etf_values[0] / (etf_values[0] + etf_cash[0])
             # Mirror the consolidated book's prices and cash distributions.
             etf_cash += etf_values * distributions[i, 0] / execution_prices[i - 1, 0]
             etf_values *= raw_growth[0] if whole[0] else growth[0]
@@ -741,16 +763,25 @@ def validation_data(
                 days[signal][:7] != days[signal - 1][:7],
                 (signal - first) % etf_switch.DECISION_SESSIONS == 0,
             )
+            if downside:
+                scheduled = (True,)
             plans = []
             if np.all(tradable[signal] & tradable[i]):
-                for sleeve in range(len(etf_switch.SLEEVE_NAMES)):
+                for sleeve in range(len(sleeve_names)):
                     if not matured[signal, 0]:
                         continue
                     if not scheduled[sleeve] and etf_last_target[sleeve] is not None:
                         continue
                     score = None
                     desired = etf_risk_on[sleeve]
-                    if scheduled[sleeve]:
+                    if downside:
+                        weight = agreement[signal]
+                        if (
+                            etf_last_target[sleeve] is not None
+                            and abs(weight - prior_weight) < psp5_agreement.BAND
+                        ):
+                            continue
+                    elif scheduled[sleeve]:
                         kwargs = {
                             "months": etf_switch.SLOW_REGRESSION_MONTHS
                             if sleeve == 0
@@ -773,10 +804,11 @@ def validation_data(
                             desired = etf_switch.defensive_target(
                                 score, previous_score, desired
                             )
-                    weight = 1.0 if desired else etf_switch.DEFENSIVE_WEIGHT
-                    etf_risk_on[sleeve] = desired
-                    if etf_last_target[sleeve] == weight:
-                        continue
+                    if not downside:
+                        weight = 1.0 if desired else etf_switch.DEFENSIVE_WEIGHT
+                        etf_risk_on[sleeve] = desired
+                        if etf_last_target[sleeve] == weight:
+                            continue
                     old = float(etf_values[sleeve])
                     capital = float(old + etf_cash[sleeve])
                     values, _, _, _ = rebalance(
@@ -802,7 +834,7 @@ def validation_data(
                 for delta, sleeve, value, remaining, cost, score in sorted(plans):
                     before, cash = books["strategy"]
                     after = before + delta
-                    name = etf_switch.SLEEVE_NAMES[sleeve]
+                    name = sleeve_names[sleeve]
                     reason = (
                         (
                             "etf_slow_entry_sp500"
@@ -816,6 +848,8 @@ def validation_data(
                             else "etf_defensive_sp500"
                         )
                     )
+                    if downside:
+                        reason = "agreement_rebalance"
                     record_trades(
                         before, after, i, signal, [score], [reason], sleeve=name
                     )
@@ -899,9 +933,9 @@ def validation_data(
         "start": days[first],
         "end": days[-1],
         "requested_start": requested.isoformat(),
-        "training_years": training_months / 12,
+        "training_years": None if downside else training_months / 12,
         "holding_months": None
-        if request.mode in ("mean_reversion", "etf_switch")
+        if request.mode in ("mean_reversion", "etf_switch", "psp5_downside")
         else 3,
         "reporting_months": 3,
         "fee_rate": commission_rate,
@@ -920,7 +954,9 @@ def validation_data(
             if request.mode == "etf_switch"
             else None,
             "signal_frequency": (
-                "monthly_and_every_5_sessions"
+                "daily"
+                if downside
+                else "monthly_and_every_5_sessions"
                 if request.mode == "etf_switch"
                 else "daily"
                 if request.mode == "mean_reversion"

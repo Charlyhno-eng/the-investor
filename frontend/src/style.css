@@ -2197,6 +2197,7 @@ td {
   display: block;
   width: 100%;
   overflow: visible;
+  min-width: 0;
 }
 .risk-asset-name i {
   width: 8px;
@@ -2206,11 +2207,11 @@ td {
   flex-shrink: 0;
 }
 .risk-grid line {
-  stroke: #ffffff0c;
+  stroke: #96a8cc22;
 }
 .risk-grid text {
-  fill: #8c98aa;
-  font-size: 10px;
+  fill: #a6b3c9;
+  font-size: 11px;
 }
 .risk-axis-title {
   fill: #adb8ca;
@@ -2277,18 +2278,95 @@ td {
 .vol-portfolio {
   padding: 0;
 }
-.vol-chart-heading .fine-print {
-  margin: 0;
+.vol-chart-period {
+  color: #a6b3c9;
+  font-size: 11px;
+  line-height: 1.5;
 }
-.risk-map {
+.risk-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.risk-summary-item {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 200px;
+  min-width: 0;
+  gap: 4px;
+  padding: 9px 12px;
+  border: 1px solid #a6b3c926;
+  border-radius: 6px;
+  background: #171e29;
+  color: #b7c2d4;
+  font-size: 11px;
+}
+.risk-summary-item strong {
+  color: #edf2fc;
+  font-size: 12px;
+  font-weight: 600;
+}
+.risk-plot {
   position: relative;
+}
+.risk-plot-frame {
+  fill: #121923;
+  stroke: #a6b3c928;
+}
+.risk-allocation-cloud circle {
+  stroke: #121923;
+  stroke-width: 0;
+  cursor: crosshair;
+}
+.risk-allocation-cloud circle:hover {
+  stroke: #fff;
+  stroke-width: 1.25;
+}
+.risk-frontier,
+.risk-lower-frontier {
+  pointer-events: none;
+}
+.risk-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  color: #bac5d7;
+  font-size: 11px;
+}
+.risk-map-legend > span,
+.risk-sharpe-key > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.risk-legend-line {
+  width: 18px;
+  border-top: 2px solid #e6eaf7;
+}
+.risk-legend-line.dashed {
+  border-top-style: dashed;
+  opacity: 0.65;
+}
+.risk-sharpe-key > span > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.risk-sharpe-key > .risk-sharpe-mobile > i {
+  width: 72px;
+  border-radius: 3px;
+}
+.risk-colorbar text {
+  fill: #a6b3c9;
+  font-size: 11px;
 }
 .risk-marker {
   cursor: pointer;
   outline: none;
 }
 .risk-marker:focus-visible circle,
-.risk-marker:focus-visible .risk-benchmark-star {
+.risk-marker:focus-visible .risk-star {
   stroke: #fff;
   stroke-width: 2;
 }
@@ -2914,6 +2992,7 @@ td {
     gap: 8px;
   }
   .strategy-list {
+    overflow-y: auto;
     margin-top: 8px;
   }
 }

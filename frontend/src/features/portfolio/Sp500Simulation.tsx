@@ -5,9 +5,17 @@ import { ValidationMetrics, type Ready } from "./ValidationPanel";
 
 import { Sp500BatchTable, type BatchResult } from "./Sp500BatchTable";
 
-const curves = [
+const regressionCurves = [
   { key: "benchmark", title: "S&P 500 · Buy & Hold", color: "#739de8" },
   { key: "strategy", title: "S&P 500 · Régression", color: "#d5aa73" },
+] as const;
+
+const downsideCurves = [
+  regressionCurves[0],
+  {
+    ...regressionCurves[1],
+    title: "S&P 500 · Filtre de baisses + cinq modèles",
+  },
 ] as const;
 
 type Comparison = Omit<Ready, "metrics" | "equity"> & {
@@ -26,11 +34,12 @@ type Result =
     }
   | { status: "insufficient"; message: string };
 
-export function Sp500Simulation() {
+export function Sp500Simulation({ downside = false }: { downside?: boolean }) {
+  const curves = downside ? downsideCurves : regressionCurves;
   const [years, setYears] = useState("5");
   const [capital, setCapital] = useState("10000");
   const [fee, setFee] = useState("0.12");
-  const [mode, setMode] = useState("single");
+  const [mode, setMode] = useState(downside ? "batch" : "single");
   const [count, setCount] = useState("1000");
   const [batch, setBatch] = useState<BatchResult | null>(null);
   const [wholeShares, setWholeShares] = useState(true);
@@ -54,7 +63,7 @@ export function Sp500Simulation() {
             })),
           }))
         : [],
-    [ready],
+    [ready, curves],
   );
   async function generate() {
     controller.current?.abort();
@@ -72,6 +81,7 @@ export function Sp500Simulation() {
           {
             years: Number(years),
             initial_capital: Number(capital),
+            ...(downside ? { strategy: "downside" } : {}),
             fee_rate: Number(fee) / 100,
             whole_shares: wholeShares,
             count: Number(count),
@@ -93,6 +103,7 @@ export function Sp500Simulation() {
         {
           years: Number(years),
           initial_capital: Number(capital),
+          ...(downside ? { strategy: "downside" } : {}),
           fee_rate: Number(fee) / 100,
           whole_shares: wholeShares,
         },
@@ -120,7 +131,7 @@ export function Sp500Simulation() {
     >
       <div className="portfolio-section-heading">
         <div>
-          <h1>S&P 500 · Régression</h1>
+          <h1>{curves[1].title}</h1>
           <p>
             Des parcours fictifs tirés de séquences historiques du S&P 500 PEA
             en euros, avec une légère variation aléatoire. La stratégie actuelle
@@ -242,7 +253,15 @@ export function Sp500Simulation() {
           </button>
         )}
       </form>
-      {batch && <Sp500BatchTable result={batch} running={loading} />}
+      {batch && (
+        <Sp500BatchTable
+          result={batch}
+          running={loading}
+          strategyName={
+            downside ? "Filtre de baisses + cinq modèles" : "Régression"
+          }
+        />
+      )}
       {loading && !batch && (
         <p role="status">
           Génération du parcours et calcul des deux portefeuilles…

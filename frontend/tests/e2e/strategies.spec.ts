@@ -137,7 +137,7 @@ test("independent strategies persist, switch, remove assets and delete", async (
     }),
   ).toBeVisible();
   await page.reload();
-  await expect(page.locator(".strategy-list button")).toHaveCount(1);
+  await expect(page.locator(".strategy-list button")).toHaveCount(2);
   await expect(
     page.getByRole("button", { name: "Supprimer la stratégie", exact: true }),
   ).toHaveCount(0);
@@ -316,7 +316,9 @@ test("built-in S&P strategy stays distinct and personal strategy tabs have uniqu
     .locator("button svg")
     .evaluateAll((elements) => elements.map((element) => element.innerHTML));
   expect(new Set(icons).size).toBe(icons.length);
-  const builtIn = page.locator(".strategy-list .strategy-built-in");
+  const builtIn = page
+    .locator(".strategy-list .strategy-built-in")
+    .filter({ hasText: "Régression" });
   await expect(
     page.getByText("Incluse dans l’application", { exact: true }),
   ).toHaveCount(0);
@@ -352,7 +354,7 @@ test("built-in S&P strategy stays distinct and personal strategy tabs have uniqu
   ).toHaveCount(0);
   await page.reload();
   await expect(builtIn).toBeVisible();
-  await expect(page.locator(".strategy-list button")).toHaveCount(2);
+  await expect(page.locator(".strategy-list button")).toHaveCount(3);
   await page
     .locator(".strategy-list")
     .getByRole("button", { name: /Stratégie 1/ })

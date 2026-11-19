@@ -8,43 +8,54 @@ import type { RiskResult } from "./types";
 
 type Holding = { asset_id: string; quantity: number };
 type Props =
-  | { asset: Asset; holdings?: never; assets?: never; lockedAssetIds?: never }
+  | {
+      asset: Asset;
+      holdings?: never;
+      assets?: never;
+      lockedAssetIds?: never;
+      years?: never;
+      onYearsChange?: never;
+    }
   | {
       asset?: never;
       holdings: Holding[];
       assets: Asset[];
       lockedAssetIds?: string[];
+      years: number;
+      onYearsChange: (years: number) => void;
     };
 export function VolatilityPanel({
   asset,
   assets,
   holdings,
   lockedAssetIds,
+  years: portfolioYears,
+  onYearsChange,
 }: Props) {
-  const [years, setYears] = useState(3);
+  const [assetYears, setAssetYears] = useState(3);
+  const years = portfolioYears ?? assetYears;
+  const setYears = onYearsChange ?? setAssetYears;
   const [result, setResult] = useState<RiskResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
   const selected = JSON.stringify(holdings ?? []);
-  const locks = JSON.stringify(lockedAssetIds ?? []);
+  const heldIds = new Set(holdings?.map((holding) => holding.asset_id));
+  const locks = JSON.stringify(
+    lockedAssetIds?.filter((id) => heldIds.has(id)) ?? [],
+  );
   const dataRevision = JSON.stringify(
-    (asset ? [asset] : (assets ?? [])).map((a) => [
-      a.data_revision,
-      a.last_date,
-      a.last_value,
-      a.points,
-    ]),
+    (asset
+      ? [asset]
+      : (assets ?? []).filter((a) => heldIds.has(a.id) || a.id === "yf-psp5.pa")
+    ).map((a) => [a.id, a.data_revision, a.last_date, a.last_value, a.points]),
   );
   const assetId = asset?.id;
-  const lastDate = asset?.last_date;
-  const lastValue = asset?.last_value;
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let attempts = 0;
     setLoading(true);
-    setResult(null);
     setError("");
     async function load() {
       try {
@@ -58,11 +69,7 @@ export function VolatilityPanel({
               {
                 holdings: JSON.parse(selected),
                 years,
-                locked_asset_ids: JSON.parse(locks).filter((id: string) =>
-                  JSON.parse(selected).some(
-                    (h: { asset_id: string }) => h.asset_id === id,
-                  ),
-                ),
+                locked_asset_ids: JSON.parse(locks),
               },
               controller.signal,
             );
@@ -89,16 +96,7 @@ export function VolatilityPanel({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [
-    dataRevision,
-    assetId,
-    lastDate,
-    lastValue,
-    selected,
-    locks,
-    years,
-    revision,
-  ]);
+  }, [dataRevision, assetId, selected, locks, years, revision]);
   const ready = result?.status === "ready";
   const portfolio = !!holdings;
   return (
@@ -113,23 +111,31 @@ export function VolatilityPanel({
       <section className="vol-chart-card">
         <div className="vol-chart-heading">
           <div className="vol-chart-context">
-            {!portfolio && <h3>{asset?.name} face au marché</h3>}
+            <h3>
+              {portfolio
+                ? "Frontière d’efficience"
+                : `${asset?.name} face au marché`}
+            </h3>
+            <Tooltip label="Comprendre le graphique">
+              {portfolio
+                ? "L’étoile bleue représente le S&P 500 PEA PSP5 et l’étoile orange le portefeuille à ses poids actuels. Les points colorés représentent des allocations possibles des actifs détenus, avec les poids verrouillés conservés. La courbe peut évoluer avec la période, les historiques, les actifs détenus et les poids verrouillés."
+                : "Un point représente l’actif et l’étoile bleue le S&P 500 PEA PSP5. La courbe combine les deux."}{" "}
+              Les mesures utilisent les mêmes dates et sont calculées en euros.
+              La courbe minimise la variance pour chaque rendement cible, sans
+              vente à découvert. La branche efficiente est en trait plein et la
+              branche inférieure est en pointillés.
+            </Tooltip>
             {ready && (
-              <span className="fine-print">
-                {date(result.start)} — {date(result.end)} · EUR
+              <span className="vol-chart-period">
+                {loading ? (
+                  <span role="status">Mise à jour du graphique…</span>
+                ) : (
+                  <>
+                    {date(result.start)} — {date(result.end)} · EUR
+                  </>
+                )}
               </span>
             )}
-            <Tooltip label="Comprendre le graphique">
-              Un point par actif, et l’ETF S&P 500 PEA PSP5 en étoile bleue, sur
-              les mêmes dates et en euros. La courbe minimise la variance pour
-              chaque rendement cible, sans vente à découvert.
-              {portfolio
-                ? " Elle utilise uniquement les actifs du portefeuille ; l’ETF PSP5 sert de référence commune."
-                : " Sur cette fiche, elle combine l’actif et l’ETF PSP5."}
-              La branche efficiente est en trait plein ; la branche inférieure
-              est en pointillés. Les rendements moyens historiques servent
-              d’estimation des rendements attendus.
-            </Tooltip>
           </div>
           <div className="range-buttons" aria-label="Période de comparaison">
             {[1, 3, 5, 10].map((y) => (
@@ -143,7 +149,7 @@ export function VolatilityPanel({
             ))}
           </div>
         </div>
-        {loading && (
+        {loading && !ready && (
           <div className="chart-placeholder" role="status">
             <span className="spinner" />
             {portfolio
@@ -162,18 +168,13 @@ export function VolatilityPanel({
             </button>
           </p>
         )}
-        {result?.status === "insufficient" && (
+        {!loading && result?.status === "insufficient" && (
           <div className="portfolio-empty" role="status">
             {result.message}
           </div>
         )}
 
-        {ready && (
-          <RiskReturnChart
-            key={`${selected}-${years}-${result.end}`}
-            result={result}
-          />
-        )}
+        {ready && <RiskReturnChart result={result} portfolio={portfolio} />}
       </section>
       {!!result?.excluded?.length && (
         <div className="vol-exclusions" role="note">

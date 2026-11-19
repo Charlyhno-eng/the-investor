@@ -4,7 +4,13 @@ import type { Asset } from "../../lib/types";
 import { Sp500Simulation } from "./Sp500Simulation";
 import { ValidationPanel } from "./ValidationPanel";
 
-export function Sp500Workspace({ assets }: { assets: Asset[] }) {
+export function Sp500Workspace({
+  assets,
+  downside = false,
+}: {
+  assets: Asset[];
+  downside?: boolean;
+}) {
   const [tab, setTab] = useState("history");
   const sp500 = assets.filter((a) => a.id === "yf-psp5.pa");
   const revision = JSON.stringify(
@@ -52,7 +58,7 @@ export function Sp500Workspace({ assets }: { assets: Asset[] }) {
       >
         <ValidationPanel
           prominentHeading
-          mode="etf_switch"
+          mode={downside ? "psp5_downside" : "etf_switch"}
           holdings={JSON.stringify(
             sp500.map((a) => ({ asset_id: a.id, quantity: 1 })),
           )}
@@ -65,7 +71,7 @@ export function Sp500Workspace({ assets }: { assets: Asset[] }) {
         aria-labelledby="sp500-tab-random"
         hidden={tab !== "random"}
       >
-        <Sp500Simulation />
+        <Sp500Simulation downside={downside} />
       </div>
     </section>
   );

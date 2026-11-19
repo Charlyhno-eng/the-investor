@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 from investor.assets.momentum import months_before
 from investor.db import connect
-from investor.portfolio import etf_switch
+from investor.portfolio import etf_switch, psp5_agreement, psp5_downside
 from investor.portfolio.validation import ValidationRequest, validation_data
 
 BLOCK_SESSIONS = 63
@@ -17,6 +17,7 @@ NOISE_SCALE = 0.05
 
 
 class Sp500SimulationRequest(BaseModel):
+    strategy: Literal["regression", "downside"] = "regression"
     years: Literal[1, 3, 5, 10] = 5
     initial_capital: float = Field(default=10000, ge=1, le=1e12, allow_inf_nan=False)
     fee_rate: float = Field(default=0.0012, ge=0, le=0.1, allow_inf_nan=False)
@@ -56,9 +57,13 @@ def future_sessions(start, years):
     return days
 
 
-def prepare_history(rows, years):
+def prepare_history(rows, years, downside=False):
     """Validate one immutable source snapshot and prepare the shared calendar."""
-    if len(rows) < etf_switch.SLOW_MIN_OBSERVATIONS + 2:
+    if downside and len(rows) < psp5_agreement.WINDOW + 1:
+        return dict(
+            status="insufficient", message="33 clôtures de PSP5 sont nécessaires."
+        )
+    if not downside and len(rows) < etf_switch.SLOW_MIN_OBSERVATIONS + 2:
         return {
             "status": "insufficient",
             "message": "Importez au moins cinq ans de cours S&P 500 PEA (PSP5) pour simuler la stratégie complète.",
@@ -81,7 +86,7 @@ def prepare_history(rows, years):
             "status": "insufficient",
             "message": "Un trou de plus de dix jours existe dans l’historique PSP5. Actualisez ses données.",
         }
-    if date.fromisoformat(days[0]) > months_before(start, 60):
+    if not downside and date.fromisoformat(days[0]) > months_before(start, 60):
         return {
             "status": "insufficient",
             "message": "Cinq années calendaires d’historique PSP5 sont nécessaires.",
@@ -106,7 +111,7 @@ def prepare_history(rows, years):
 
 def simulate_history(rows, request):
     """Pure comparison using the unchanged production validation engine."""
-    prepared = prepare_history(rows, request.years)
+    prepared = prepare_history(rows, request.years, request.strategy == "downside")
     if prepared["status"] != "ready":
         return prepared
     days = prepared["days"]
@@ -114,6 +119,10 @@ def simulate_history(rows, request):
     start = prepared["start"]
     synthetic_days = prepared["synthetic_days"]
     seed = request.seed if request.seed is not None else secrets.randbits(32)
+    if request.strategy == "downside":
+        return psp5_downside.DownsideSimulation(prepared, request).path(
+            seed, equity=True
+        )
     increments = sampled_returns(prepared["returns"], len(synthetic_days), seed)
     values = anchor * np.exp(np.cumsum(increments))
     # Scale the historical adjusted series to the latest raw unit price. The
@@ -287,17 +296,32 @@ async def stream_sp500_batch(request, disconnected):
     rows = await asyncio.to_thread(load_simulation_history)
     seed = request.seed if request.seed is not None else secrets.randbits(32)
     summary = BatchSummary()
-    yield json.dumps(summary.snapshot(request.count, seed)) + "\n"
+    joint_wins = 0
+
+    def snapshot():
+        result = summary.snapshot(request.count, seed)
+        if request.strategy == "downside":
+            result["joint_wins"] = joint_wins
+        return json.dumps(result, allow_nan=False) + "\n"
+
+    yield snapshot()
     if await disconnected():
         return
-    source = await asyncio.to_thread(prepare_history, rows, request.years)
+    source = await asyncio.to_thread(
+        prepare_history, rows, request.years, request.strategy == "downside"
+    )
     if source["status"] != "ready":
         yield (
             json.dumps(dict(status="error", message=source["message"], completed=0))
             + "\n"
         )
         return
-    prepared = await asyncio.to_thread(PreparedBatch, source, request)
+    engine = (
+        psp5_downside.DownsideSimulation
+        if request.strategy == "downside"
+        else PreparedBatch
+    )
+    prepared = await asyncio.to_thread(engine, source, request)
     while summary.completed < request.count:
         if await disconnected():
             return
@@ -325,8 +349,15 @@ async def stream_sp500_batch(request, disconnected):
                     + "\n"
                 )
                 return
-            summary.add(result["comparison"])
-            yield (
-                json.dumps(summary.snapshot(request.count, seed), allow_nan=False)
-                + "\n"
-            )
+            comparison = result["comparison"]
+            summary.add(comparison)
+            if request.strategy == "downside":
+                passive = comparison["metrics"]["benchmark"]
+                strategy = comparison["metrics"]["strategy"]
+                joint_wins += int(
+                    all(
+                        strategy[k] > passive[k] + 1e-10
+                        for k in ("cagr", "max_drawdown")
+                    )
+                )
+            yield snapshot()

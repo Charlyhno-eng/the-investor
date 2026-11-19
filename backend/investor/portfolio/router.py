@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import StreamingResponse
 
+from investor.portfolio import psp5_downside
 from investor.portfolio.performance import PerformanceRequest, portfolio_performance
 from investor.portfolio.prediction import prediction_history
 from investor.portfolio.regression import RegressionRequest, regression_deviations
@@ -71,3 +72,8 @@ def optimize_portfolio(request: PerformanceRequest):
 @router.post("/portfolio/prediction")
 def get_portfolio_prediction(request: PortfolioRequest):
     return prediction_history(request)
+
+
+@router.get("/portfolio/psp5-downside")
+def psp5_downside_history():
+    return psp5_downside.history()

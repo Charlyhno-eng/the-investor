@@ -6,7 +6,7 @@ export type MapPoint = {
 type NamedPoint = MapPoint & {
   id: string;
   name: string;
-  kind: "asset" | "benchmark";
+  kind: "asset" | "benchmark" | "portfolio";
 };
 export type RiskResult = {
   status: "ready" | "pending" | "insufficient";
@@ -18,6 +18,8 @@ export type RiskResult = {
   start: string;
   end: string;
   points: NamedPoint[];
+  portfolio_point?: NamedPoint | null;
+  cloud?: MapPoint[];
   frontier: MapPoint[];
   lower_frontier: MapPoint[];
   frontier_assets: string[];

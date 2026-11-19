@@ -420,3 +420,41 @@ def test_warm_initial_allocation_has_no_prior_holdings_or_profits(
     assert result["metrics"]["strategy"]["cost_eur"] == pytest.approx(
         sum(t["fee"] for t in result["transactions"])
     )
+
+
+@pytest.mark.parametrize("whole", [False, True])
+def test_downside_history_matches_simulation_books(whole):
+    from investor.portfolio.psp5_agreement import WINDOW, books
+
+    days = sorted(sample()[2])[:160]
+    prices = 80 * np.exp(
+        np.cumsum(np.where(np.arange(len(days)) % 60 < 30, 0.012, -0.015))
+    )
+    history = dict(zip(days, prices, strict=True))
+    asset = dict(id="yf-psp5.pa", name="PSP5", category="etf")
+    request = ValidationRequest(
+        asset_ids=[asset["id"]],
+        mode="psp5_downside",
+        whole_shares=whole,
+        initial_capital=12345,
+        fee_rate=0.003,
+    )
+    report = validation_data(
+        [asset],
+        [history],
+        history,
+        request,
+        execution_histories=[history, history],
+        benchmark_asset=asset,
+    )
+    assert report["start"] == days[WINDOW]
+    expected, costs, _ = books(
+        days, prices, WINDOW, request.initial_capital, request.fee_rate, whole
+    )
+    for i, key in enumerate(("benchmark", "strategy")):
+        np.testing.assert_allclose(
+            [p[key] for p in report["equity"]],
+            expected[:, i] * 100 / request.initial_capital,
+        )
+        assert report["metrics"][key]["cost_eur"] == pytest.approx(costs[i])
+    assert {t["side"] for t in report["transactions"]} == {"buy", "sell"}
